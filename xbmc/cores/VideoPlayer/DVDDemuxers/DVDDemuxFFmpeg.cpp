@@ -906,12 +906,12 @@ double CDVDDemuxFFmpeg::ConvertTimestamp(int64_t pts, int den, int num)
   if (!menu && m_pFormatContext->start_time != (int64_t)AV_NOPTS_VALUE)
     starttime = (double)m_pFormatContext->start_time / AV_TIME_BASE;
 
-  if (m_checkTransportStream)
+  if (!m_streaminfo)
     starttime = m_startTime;
 
   if (!m_bSup)
   {
-    if (timestamp > starttime || m_checkTransportStream)
+    if (timestamp > starttime || !m_streaminfo)
       timestamp -= starttime;
     // allow for largest possible difference in pts and dts for a single packet
     else if (timestamp + 0.5f > starttime)
@@ -1167,7 +1167,7 @@ bool CDVDDemuxFFmpeg::SeekTime(double time, bool backwards, double *startpts)
   int64_t seek_pts = (int64_t)time * (AV_TIME_BASE / 1000);
   bool ismp3 = m_pFormatContext->iformat && (strcmp(m_pFormatContext->iformat->name, "mp3") == 0);
 
-  if (m_checkTransportStream)
+  if (!m_streaminfo)
   {
     XbmcThreads::EndTime timer(1000);
 
@@ -1203,7 +1203,7 @@ bool CDVDDemuxFFmpeg::SeekTime(double time, bool backwards, double *startpts)
     if (ret < 0)
     {
       int64_t starttime = m_pFormatContext->start_time;
-      if (m_checkTransportStream)
+      if (!m_streaminfo)
       {
         AVStream* st = m_pFormatContext->streams[m_seekStream];
         starttime =
