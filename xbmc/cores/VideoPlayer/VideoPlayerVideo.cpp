@@ -1030,6 +1030,7 @@ void CVideoPlayerVideo::CalcFrameRate()
   {
     m_fStableFrameRate += framerate; //store the calculated framerate
     m_iFrameRateCount++;
+    CLog::Log(LOGINFO,"%s DVD_TIME_BASE:%f frameduration:%f framerate:%f m_fFrameRate:%f m_fStableFrameRate:%f m_iFrameRateCount:%f", __FUNCTION__, DVD_TIME_BASE, frameduration, framerate, m_fFrameRate, m_fStableFrameRate, m_iFrameRateCount);
 
     //if we've measured m_iFrameRateLength seconds of framerates,
     if (m_iFrameRateCount >= MathUtils::round_int(framerate) * m_iFrameRateLength)
