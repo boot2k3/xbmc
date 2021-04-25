@@ -216,6 +216,13 @@ bool CDVDVideoCodecAmlogic::Open(CDVDStreamInfo &hints, CDVDCodecOptions &option
       if (!aml_support_vp9())
         goto FAIL;
       m_pFormatName = "am-vp9";
+      m_bitstream = new CBitstreamConverter();
+      m_bitstream->Open(m_hints.codec, (uint8_t*)m_hints.extradata, m_hints.extrasize, true);
+      // make sure we do not leak the existing m_hints.extradata
+      free(m_hints.extradata);
+      m_hints.extrasize = m_bitstream->GetExtraSize();
+      m_hints.extradata = malloc(m_hints.extrasize);
+      memcpy(m_hints.extradata, m_bitstream->GetExtraData(), m_hints.extrasize);
       break;
     case AV_CODEC_ID_HEVC:
       if (aml_support_hevc()) {
