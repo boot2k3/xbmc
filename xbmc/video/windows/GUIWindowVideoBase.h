@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "PlayListPlayer.h"
+#include "playlists/PlayListTypes.h"
 #include "video/VideoDatabase.h"
 #include "video/VideoThumbLoader.h"
 #include "windows/GUIMediaWindow.h"
@@ -33,11 +33,8 @@ public:
   bool OnMessage(CGUIMessage& message) override;
   bool OnAction(const CAction &action) override;
 
-  void PlayMovie(const CFileItem *item, const std::string &player = "");
-  static void GetResumeItemOffset(const CFileItem *item, int64_t& startoffset, int& partNumber);
-  static bool HasResumeItemOffset(const CFileItem *item);
+  void PlayMovie(const CFileItem* item, const std::string& player = "");
 
-  void AddToDatabase(int iItem);
   virtual void OnItemInfo(const CFileItem& fileItem, ADDON::ScraperPtr& scraper);
 
 
@@ -87,9 +84,9 @@ protected:
   void GetContextButtons(int itemNumber, CContextButtons &buttons) override;
   bool OnContextButton(int itemNumber, CONTEXT_BUTTON button) override;
   virtual void OnQueueItem(int iItem, bool first = false);
-  virtual void OnDeleteItem(CFileItemPtr pItem);
+  virtual void OnDeleteItem(const CFileItemPtr& pItem);
   void OnDeleteItem(int iItem) override;
-  virtual void DoSearch(const std::string& strSearch, CFileItemList& items) {};
+  virtual void DoSearch(const std::string& strSearch, CFileItemList& items) {}
   std::string GetStartFolder(const std::string &dir) override;
 
   bool OnClick(int iItem, const std::string &player = "") override;
@@ -104,19 +101,17 @@ protected:
    \param action the action to perform
    \return true if the action is performed, false otherwise
    */
-  bool OnFileAction(int item, int action, std::string player);
+  bool OnFileAction(int item, int action, const std::string& player);
 
   void OnRestartItem(int iItem, const std::string &player = "");
   bool OnResumeItem(int iItem, const std::string &player = "");
   void PlayItem(int iItem, const std::string &player = "");
   bool OnPlayMedia(int iItem, const std::string &player = "") override;
-  bool OnPlayAndQueueMedia(const CFileItemPtr &item, std::string player = "") override;
+  bool OnPlayAndQueueMedia(const CFileItemPtr& item, const std::string& player = "") override;
   using CGUIMediaWindow::LoadPlayList;
-  void LoadPlayList(const std::string& strPlayList, int iPlayList = PLAYLIST_VIDEO);
+  void LoadPlayList(const std::string& strPlayList, PLAYLIST::Id playlistId = PLAYLIST::TYPE_VIDEO);
 
   bool ShowIMDB(CFileItemPtr item, const ADDON::ScraperPtr& content, bool fromDB);
-
-  void AddItemToPlayList(const CFileItemPtr &pItem, CFileItemList &queuedItems);
 
   void OnSearch();
   void OnSearchItemFound(const CFileItem* pSelItem);

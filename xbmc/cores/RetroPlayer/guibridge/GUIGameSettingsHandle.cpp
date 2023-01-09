@@ -13,8 +13,8 @@
 using namespace KODI;
 using namespace RETRO;
 
-CGUIGameSettingsHandle::CGUIGameSettingsHandle(CGUIGameRenderManager &renderManager) :
-  m_renderManager(renderManager)
+CGUIGameSettingsHandle::CGUIGameSettingsHandle(CGUIGameRenderManager& renderManager)
+  : m_renderManager(renderManager)
 {
 }
 
@@ -26,4 +26,24 @@ CGUIGameSettingsHandle::~CGUIGameSettingsHandle()
 std::string CGUIGameSettingsHandle::GameClientID()
 {
   return m_renderManager.GameClientID();
+}
+
+std::string CGUIGameSettingsHandle::GetPlayingGame()
+{
+  return m_renderManager.GetPlayingGame();
+}
+
+std::string CGUIGameSettingsHandle::CreateSavestate(bool autosave)
+{
+  return m_renderManager.CreateSavestate(autosave);
+}
+
+bool CGUIGameSettingsHandle::LoadSavestate(const std::string& path)
+{
+  return m_renderManager.LoadSavestate(path);
+}
+
+void CGUIGameSettingsHandle::CloseOSD()
+{
+  m_renderManager.CloseOSD();
 }

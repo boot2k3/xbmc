@@ -13,8 +13,11 @@
 #include "cores/AudioEngine/Interfaces/AE.h"
 #include "cores/AudioEngine/Interfaces/AESink.h"
 #include "threads/Event.h"
+#include "threads/SystemClock.h"
 #include "threads/Thread.h"
 #include "utils/ActorProtocol.h"
+
+#include <utility>
 
 class CAEBitstreamPacker;
 
@@ -42,7 +45,10 @@ struct SinkReply
 class CSinkControlProtocol : public Protocol
 {
 public:
-  CSinkControlProtocol(std::string name, CEvent* inEvent, CEvent *outEvent) : Protocol(name, inEvent, outEvent) {};
+  CSinkControlProtocol(std::string name, CEvent* inEvent, CEvent* outEvent)
+    : Protocol(std::move(name), inEvent, outEvent)
+  {
+  }
   enum OutSignal
   {
     CONFIGURE,
@@ -66,7 +72,10 @@ public:
 class CSinkDataProtocol : public Protocol
 {
 public:
-  CSinkDataProtocol(std::string name, CEvent* inEvent, CEvent *outEvent) : Protocol(name, inEvent, outEvent) {};
+  CSinkDataProtocol(std::string name, CEvent* inEvent, CEvent* outEvent)
+    : Protocol(std::move(name), inEvent, outEvent)
+  {
+  }
   enum OutSignal
   {
     SAMPLE = 0,
@@ -90,7 +99,7 @@ public:
   AEDeviceType GetDeviceType(const std::string &device);
   bool HasPassthroughDevice();
   bool SupportsFormat(const std::string &device, AEAudioFormat &format);
-  bool DeviceExist(std::string driver, std::string device);
+  bool DeviceExist(std::string driver, const std::string& device);
   CSinkControlProtocol m_controlPort;
   CSinkDataProtocol m_dataPort;
 
@@ -98,7 +107,7 @@ protected:
   void Process() override;
   void StateMachine(int signal, Protocol *port, Message *msg);
   void PrintSinks(std::string& driver);
-  void GetDeviceFriendlyName(std::string &device);
+  void GetDeviceFriendlyName(const std::string& device);
   void OpenSink();
   void ReturnBuffers();
   void SetSilenceTimer();
@@ -113,13 +122,13 @@ protected:
   CEvent *m_inMsgEvent;
   int m_state;
   bool m_bStateMachineSelfTrigger;
-  int m_extTimeout;
-  int m_silenceTimeOut;
+  std::chrono::milliseconds m_extTimeout;
+  std::chrono::minutes m_silenceTimeOut{std::chrono::minutes::zero()};
   bool m_extError;
-  unsigned int m_extSilenceTimeout;
+  std::chrono::milliseconds m_extSilenceTimeout;
   bool m_extAppFocused;
   bool m_extStreaming;
-  XbmcThreads::EndTime m_extSilenceTimer;
+  XbmcThreads::EndTime<> m_extSilenceTimer;
 
   CSampleBuffer m_sampleOfSilence;
   enum
@@ -129,6 +138,8 @@ protected:
     NEED_BYTESWAP,
     SKIP_SWAP,
   } m_swapState;
+
+  std::vector<uint8_t> m_mergeBuffer;
 
   std::string m_deviceFriendlyName;
   std::string m_device;

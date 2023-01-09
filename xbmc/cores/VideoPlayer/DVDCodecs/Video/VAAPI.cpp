@@ -12,18 +12,20 @@
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDCodecUtils.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
-#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h"
+#include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "cores/VideoPlayer/Process/ProcessInfo.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "threads/SingleLock.h"
 #include "utils/MemUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+
+#include <array>
+#include <mutex>
 
 #include <drm_fourcc.h>
 #include <va/va_drm.h>
@@ -38,36 +40,41 @@ extern "C" {
 #include <libavfilter/buffersrc.h>
 }
 
+#include "system_egl.h"
+
+#include <EGL/eglext.h>
 #include <va/va_vpp.h>
 #include <xf86drm.h>
-
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 
 #if VA_CHECK_VERSION(1, 0, 0)
 # include <va/va_str.h>
 #endif
 
 using namespace VAAPI;
+using namespace std::chrono_literals;
+
 #define NUM_RENDER_PICS 7
 
-const std::string SETTING_VIDEOPLAYER_USEVAAPI = "videoplayer.usevaapi";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIHEVC = "videoplayer.usevaapihevc";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIMPEG2 = "videoplayer.usevaapimpeg2";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIMPEG4 = "videoplayer.usevaapimpeg4";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIVC1 = "videoplayer.usevaapivc1";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIVP8 = "videoplayer.usevaapivp8";
-const std::string SETTING_VIDEOPLAYER_USEVAAPIVP9 = "videoplayer.usevaapivp9";
-const std::string SETTING_VIDEOPLAYER_PREFERVAAPIRENDER = "videoplayer.prefervaapirender";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPI = "videoplayer.usevaapi";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIAV1 = "videoplayer.usevaapiav1";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIHEVC = "videoplayer.usevaapihevc";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIMPEG2 = "videoplayer.usevaapimpeg2";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIMPEG4 = "videoplayer.usevaapimpeg4";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIVC1 = "videoplayer.usevaapivc1";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIVP8 = "videoplayer.usevaapivp8";
+constexpr auto SETTING_VIDEOPLAYER_USEVAAPIVP9 = "videoplayer.usevaapivp9";
+constexpr auto SETTING_VIDEOPLAYER_PREFERVAAPIRENDER = "videoplayer.prefervaapirender";
 
 void VAAPI::VaErrorCallback(void *user_context, const char *message)
 {
-  CLog::Log(LOGERROR, "libva error: {}", message);
+  std::string str{message};
+  CLog::Log(LOGERROR, "libva error: {}", StringUtils::TrimRight(str));
 }
 
 void VAAPI::VaInfoCallback(void *user_context, const char *message)
 {
-  CLog::Log(LOGDEBUG, "libva info: {}", message);
+  std::string str{message};
+  CLog::Log(LOGDEBUG, "libva info: {}", StringUtils::TrimRight(str));
 }
 
 //-----------------------------------------------------------------------------
@@ -81,12 +88,11 @@ CVAAPIContext::CVAAPIContext()
   m_context = 0;
   m_refCount = 0;
   m_profiles = NULL;
-  m_display = NULL;
 }
 
 void CVAAPIContext::Release(CDecoder *decoder)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
 
   auto it = find(m_decoders.begin(), m_decoders.end(), decoder);
   if (it != m_decoders.end())
@@ -103,7 +109,7 @@ void CVAAPIContext::Release(CDecoder *decoder)
 
 void CVAAPIContext::Close()
 {
-  CLog::Log(LOGNOTICE, "VAAPI::Close - closing decoder context");
+  CLog::Log(LOGINFO, "VAAPI::Close - closing decoder context");
   if (m_renderNodeFD >= 0)
   {
     close(m_renderNodeFD);
@@ -114,7 +120,7 @@ void CVAAPIContext::Close()
 
 bool CVAAPIContext::EnsureContext(CVAAPIContext **ctx, CDecoder *decoder)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
 
   if (m_context)
   {
@@ -128,7 +134,7 @@ bool CVAAPIContext::EnsureContext(CVAAPIContext **ctx, CDecoder *decoder)
   m_context = new CVAAPIContext();
   *ctx = m_context;
   {
-    CSingleLock gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock<CCriticalSection> gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
     if (!m_context->CreateContext())
     {
       delete m_context;
@@ -155,7 +161,7 @@ void CVAAPIContext::SetValidDRMVaDisplayFromRenderNode()
   // 128 is the start of the NUM in renderD<NUM>
   for (int i = 128; i < (128 + 16); i++)
   {
-    snprintf(name, buf_size, "/dev/dri/renderD%u", i);
+    snprintf(name, buf_size, "/dev/dri/renderD%d", i);
 
     fd = open(name, O_RDWR);
 
@@ -213,8 +219,8 @@ bool CVAAPIContext::CreateContext()
     return false;
   }
 
-  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - initialize version %d.%d", major_version, minor_version);
-  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - driver in use: %s", vaQueryVendorString(m_display));
+  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - initialize version {}.{}", major_version, minor_version);
+  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - driver in use: {}", vaQueryVendorString(m_display));
 
   QueryCaps();
   if (!m_profileCount)
@@ -255,16 +261,16 @@ void CVAAPIContext::QueryCaps()
   for(int i = 0; i < m_profileCount; i++)
   {
 #if VA_CHECK_VERSION(1, 0, 0)
-    CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile %s", vaProfileStr(m_profiles[i]));
+    CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile {}", vaProfileStr(m_profiles[i]));
 #else
-    CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile %d", m_profiles[i]);
+    CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile {}", m_profiles[i]);
 #endif
   }
 }
 
 VAConfigAttrib CVAAPIContext::GetAttrib(VAProfile profile)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
 
   VAConfigAttrib attrib;
   attrib.type = VAConfigAttribRTFormat;
@@ -275,7 +281,7 @@ VAConfigAttrib CVAAPIContext::GetAttrib(VAProfile profile)
 
 bool CVAAPIContext::SupportsProfile(VAProfile profile)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
 
   for (int i=0; i<m_profileCount; i++)
   {
@@ -287,7 +293,7 @@ bool CVAAPIContext::SupportsProfile(VAProfile profile)
 
 VAConfigID CVAAPIContext::CreateConfig(VAProfile profile, VAConfigAttrib attrib)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
 
   VAConfigID config = VA_INVALID_ID;
   CheckSuccess(vaCreateConfig(m_display, profile, VAEntrypointVLD, &attrib, 1, &config), "vaCreateConfig");
@@ -337,14 +343,14 @@ void CVAAPIContext::FFReleaseBuffer(void *opaque, uint8_t *data)
 
 void CVideoSurfaces::AddSurface(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   m_state[surf] = 0;
   m_freeSurfaces.push_back(surf);
 }
 
 void CVideoSurfaces::ClearReference(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   if (m_state.find(surf) == m_state.end())
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearReference - surface invalid");
@@ -359,7 +365,7 @@ void CVideoSurfaces::ClearReference(VASurfaceID surf)
 
 bool CVideoSurfaces::MarkRender(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   if (m_state.find(surf) == m_state.end())
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::MarkRender - surface invalid");
@@ -376,7 +382,7 @@ bool CVideoSurfaces::MarkRender(VASurfaceID surf)
 
 void CVideoSurfaces::ClearRender(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   if (m_state.find(surf) == m_state.end())
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearRender - surface invalid");
@@ -391,7 +397,7 @@ void CVideoSurfaces::ClearRender(VASurfaceID surf)
 
 bool CVideoSurfaces::IsValid(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   if (m_state.find(surf) != m_state.end())
     return true;
   else
@@ -400,7 +406,7 @@ bool CVideoSurfaces::IsValid(VASurfaceID surf)
 
 VASurfaceID CVideoSurfaces::GetFree(VASurfaceID surf)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   if (m_state.find(surf) != m_state.end())
   {
     auto it = std::find(m_freeSurfaces.begin(), m_freeSurfaces.end(), surf);
@@ -440,7 +446,7 @@ VASurfaceID CVideoSurfaces::GetAtIndex(int idx)
 
 VASurfaceID CVideoSurfaces::RemoveNext(bool skiprender)
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   VASurfaceID surf;
   for(auto it = m_state.begin(); it != m_state.end(); ++it)
   {
@@ -459,32 +465,32 @@ VASurfaceID CVideoSurfaces::RemoveNext(bool skiprender)
 
 void CVideoSurfaces::Reset()
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   m_freeSurfaces.clear();
   m_state.clear();
 }
 
 int CVideoSurfaces::Size()
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   return m_state.size();
 }
 
 bool CVideoSurfaces::HasFree()
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   return !m_freeSurfaces.empty();
 }
 
 int CVideoSurfaces::NumFree()
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   return m_freeSurfaces.size();
 }
 
 bool CVideoSurfaces::HasRefs()
 {
-  CSingleLock lock(m_section);
+  std::unique_lock<CCriticalSection> lock(m_section);
   for (const auto &i : m_state)
   {
     if (i.second & SURFACE_USED_FOR_REFERENCE)
@@ -528,21 +534,36 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
 
   // check if user wants to decode this format with VAAPI
   std::map<AVCodecID, std::string> settings_map = {
-    { AV_CODEC_ID_H263, SETTING_VIDEOPLAYER_USEVAAPIMPEG4 },
-    { AV_CODEC_ID_MPEG4, SETTING_VIDEOPLAYER_USEVAAPIMPEG4 },
-    { AV_CODEC_ID_WMV3, SETTING_VIDEOPLAYER_USEVAAPIVC1 },
-    { AV_CODEC_ID_VC1, SETTING_VIDEOPLAYER_USEVAAPIVC1 },
-    { AV_CODEC_ID_MPEG2VIDEO, SETTING_VIDEOPLAYER_USEVAAPIMPEG2 },
-    { AV_CODEC_ID_VP8, SETTING_VIDEOPLAYER_USEVAAPIVP8 },
-    { AV_CODEC_ID_VP9, SETTING_VIDEOPLAYER_USEVAAPIVP9 },
-    { AV_CODEC_ID_HEVC, SETTING_VIDEOPLAYER_USEVAAPIHEVC },
+      {AV_CODEC_ID_H263, SETTING_VIDEOPLAYER_USEVAAPIMPEG4},
+      {AV_CODEC_ID_MPEG4, SETTING_VIDEOPLAYER_USEVAAPIMPEG4},
+      {AV_CODEC_ID_WMV3, SETTING_VIDEOPLAYER_USEVAAPIVC1},
+      {AV_CODEC_ID_VC1, SETTING_VIDEOPLAYER_USEVAAPIVC1},
+      {AV_CODEC_ID_MPEG2VIDEO, SETTING_VIDEOPLAYER_USEVAAPIMPEG2},
+      {AV_CODEC_ID_VP8, SETTING_VIDEOPLAYER_USEVAAPIVP8},
+      {AV_CODEC_ID_VP9, SETTING_VIDEOPLAYER_USEVAAPIVP9},
+      {AV_CODEC_ID_HEVC, SETTING_VIDEOPLAYER_USEVAAPIHEVC},
+      {AV_CODEC_ID_AV1, SETTING_VIDEOPLAYER_USEVAAPIAV1},
   };
 
   auto entry = settings_map.find(avctx->codec_id);
   if (entry != settings_map.end())
   {
-    const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-    bool enabled = settings->GetBool(entry->second) && settings->GetSetting(entry->second)->IsVisible();
+    auto settingsComponent = CServiceBroker::GetSettingsComponent();
+    if (!settingsComponent)
+      return false;
+
+    auto settings = settingsComponent->GetSettings();
+    if (!settings)
+      return false;
+
+    auto setting = settings->GetSetting(entry->second);
+    if (!setting)
+    {
+      CLog::Log(LOGERROR, "Failed to load setting for: {}", entry->second);
+      return false;
+    }
+
+    bool enabled = settings->GetBool(entry->second) && setting->IsVisible();
     if (!enabled)
       return false;
   }
@@ -567,6 +588,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
   m_vaapiConfig.surfaceWidth = avctx->coded_width;
   m_vaapiConfig.surfaceHeight = avctx->coded_height;
   m_vaapiConfig.aspect = avctx->sample_aspect_ratio;
+  m_vaapiConfig.bitDepth = avctx->bits_per_raw_sample;
   m_DisplayState = VAAPI_OPEN;
   m_vaapiConfigured = false;
   m_presentPicture = nullptr;
@@ -654,6 +676,20 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
       if (!m_vaapiConfig.context->SupportsProfile(profile))
         return false;
       break;
+#if VA_CHECK_VERSION(1, 8, 0)
+    case AV_CODEC_ID_AV1:
+    {
+      if (avctx->profile == FF_PROFILE_AV1_MAIN)
+        profile = VAProfileAV1Profile0;
+      else if (avctx->profile == FF_PROFILE_AV1_HIGH)
+        profile = VAProfileAV1Profile1;
+      else
+        profile = VAProfileNone;
+      if (!m_vaapiConfig.context->SupportsProfile(profile))
+        return false;
+      break;
+    }
+#endif
     default:
       return false;
   }
@@ -662,7 +698,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
   m_vaapiConfig.attrib = m_vaapiConfig.context->GetAttrib(profile);
   if ((m_vaapiConfig.attrib.value & (VA_RT_FORMAT_YUV420 | VA_RT_FORMAT_YUV420_10BPP)) == 0)
   {
-    CLog::Log(LOGERROR, "VAAPI - invalid yuv format %x", m_vaapiConfig.attrib.value);
+    CLog::Log(LOGERROR, "VAAPI - invalid yuv format {:x}", m_vaapiConfig.attrib.value);
     return false;
   }
 
@@ -678,6 +714,8 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
     m_vaapiConfig.maxReferences = 16;
   else if (avctx->codec_id == AV_CODEC_ID_VP9)
     m_vaapiConfig.maxReferences = 8;
+  else if (avctx->codec_id == AV_CODEC_ID_AV1)
+    m_vaapiConfig.maxReferences = 18;
   else
     m_vaapiConfig.maxReferences = 2;
 
@@ -690,10 +728,12 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
     return false;
   }
 
-  AVBufferRef *deviceRef =  av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VAAPI);
-  AVHWDeviceContext *deviceCtx = (AVHWDeviceContext*)deviceRef->data;
+  m_deviceRef = std::unique_ptr<AVBufferRef, AVBufferRefDeleter>(
+      av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VAAPI), AVBufferRefDeleter());
+
+  AVHWDeviceContext* deviceCtx = (AVHWDeviceContext*)m_deviceRef->data;
   AVVAAPIDeviceContext *vaapiDeviceCtx = (AVVAAPIDeviceContext*)deviceCtx->hwctx;
-  AVBufferRef *framesRef = av_hwframe_ctx_alloc(deviceRef);
+  AVBufferRef* framesRef = av_hwframe_ctx_alloc(m_deviceRef.get());
   AVHWFramesContext *framesCtx = (AVHWFramesContext*)framesRef->data;
   AVVAAPIFramesContext *vaapiFramesCtx = (AVVAAPIFramesContext*)framesCtx->hwctx;
 
@@ -719,11 +759,13 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
 
 void CDecoder::Close()
 {
-  CLog::Log(LOGNOTICE, "VAAPI::%s", __FUNCTION__);
+  CLog::Log(LOGINFO, "VAAPI::{}", __FUNCTION__);
 
-  CSingleLock lock(m_DecoderSection);
+  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
   FiniVAAPIOutput();
+
+  m_deviceRef.reset();
 
   if (m_vaapiConfig.context)
     m_vaapiConfig.context->Release(this);
@@ -747,10 +789,10 @@ long CDecoder::Release()
   // a second decoder might need resources
   if (m_vaapiConfigured == true)
   {
-    CSingleLock lock(m_DecoderSection);
+    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
     CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::Release pre-cleanup");
 
-    CSingleLock lock1(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock<CCriticalSection> lock1(CServiceBroker::GetWinSystem()->GetGfxContext());
     Message *reply;
     if (m_vaapiOutput.m_controlPort.SendOutMessageSync(COutputControlProtocol::PRECLEANUP,
                                                    &reply,
@@ -760,13 +802,13 @@ long CDecoder::Release()
       reply->Release();
       if (!success)
       {
-        CLog::Log(LOGERROR, "VAAPI::%s - pre-cleanup returned error", __FUNCTION__);
+        CLog::Log(LOGERROR, "VAAPI::{} - pre-cleanup returned error", __FUNCTION__);
         m_DisplayState = VAAPI_ERROR;
       }
     }
     else
     {
-      CLog::Log(LOGERROR, "VAAPI::%s - pre-cleanup timed out", __FUNCTION__);
+      CLog::Log(LOGERROR, "VAAPI::{} - pre-cleanup timed out", __FUNCTION__);
       m_DisplayState = VAAPI_ERROR;
     }
 
@@ -790,7 +832,7 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
   CDecoder* va = static_cast<CDecoder*>(cb->GetHWAccel());
 
   // while we are waiting to recover we can't do anything
-  CSingleLock lock(va->m_DecoderSection);
+  std::unique_lock<CCriticalSection> lock(va->m_DecoderSection);
 
   if(va->m_DisplayState != VAAPI_OPEN)
   {
@@ -806,8 +848,8 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
     uint16_t decoded, processed, render;
     bool vpp;
     va->m_bufferStats.Get(decoded, processed, render, vpp);
-    CLog::Log(LOGWARNING, "VAAPI::FFGetBuffer - no surface available - dec: %d, render: %d",
-                         decoded, render);
+    CLog::Log(LOGWARNING, "VAAPI::FFGetBuffer - no surface available - dec: {}, render: {}",
+              decoded, render);
     va->m_getBufferError++;
     return -1;
   }
@@ -821,7 +863,7 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
   AVBufferRef *buffer = av_buffer_create(pic->data[3], 0, CVAAPIContext::FFReleaseBuffer, va, 0);
   if (!buffer)
   {
-    CLog::Log(LOGERROR, "VAAPI::%s - error creating buffer", __FUNCTION__);
+    CLog::Log(LOGERROR, "VAAPI::{} - error creating buffer", __FUNCTION__);
     return -1;
   }
   pic->buf[0] = buffer;
@@ -836,7 +878,7 @@ void CDecoder::FFReleaseBuffer(uint8_t *data)
   {
     VASurfaceID surf;
 
-    CSingleLock lock(m_DecoderSection);
+    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
     surf = (VASurfaceID)(uintptr_t)data;
     m_videoSurfaces.ClearReference(surf);
@@ -856,7 +898,7 @@ CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame
   if (result != CDVDVideoCodec::VC_NOBUFFER && result != CDVDVideoCodec::VC_NONE)
     return result;
 
-  CSingleLock lock(m_DecoderSection);
+  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
   if (!m_vaapiConfigured)
     return CDVDVideoCodec::VC_ERROR;
@@ -948,12 +990,14 @@ CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame
       }
     }
 
-    if (!m_inMsgEvent.WaitMSec(2000))
+    if (!m_inMsgEvent.Wait(2000ms))
       break;
   }
 
-  CLog::Log(LOGERROR, "VAAPI::%s - timed out waiting for output message - decoded: %d, proc: %d, has free surface: %s",
-                      __FUNCTION__, decoded, processed, m_videoSurfaces.HasFree() ? "yes" : "no");
+  CLog::Log(LOGERROR,
+            "VAAPI::{} - timed out waiting for output message - decoded: {}, proc: {}, has free "
+            "surface: {}",
+            __FUNCTION__, decoded, processed, m_videoSurfaces.HasFree() ? "yes" : "no");
   m_DisplayState = VAAPI_ERROR;
 
   return CDVDVideoCodec::VC_ERROR;
@@ -963,27 +1007,28 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
 {
   EDisplayState state;
 
-  { CSingleLock lock(m_DecoderSection);
+  {
+    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
     state = m_DisplayState;
   }
 
   if (state == VAAPI_LOST)
   {
     CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::Check waiting for display reset event");
-    if (!m_DisplayEvent.WaitMSec(4000))
+    if (!m_DisplayEvent.Wait(4000ms))
     {
       CLog::Log(LOGERROR, "VAAPI::Check - device didn't reset in reasonable time");
       state = VAAPI_RESET;
     }
     else
     {
-      CSingleLock lock(m_DecoderSection);
+      std::unique_lock<CCriticalSection> lock(m_DecoderSection);
       state = m_DisplayState;
     }
   }
   if (state == VAAPI_RESET || state == VAAPI_ERROR)
   {
-    CSingleLock lock(m_DecoderSection);
+    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
     avcodec_flush_buffers(avctx);
     FiniVAAPIOutput();
@@ -1006,7 +1051,7 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
   {
     // if there is no other error, sleep for a short while
     // in order not to drain player's message queue
-    KODI::TIME::Sleep(10);
+    KODI::TIME::Sleep(10ms);
 
     return CDVDVideoCodec::VC_NOBUFFER;
   }
@@ -1022,7 +1067,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
     picture->videoBuffer = nullptr;
   }
 
-  CSingleLock lock(m_DecoderSection);
+  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
   if (m_DisplayState != VAAPI_OPEN)
     return false;
@@ -1036,7 +1081,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
 
 void CDecoder::Reset()
 {
-  CSingleLock lock(m_DecoderSection);
+  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
 
   if (m_presentPicture)
   {
@@ -1056,7 +1101,7 @@ void CDecoder::Reset()
     reply->Release();
     if (!success)
     {
-      CLog::Log(LOGERROR, "VAAPI::%s - flush returned error", __FUNCTION__);
+      CLog::Log(LOGERROR, "VAAPI::{} - flush returned error", __FUNCTION__);
       m_DisplayState = VAAPI_ERROR;
     }
     else
@@ -1067,7 +1112,7 @@ void CDecoder::Reset()
   }
   else
   {
-    CLog::Log(LOGERROR, "VAAPI::%s - flush timed out", __FUNCTION__);
+    CLog::Log(LOGERROR, "VAAPI::{} - flush timed out", __FUNCTION__);
     m_DisplayState = VAAPI_ERROR;
   }
 }
@@ -1101,7 +1146,7 @@ bool CDecoder::ConfigVAAPI()
   m_vaapiConfig.attrib = m_vaapiConfig.context->GetAttrib(m_vaapiConfig.profile);
   if ((m_vaapiConfig.attrib.value & (VA_RT_FORMAT_YUV420 | VA_RT_FORMAT_YUV420_10BPP)) == 0)
   {
-    CLog::Log(LOGERROR, "VAAPI - invalid yuv format %x", m_vaapiConfig.attrib.value);
+    CLog::Log(LOGERROR, "VAAPI - invalid yuv format {:x}", m_vaapiConfig.attrib.value);
     return false;
   }
 
@@ -1114,7 +1159,12 @@ bool CDecoder::ConfigVAAPI()
   unsigned int format = VA_RT_FORMAT_YUV420;
   std::int32_t pixelFormat = VA_FOURCC_NV12;
 
-  if (m_vaapiConfig.profile == VAProfileHEVCMain10)
+  if ((m_vaapiConfig.profile == VAProfileHEVCMain10
+#if VA_CHECK_VERSION(1, 8, 0)
+       || m_vaapiConfig.profile == VAProfileAV1Profile0
+#endif
+       ) &&
+      m_vaapiConfig.bitDepth == 10)
   {
     format = VA_RT_FORMAT_YUV420_10BPP;
     pixelFormat = VA_FOURCC_P010;
@@ -1142,7 +1192,7 @@ bool CDecoder::ConfigVAAPI()
   }
 
   // initialize output
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_vaapiConfig.stats = &m_bufferStats;
   m_bufferStats.Reset();
   m_vaapiOutput.Start();
@@ -1157,7 +1207,7 @@ bool CDecoder::ConfigVAAPI()
     if (!success)
     {
       reply->Release();
-      CLog::Log(LOGERROR, "VAAPI::%s - vaapi output returned error", __FUNCTION__);
+      CLog::Log(LOGERROR, "VAAPI::{} - vaapi output returned error", __FUNCTION__);
       m_vaapiOutput.Dispose();
       return false;
     }
@@ -1165,7 +1215,7 @@ bool CDecoder::ConfigVAAPI()
   }
   else
   {
-    CLog::Log(LOGERROR, "VAAPI::%s - failed to init output", __FUNCTION__);
+    CLog::Log(LOGERROR, "VAAPI::{} - failed to init output", __FUNCTION__);
     m_vaapiOutput.Dispose();
     return false;
   }
@@ -1187,7 +1237,8 @@ void CDecoder::FiniVAAPIOutput()
   m_vaapiConfigured = false;
 
   // destroy surfaces
-  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::FiniVAAPIOutput destroying %d video surfaces", m_videoSurfaces.Size());
+  CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::FiniVAAPIOutput destroying {} video surfaces",
+            m_videoSurfaces.Size());
   VASurfaceID surf;
   while((surf = m_videoSurfaces.RemoveNext()) != VA_INVALID_SURFACE)
   {
@@ -1208,7 +1259,9 @@ void CDecoder::ReturnRenderPicture(CVaapiRenderPicture *renderPic)
 
 IHardwareDecoder* CDecoder::Create(CDVDStreamInfo &hint, CProcessInfo &processInfo, AVPixelFormat fmt)
 {
-  if (fmt == AV_PIX_FMT_VAAPI_VLD && CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(SETTING_VIDEOPLAYER_USEVAAPI))
+  // https://github.com/FFmpeg/FFmpeg/blob/56450a0ee4fdda160f4039fc2ae33edfd27765c9/doc/APIchanges#L18-L26
+  if (fmt == AV_PIX_FMT_VAAPI &&
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(SETTING_VIDEOPLAYER_USEVAAPI))
     return new VAAPI::CDecoder(processInfo);
 
   return nullptr;
@@ -1227,14 +1280,37 @@ void CDecoder::Register(IVaapiWinSystem *winSystem, bool deepColor)
   CDVDFactoryCodec::RegisterHWAccel("vaapi", CDecoder::Create);
   config.context->Release(nullptr);
 
-  const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPI)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIMPEG4)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIVC1)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIMPEG2)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIVP8)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIVP9)->SetVisible(true);
-  settings->GetSetting(SETTING_VIDEOPLAYER_USEVAAPIHEVC)->SetVisible(true);
+  auto settingsComponent = CServiceBroker::GetSettingsComponent();
+  if (!settingsComponent)
+    return;
+
+  auto settings = settingsComponent->GetSettings();
+  if (!settings)
+    return;
+
+  constexpr std::array<const char*, 9> vaapiSettings = {
+      SETTING_VIDEOPLAYER_USEVAAPI,     SETTING_VIDEOPLAYER_USEVAAPIMPEG4,
+      SETTING_VIDEOPLAYER_USEVAAPIVC1,  SETTING_VIDEOPLAYER_USEVAAPIMPEG2,
+      SETTING_VIDEOPLAYER_USEVAAPIVP8,  SETTING_VIDEOPLAYER_USEVAAPIVP9,
+      SETTING_VIDEOPLAYER_USEVAAPIHEVC, SETTING_VIDEOPLAYER_PREFERVAAPIRENDER,
+      SETTING_VIDEOPLAYER_USEVAAPIAV1};
+
+  for (const auto vaapiSetting : vaapiSettings)
+  {
+    auto setting = settings->GetSetting(vaapiSetting);
+    if (!setting)
+    {
+      CLog::Log(LOGERROR, "Failed to load setting for: {}", vaapiSetting);
+      continue;
+    }
+
+    setting->SetVisible(true);
+  }
+}
+
+void CDecoder::AVBufferRefDeleter::operator()(AVBufferRef* p) const
+{
+  av_buffer_unref(&p);
 }
 
 //-----------------------------------------------------------------------------
@@ -1379,7 +1455,8 @@ CVaapiRenderPicture* CVaapiBufferPool::ProcessSyncPicture()
 
     if (!retPic->valid)
     {
-      CLog::Log(LOGDEBUG, LOGVIDEO, "CVaapiRenderPicture::%s - return of invalid render pic", __FUNCTION__);
+      CLog::Log(LOGDEBUG, LOGVIDEO, "CVaapiRenderPicture::{} - return of invalid render pic",
+                __FUNCTION__);
       retPic = nullptr;
     }
     break;
@@ -1448,7 +1525,7 @@ COutput::~COutput()
 
 void COutput::Dispose()
 {
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bStop = true;
   m_outMsgEvent.Set();
   StopThread();
@@ -1458,12 +1535,12 @@ void COutput::Dispose()
 
 void COutput::OnStartup()
 {
-  CLog::Log(LOGNOTICE, "COutput::OnStartup: Output Thread created");
+  CLog::Log(LOGINFO, "COutput::OnStartup: Output Thread created");
 }
 
 void COutput::OnExit()
 {
-  CLog::Log(LOGNOTICE, "COutput::OnExit: Output Thread terminated");
+  CLog::Log(LOGINFO, "COutput::OnExit: Output Thread terminated");
 }
 
 enum OUTPUT_STATES
@@ -1532,7 +1609,8 @@ void COutput::StateMachine(int signal, Protocol *port, Message *msg)
       }
       {
         std::string portName = port == NULL ? "timer" : port->portName;
-        CLog::Log(LOGWARNING, "COutput::%s - signal: %d form port: %s not handled for state: %d", __FUNCTION__, signal, portName.c_str(), m_state);
+        CLog::Log(LOGWARNING, "COutput::{} - signal: {} form port: {} not handled for state: {}",
+                  __FUNCTION__, signal, portName, m_state);
       }
       return;
 
@@ -1758,7 +1836,7 @@ void COutput::StateMachine(int signal, Protocol *port, Message *msg)
       break;
 
     default: // we are in no state, should not happen
-      CLog::Log(LOGERROR, "COutput::%s - no valid state: %d", __FUNCTION__, m_state);
+      CLog::Log(LOGERROR, "COutput::{} - no valid state: {}", __FUNCTION__, m_state);
       return;
     }
   } // for
@@ -1814,7 +1892,7 @@ void COutput::Process()
     }
 
     // wait for message
-    else if (m_outMsgEvent.WaitMSec(m_extTimeout))
+    else if (m_outMsgEvent.Wait(std::chrono::milliseconds(m_extTimeout)))
     {
       continue;
     }
@@ -2297,9 +2375,6 @@ void CSkipPostproc::Discard(COutput *output, ReadyToDispose cb)
 
 CVppPostproc::CVppPostproc()
 {
-  m_contextId = VA_INVALID_ID;
-  m_configId = VA_INVALID_ID;
-  m_filter = VA_INVALID_ID;
 }
 
 CVppPostproc::~CVppPostproc()
@@ -2893,14 +2968,10 @@ bool CFFmpegPostproc::Init(EINTERLACEMETHOD method)
   const AVFilter* srcFilter = avfilter_get_by_name("buffer");
   const AVFilter* outFilter = avfilter_get_by_name("buffersink");
 
-  std::string args = StringUtils::Format("%d:%d:%d:%d:%d:%d:%d",
-                                        m_config.vidWidth,
-                                        m_config.vidHeight,
-                                        AV_PIX_FMT_NV12,
-                                        1,
-                                        1,
-                                        (m_config.aspect.num != 0) ? m_config.aspect.num : 1,
-                                        (m_config.aspect.num != 0) ? m_config.aspect.den : 1);
+  std::string args = StringUtils::Format("{}:{}:{}:{}:{}:{}:{}", m_config.vidWidth,
+                                         m_config.vidHeight, AV_PIX_FMT_NV12, 1, 1,
+                                         (m_config.aspect.num != 0) ? m_config.aspect.num : 1,
+                                         (m_config.aspect.num != 0) ? m_config.aspect.den : 1);
 
   if (avfilter_graph_create_filter(&m_pFilterIn, srcFilter, "src", args.c_str(), NULL, m_pFilterGraph) < 0)
   {

@@ -11,7 +11,6 @@
 #include "../RenderFactory.h"
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/VDPAU.h"
-#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/GLUtils.h"
@@ -62,7 +61,7 @@ bool CRendererVDPAU::Configure(const VideoPicture &picture, float fps, unsigned 
   }
   for (auto &fence : m_fences)
   {
-    fence = GL_NONE;
+    fence = {};
   }
 
   return CLinuxRendererGL::Configure(picture, fps, orientation);
@@ -90,7 +89,7 @@ bool CRendererVDPAU::NeedBuffer(int idx)
     if (state == GL_SIGNALED)
     {
       glDeleteSync(m_fences[idx]);
-      m_fences[idx] = GL_NONE;
+      m_fences[idx] = {};
     }
     else
     {
@@ -101,18 +100,27 @@ bool CRendererVDPAU::NeedBuffer(int idx)
   return false;
 }
 
+bool CRendererVDPAU::Flush(bool saveBuffers)
+{
+  for (int i = 0; i < NUM_BUFFERS; i++)
+      m_vdpauTextures[i].Unmap();
+
+  return CLinuxRendererGL::Flush(saveBuffers);
+}
+
+
 void CRendererVDPAU::ReleaseBuffer(int idx)
 {
   if (glIsSync(m_fences[idx]))
   {
     glDeleteSync(m_fences[idx]);
-    m_fences[idx] = GL_NONE;
+    m_fences[idx] = {};
   }
   m_vdpauTextures[idx].Unmap();
   CLinuxRendererGL::ReleaseBuffer(idx);
 }
 
-bool CRendererVDPAU::Supports(ERENDERFEATURE feature)
+bool CRendererVDPAU::Supports(ERENDERFEATURE feature) const
 {
   if(feature == RENDERFEATURE_BRIGHTNESS ||
      feature == RENDERFEATURE_CONTRAST)
@@ -140,7 +148,7 @@ bool CRendererVDPAU::Supports(ERENDERFEATURE feature)
   return false;
 }
 
-bool CRendererVDPAU::Supports(ESCALINGMETHOD method)
+bool CRendererVDPAU::Supports(ESCALINGMETHOD method) const
 {
   if (m_isYuv)
     return CLinuxRendererGL::Supports(method);
@@ -152,7 +160,11 @@ bool CRendererVDPAU::Supports(ESCALINGMETHOD method)
       method == VS_SCALINGMETHOD_AUTO)
     return true;
 
-  if(method == VS_SCALINGMETHOD_CUBIC
+  if(method == VS_SCALINGMETHOD_CUBIC_B_SPLINE
+  || method == VS_SCALINGMETHOD_CUBIC_MITCHELL
+  || method == VS_SCALINGMETHOD_CUBIC_CATMULL
+  || method == VS_SCALINGMETHOD_CUBIC_0_075
+  || method == VS_SCALINGMETHOD_CUBIC_0_1
   || method == VS_SCALINGMETHOD_LANCZOS2
   || method == VS_SCALINGMETHOD_SPLINE36_FAST
   || method == VS_SCALINGMETHOD_LANCZOS3_FAST
@@ -165,13 +177,6 @@ bool CRendererVDPAU::Supports(ESCALINGMETHOD method)
     int minScale = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoplayer.hqscalers");
     if (scaleX < minScale && scaleY < minScale)
       return false;
-
-    // spline36 and lanczos3 are only allowed through advancedsettings.xml
-    if(method != VS_SCALINGMETHOD_SPLINE36
-        && method != VS_SCALINGMETHOD_LANCZOS3)
-      return true;
-    else
-      return CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoEnableHighQualityHwScalers;
   }
 
   return false;
@@ -191,7 +196,7 @@ bool CRendererVDPAU::LoadShadersHook()
 {
   if (!m_isYuv)
   {
-    CLog::Log(LOGNOTICE, "GL: Using VDPAU render method");
+    CLog::Log(LOGINFO, "GL: Using VDPAU render method");
     m_renderMethod = RENDER_CUSTOM;
     m_fullRange = false;
     return true;
@@ -250,10 +255,8 @@ bool CRendererVDPAU::CreateTexture(int index)
 {
   if (!m_isYuv)
     return CreateVDPAUTexture(index);
-  else if (m_isYuv)
-    return CreateVDPAUTexture420(index);
   else
-    return false;
+    return CreateVDPAUTexture420(index);
 }
 
 void CRendererVDPAU::DeleteTexture(int index)
@@ -262,7 +265,7 @@ void CRendererVDPAU::DeleteTexture(int index)
 
   if (!m_isYuv)
     DeleteVDPAUTexture(index);
-  else if (m_isYuv)
+  else
     DeleteVDPAUTexture420(index);
 }
 
@@ -270,10 +273,8 @@ bool CRendererVDPAU::UploadTexture(int index)
 {
   if (!m_isYuv)
     return UploadVDPAUTexture(index);
-  else if (m_isYuv)
-    return UploadVDPAUTexture420(index);
   else
-    return false;
+    return UploadVDPAUTexture420(index);
 }
 
 bool CRendererVDPAU::CreateVDPAUTexture(int index)

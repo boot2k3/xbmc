@@ -18,8 +18,9 @@
 #include "messaging/helpers/DialogOKHelper.h"
 #include "peripherals/Peripherals.h"
 #include "peripherals/dialogs/GUIDialogPeripheralSettings.h"
-#include "threads/SingleLock.h"
 #include "utils/Variant.h"
+
+#include <mutex>
 
 using namespace KODI;
 using namespace PERIPHERALS;
@@ -38,7 +39,7 @@ void CGUIDialogPeripherals::OnInitWindow()
   CGUIDialogSelect::OnInitWindow();
 }
 
-void CGUIDialogPeripherals::RegisterPeripheralManager(CPeripherals &manager)
+void CGUIDialogPeripherals::RegisterPeripheralManager(CPeripherals& manager)
 {
   m_manager = &manager;
   m_manager->RegisterObserver(this);
@@ -57,7 +58,7 @@ CFileItemPtr CGUIDialogPeripherals::GetItem(unsigned int pos) const
 {
   CFileItemPtr item;
 
-  CSingleLock lock(m_peripheralsMutex);
+  std::unique_lock<CCriticalSection> lock(m_peripheralsMutex);
 
   if (static_cast<int>(pos) < m_peripherals.Size())
     item = m_peripherals[pos];
@@ -65,9 +66,11 @@ CFileItemPtr CGUIDialogPeripherals::GetItem(unsigned int pos) const
   return item;
 }
 
-void CGUIDialogPeripherals::Show(CPeripherals &manager)
+void CGUIDialogPeripherals::Show(CPeripherals& manager)
 {
-  CGUIDialogPeripherals* pDialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogPeripherals>(WINDOW_DIALOG_PERIPHERALS);
+  CGUIDialogPeripherals* pDialog =
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogPeripherals>(
+          WINDOW_DIALOG_PERIPHERALS);
   if (pDialog == nullptr)
     return;
 
@@ -76,7 +79,7 @@ void CGUIDialogPeripherals::Show(CPeripherals &manager)
   int iPos = -1;
   do
   {
-    pDialog->SetHeading(CVariant{ 35000 });
+    pDialog->SetHeading(CVariant{35000});
     pDialog->SetUseDetails(true);
 
     pDialog->RegisterPeripheralManager(manager);
@@ -95,11 +98,13 @@ void CGUIDialogPeripherals::Show(CPeripherals &manager)
       PeripheralPtr peripheral = manager.GetByPath(pItem->GetPath());
       if (!peripheral || peripheral->GetSettings().empty())
       {
-        MESSAGING::HELPERS::ShowOKDialogText(CVariant{ 35000 }, CVariant{ 35004 });
+        MESSAGING::HELPERS::ShowOKDialogText(CVariant{35000}, CVariant{35004});
         continue;
       }
 
-      CGUIDialogPeripheralSettings *pSettingsDialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogPeripheralSettings>(WINDOW_DIALOG_PERIPHERAL_SETTINGS);
+      CGUIDialogPeripheralSettings* pSettingsDialog =
+          CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogPeripheralSettings>(
+              WINDOW_DIALOG_PERIPHERAL_SETTINGS);
       if (pItem && pSettingsDialog)
       {
         // Pass peripheral item properties to settings dialog so skin authors
@@ -136,29 +141,29 @@ bool CGUIDialogPeripherals::OnMessage(CGUIMessage& message)
   return CGUIDialogSelect::OnMessage(message);
 }
 
-void CGUIDialogPeripherals::Notify(const Observable &obs, const ObservableMessage msg)
+void CGUIDialogPeripherals::Notify(const Observable& obs, const ObservableMessage msg)
 {
   switch (msg)
   {
-  case ObservableMessagePeripheralsChanged:
-    UpdatePeripheralsAsync();
-    break;
-  default:
-    break;
+    case ObservableMessagePeripheralsChanged:
+      UpdatePeripheralsAsync();
+      break;
+    default:
+      break;
   }
 }
 
 void CGUIDialogPeripherals::UpdatePeripheralsAsync()
 {
   CGUIMessage msg(GUI_MSG_REFRESH_LIST, GetID(), -1);
-  MESSAGING::CApplicationMessenger::GetInstance().SendGUIMessage(msg);
+  CServiceBroker::GetAppMessenger()->SendGUIMessage(msg);
 }
 
 void CGUIDialogPeripherals::UpdatePeripheralsSync()
 {
   int iPos = GetSelectedItem();
 
-  CSingleLock lock(m_peripheralsMutex);
+  std::unique_lock<CCriticalSection> lock(m_peripheralsMutex);
 
   CFileItemPtr selectedItem;
   if (iPos > 0)

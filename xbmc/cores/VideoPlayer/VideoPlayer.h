@@ -13,18 +13,20 @@
 #include "Edl.h"
 #include "FileItem.h"
 #include "IVideoPlayer.h"
+#include "VideoPlayerAudioID3.h"
 #include "VideoPlayerRadioRDS.h"
 #include "VideoPlayerSubtitle.h"
 #include "VideoPlayerTeletext.h"
-#include "VideoPlayerVideo.h"
 #include "cores/IPlayer.h"
-#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h"
+#include "cores/MenuType.h"
+#include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderManager.h"
 #include "guilib/DispResource.h"
 #include "threads/SystemClock.h"
 #include "threads/Thread.h"
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -44,7 +46,7 @@ struct SPlayerState
     dts = DVD_NOPTS_VALUE;
     player_state  = "";
     isInMenu = false;
-    hasMenu = false;
+    menuType = MenuType::NONE;
     chapter = 0;
     chapters.clear();
     canpause = false;
@@ -71,7 +73,7 @@ struct SPlayerState
 
   std::string player_state; // full player state
   bool isInMenu;
-  bool hasMenu;
+  MenuType menuType;
   bool streamsReady;
 
   int chapter;              // current chapter
@@ -192,8 +194,10 @@ struct SelectionStream
   int height = 0;
   CRect SrcRect;
   CRect DestRect;
+  CRect VideoRect;
   std::string stereo_mode;
   float aspect_ratio = 0.0f;
+  StreamHdrType hdrType = StreamHdrType::HDR_TYPE_NONE;
 };
 
 class CSelectionStreams
@@ -205,12 +209,15 @@ public:
   int CountTypeOfSource(StreamType type, StreamSource source) const;
   int CountType(StreamType type) const;
   SelectionStream& Get(StreamType type, int index);
+  const SelectionStream& Get(StreamType type, int index) const;
   bool Get(StreamType type, StreamFlags flag, SelectionStream& out);
   void Clear(StreamType type, StreamSource source);
-  int Source(StreamSource source, std::string filename);
+  int Source(StreamSource source, const std::string& filename);
   void Update(SelectionStream& s);
-  void Update(std::shared_ptr<CDVDInputStream> input, CDVDDemux* demuxer);
-  void Update(std::shared_ptr<CDVDInputStream> input, CDVDDemux* demuxer, std::string filename2);
+  void Update(const std::shared_ptr<CDVDInputStream>& input, CDVDDemux* demuxer);
+  void Update(const std::shared_ptr<CDVDInputStream>& input,
+              CDVDDemux* demuxer,
+              const std::string& filename2);
 
   std::vector<SelectionStream> Get(StreamType type);
   template<typename Compare> std::vector<SelectionStream> Get(StreamType type, Compare compare)
@@ -246,63 +253,77 @@ public:
   bool HasVideo() const override;
   bool HasAudio() const override;
   bool HasRDS() const override;
+  bool HasID3() const override;
   bool IsPassthrough() const override;
-  bool CanSeek() override;
+  bool CanSeek() const override;
   void Seek(bool bPlus, bool bLargeStep, bool bChapterOverride) override;
   bool SeekScene(bool bPlus = true) override;
   void SeekPercentage(float iPercent) override;
-  float GetCachePercentage() override;
+  float GetCachePercentage() const override;
 
   void SetDynamicRangeCompression(long drc) override;
-  bool CanPause() override;
+  bool CanPause() const override;
   void SetAVDelay(float fValue = 0.0f) override;
   float GetAVDelay() override;
   bool IsInMenu() const override;
-  bool HasMenu() const override;
+
+  /*!
+   * \brief Get the supported menu type
+   * \return The supported menu type
+  */
+  MenuType GetSupportedMenuType() const override;
 
   void SetSubTitleDelay(float fValue = 0.0f) override;
   float GetSubTitleDelay() override;
-  int GetSubtitleCount() override;
+  int GetSubtitleCount() const override;
   int GetSubtitle() override;
-  void GetSubtitleStreamInfo(int index, SubtitleStreamInfo &info) override;
+  void GetSubtitleStreamInfo(int index, SubtitleStreamInfo& info) const override;
   void SetSubtitle(int iStream) override;
-  bool GetSubtitleVisible() override;
+  bool GetSubtitleVisible() const override;
   void SetSubtitleVisible(bool bVisible) override;
+
+  /*!
+   * \brief Set the subtitle vertical position,
+   * it depends on current screen resolution
+   * \param value The subtitle position in pixels
+   * \param save If true, the value will be saved to resolution info
+   */
+  void SetSubtitleVerticalPosition(const int value, bool save) override;
+
   void AddSubtitle(const std::string& strSubPath) override;
 
-  int GetAudioStreamCount() override;
+  int GetAudioStreamCount() const override;
   int GetAudioStream() override;
   void SetAudioStream(int iStream) override;
 
   int GetVideoStream() const override;
   int GetVideoStreamCount() const override;
-  void GetVideoStreamInfo(int streamId, VideoStreamInfo &info) override;
+  void GetVideoStreamInfo(int streamId, VideoStreamInfo& info) const override;
   void SetVideoStream(int iStream) override;
 
   int GetPrograms(std::vector<ProgramInfo>& programs) override;
   void SetProgram(int progId) override;
-  int GetProgramsCount() override;
+  int GetProgramsCount() const override;
 
   std::shared_ptr<TextCacheStruct_t> GetTeletextCache() override;
+  bool HasTeletextCache() const override;
   void LoadPage(int p, int sp, unsigned char* buffer) override;
 
-  std::string GetRadioText(unsigned int line) override;
-
-  int  GetChapterCount() override;
-  int  GetChapter() override;
-  void GetChapterName(std::string& strChapterName, int chapterIdx=-1) override;
-  int64_t GetChapterPos(int chapterIdx=-1) override;
+  int GetChapterCount() const override;
+  int GetChapter() const override;
+  void GetChapterName(std::string& strChapterName, int chapterIdx = -1) const override;
+  int64_t GetChapterPos(int chapterIdx = -1) const override;
   int  SeekChapter(int iChapter) override;
 
   void SeekTime(int64_t iTime) override;
   bool SeekTimeRelative(int64_t iTime) override;
   void SetSpeed(float speed) override;
   void SetTempo(float tempo) override;
-  bool SupportsTempo() override;
+  bool SupportsTempo() const override;
   void FrameAdvance(int frames) override;
   bool OnAction(const CAction &action) override;
 
-  void GetAudioStreamInfo(int index, AudioStreamInfo &info) override;
+  void GetAudioStreamInfo(int index, AudioStreamInfo& info) const override;
 
   std::string GetPlayerState() override;
   bool SetPlayerState(const std::string& state) override;
@@ -311,13 +332,13 @@ public:
   void Render(bool clear, uint32_t alpha = 255, bool gui = true) override;
   void FlushRenderer() override;
   void SetRenderViewMode(int mode, float zoom, float par, float shift, bool stretch) override;
-  float GetRenderAspectRatio() override;
+  float GetRenderAspectRatio() const override;
   void TriggerUpdateResolution() override;
-  bool IsRenderingVideo() override;
-  bool Supports(EINTERLACEMETHOD method) override;
-  EINTERLACEMETHOD GetDeinterlacingMethodDefault() override;
-  bool Supports(ESCALINGMETHOD method) override;
-  bool Supports(ERENDERFEATURE feature) override;
+  bool IsRenderingVideo() const override;
+  bool Supports(EINTERLACEMETHOD method) const override;
+  EINTERLACEMETHOD GetDeinterlacingMethodDefault() const override;
+  bool Supports(ESCALINGMETHOD method) const override;
+  bool Supports(ERENDERFEATURE feature) const override;
 
   unsigned int RenderCaptureAlloc() override;
   void RenderCapture(unsigned int captureId, unsigned int width, unsigned int height, int flags) override;
@@ -334,7 +355,7 @@ public:
   int OnDiscNavResult(void* pData, int iMessage) override;
   void GetVideoResolution(unsigned int &width, unsigned int &height) override;
 
-  CVideoSettings GetVideoSettings() override;
+  CVideoSettings GetVideoSettings() const override;
   void SetVideoSettings(CVideoSettings& settings) override;
 
   void SetUpdateStreamDetails();
@@ -360,9 +381,10 @@ protected:
   bool OpenStream(CCurrentStream& current, int64_t demuxerId, int iStream, int source, bool reset = true);
   bool OpenAudioStream(CDVDStreamInfo& hint, bool reset = true);
   bool OpenVideoStream(CDVDStreamInfo& hint, bool reset = true);
-  bool OpenSubtitleStream(CDVDStreamInfo& hint);
+  bool OpenSubtitleStream(const CDVDStreamInfo& hint);
   bool OpenTeletextStream(CDVDStreamInfo& hint);
   bool OpenRadioRDSStream(CDVDStreamInfo& hint);
+  bool OpenAudioID3Stream(CDVDStreamInfo& hint);
 
   /** \brief Switches forced subtitles to forced subtitles matching the language of the current audio track.
   *          If these are not available, subtitles are disabled.
@@ -370,13 +392,14 @@ protected:
   void AdaptForcedSubtitles();
   bool CloseStream(CCurrentStream& current, bool bWaitForBuffers);
 
-  bool CheckIsCurrent(CCurrentStream& current, CDemuxStream* stream, DemuxPacket* pkg);
+  bool CheckIsCurrent(const CCurrentStream& current, CDemuxStream* stream, DemuxPacket* pkg);
   void ProcessPacket(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessAudioData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessVideoData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessSubData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessTeletextData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessRadioRDSData(CDemuxStream* pStream, DemuxPacket* pPacket);
+  void ProcessAudioID3Data(CDemuxStream* pStream, DemuxPacket* pPacket);
 
   int  AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
   void SetSubtitleVisibleInternal(bool bVisible);
@@ -408,16 +431,16 @@ protected:
   void SynchronizeDemuxer();
   void CheckAutoSceneSkip();
   bool CheckContinuity(CCurrentStream& current, DemuxPacket* pPacket);
-  bool CheckSceneSkip(CCurrentStream& current);
+  bool CheckSceneSkip(const CCurrentStream& current);
   bool CheckPlayerInit(CCurrentStream& current);
   void UpdateCorrection(DemuxPacket* pkt, double correction);
   void UpdateTimestamps(CCurrentStream& current, DemuxPacket* pPacket);
   IDVDStreamPlayer* GetStreamPlayer(unsigned int player);
-  void SendPlayerMessage(CDVDMsg* pMsg, unsigned int target);
+  void SendPlayerMessage(std::shared_ptr<CDVDMsg> pMsg, unsigned int target);
 
   bool ReadPacket(DemuxPacket*& packet, CDemuxStream*& stream);
-  bool IsValidStream(CCurrentStream& stream);
-  bool IsBetterStream(CCurrentStream& current, CDemuxStream* stream);
+  bool IsValidStream(const CCurrentStream& stream);
+  bool IsBetterStream(const CCurrentStream& current, CDemuxStream* stream);
   void CheckBetterStream(CCurrentStream& current, CDemuxStream* stream);
   void CheckStreamChanges(CCurrentStream& current, CDemuxStream* stream);
 
@@ -446,7 +469,7 @@ protected:
   bool m_bCloseRequest;
 
   ECacheState  m_caching;
-  XbmcThreads::EndTime m_cachingTimer;
+  XbmcThreads::EndTime<> m_cachingTimer;
 
   std::unique_ptr<CProcessInfo> m_processInfo;
 
@@ -455,6 +478,7 @@ protected:
   CCurrentStream m_CurrentSubtitle;
   CCurrentStream m_CurrentTeletext;
   CCurrentStream m_CurrentRadioRDS;
+  CCurrentStream m_CurrentAudioID3;
 
   CSelectionStreams m_SelectionStreams;
   std::vector<ProgramInfo> m_programs;
@@ -491,15 +515,16 @@ protected:
   CVideoPlayerSubtitle *m_VideoPlayerSubtitle;
   CDVDTeletextData *m_VideoPlayerTeletext;
   CDVDRadioRDSData *m_VideoPlayerRadioRDS;
+  std::unique_ptr<CVideoPlayerAudioID3> m_VideoPlayerAudioID3;
 
   CDVDClock m_clock;
   CDVDOverlayContainer m_overlayContainer;
 
   std::shared_ptr<CDVDInputStream> m_pInputStream;
-  CDVDDemux* m_pDemuxer;
+  std::unique_ptr<CDVDDemux> m_pDemuxer;
   std::shared_ptr<CDVDDemux> m_pSubtitleDemuxer;
   std::unordered_map<int64_t, std::shared_ptr<CDVDDemux>> m_subtitleDemuxerMap;
-  CDVDDemuxCC* m_pCCDemuxer;
+  std::unique_ptr<CDVDDemuxCC> m_pCCDemuxer;
 
   CRenderManager m_renderManager;
 
@@ -511,15 +536,17 @@ protected:
       iSelectedSPUStream   = -1;
       iSelectedAudioStream = -1;
       iSelectedVideoStream = -1;
-      iDVDStillTime        =  0;
-      iDVDStillStartTime   =  0;
+      iDVDStillTime = std::chrono::milliseconds::zero();
+      iDVDStillStartTime = {};
       syncClock = false;
     }
 
     int state;                // current dvdstate
     bool syncClock;
-    unsigned int iDVDStillTime;      // total time in ticks we should display the still before continuing
-    unsigned int iDVDStillStartTime; // time in ticks when we started the still
+    std::chrono::milliseconds
+        iDVDStillTime; // total time in ticks we should display the still before continuing
+    std::chrono::time_point<std::chrono::steady_clock>
+        iDVDStillStartTime; // time in ticks when we started the still
     int iSelectedSPUStream;   // mpeg stream id, or -1 if disabled
     int iSelectedAudioStream; // mpeg stream id, or -1 if disabled
     int iSelectedVideoStream; // mpeg stream id or angle, -1 if disabled
@@ -527,7 +554,7 @@ protected:
 
   SPlayerState m_State;
   mutable CCriticalSection m_StateSection;
-  XbmcThreads::EndTime m_syncTimer;
+  XbmcThreads::EndTime<> m_syncTimer;
 
   CEdl m_Edl;
   bool m_SkipCommercials;

@@ -8,8 +8,9 @@
 
 #include "DialogGameVolume.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationVolumeHandling.h"
 #include "dialogs/GUIDialogVolumeBar.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIDialog.h"
@@ -26,7 +27,7 @@
 using namespace KODI;
 using namespace GAME;
 
-#define CONTROL_LABEL   12 //! @todo Remove me
+#define CONTROL_LABEL 12 //! @todo Remove me
 
 CDialogGameVolume::CDialogGameVolume()
 {
@@ -35,7 +36,7 @@ CDialogGameVolume::CDialogGameVolume()
   m_loadType = KEEP_IN_MEMORY;
 }
 
-bool CDialogGameVolume::OnMessage(CGUIMessage &message)
+bool CDialogGameVolume::OnMessage(CGUIMessage& message)
 {
   switch (message.GetMessage())
   {
@@ -69,7 +70,8 @@ void CDialogGameVolume::OnInitWindow()
 
   SET_CONTROL_HIDDEN(CONTROL_LABEL);
 
-  CGUIDialogVolumeBar *dialogVolumeBar = dynamic_cast<CGUIDialogVolumeBar*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_VOLUME_BAR));
+  CGUIDialogVolumeBar* dialogVolumeBar = dynamic_cast<CGUIDialogVolumeBar*>(
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_VOLUME_BAR));
   if (dialogVolumeBar != nullptr)
     dialogVolumeBar->RegisterCallback(this);
 
@@ -80,21 +82,24 @@ void CDialogGameVolume::OnDeinitWindow(int nextWindowID)
 {
   CServiceBroker::GetAnnouncementManager()->RemoveAnnouncer(this);
 
-  CGUIDialogVolumeBar *dialogVolumeBar = dynamic_cast<CGUIDialogVolumeBar*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_VOLUME_BAR));
+  CGUIDialogVolumeBar* dialogVolumeBar = dynamic_cast<CGUIDialogVolumeBar*>(
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_VOLUME_BAR));
   if (dialogVolumeBar != nullptr)
     dialogVolumeBar->UnregisterCallback(this);
 
   CGUIDialogSlider::OnDeinitWindow(nextWindowID);
 }
 
-void CDialogGameVolume::OnSliderChange(void *data, CGUISliderControl *slider)
+void CDialogGameVolume::OnSliderChange(void* data, CGUISliderControl* slider)
 {
   const float volumePercent = slider->GetFloatValue();
 
   if (std::fabs(volumePercent - m_volumePercent) > 0.1f)
   {
     m_volumePercent = volumePercent;
-    g_application.SetVolume(volumePercent, true);
+    auto& components = CServiceBroker::GetAppComponents();
+    const auto appVolume = components.GetComponent<CApplicationVolumeHandling>();
+    appVolume->SetVolume(volumePercent, true);
   }
 }
 
@@ -103,9 +108,12 @@ bool CDialogGameVolume::IsShown() const
   return m_active;
 }
 
-void CDialogGameVolume::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void CDialogGameVolume::Announce(ANNOUNCEMENT::AnnouncementFlag flag,
+                                 const std::string& sender,
+                                 const std::string& message,
+                                 const CVariant& data)
 {
-  if (flag == ANNOUNCEMENT::Application && strcmp(message, "OnVolumeChanged") == 0)
+  if (flag == ANNOUNCEMENT::Application && message == "OnVolumeChanged")
   {
     const float volumePercent = static_cast<float>(data["volume"].asDouble());
 
@@ -130,7 +138,9 @@ void CDialogGameVolume::OnStateChanged()
 
 float CDialogGameVolume::GetVolumePercent() const
 {
-  return g_application.GetVolumePercent();
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appVolume = components.GetComponent<CApplicationVolumeHandling>();
+  return appVolume->GetVolumePercent();
 }
 
 std::string CDialogGameVolume::GetLabel()

@@ -8,7 +8,6 @@
 
 #include "Directory.h"
 
-#include "Application.h"
 #include "DirectoryCache.h"
 #include "DirectoryFactory.h"
 #include "FileDirectoryFactory.h"
@@ -19,6 +18,7 @@
 #include "commons/Exception.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "guilib/GUIWindowManager.h"
+#include "messaging/ApplicationMessenger.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/Job.h"
@@ -27,6 +27,7 @@
 #include "utils/log.h"
 
 using namespace XFILE;
+using namespace std::chrono_literals;
 
 #define TIME_TO_BUSY_DIALOG 500
 
@@ -70,19 +71,15 @@ public:
   CGetDirectory(std::shared_ptr<IDirectory>& imp, const CURL& dir, const CURL& listDir)
     : m_result(new CResult(dir, listDir))
   {
-    m_id = CJobManager::GetInstance().AddJob(new CGetJob(imp, m_result)
-                                           , NULL
-                                           , CJob::PRIORITY_HIGH);
+    m_id = CServiceBroker::GetJobManager()->AddJob(new CGetJob(imp, m_result), nullptr,
+                                                   CJob::PRIORITY_HIGH);
     if (m_id == 0)
     {
       CGetJob job(imp, m_result);
       job.DoWork();
     }
   }
- ~CGetDirectory()
-  {
-    CJobManager::GetInstance().CancelJob(m_id);
-  }
+  ~CGetDirectory() { CServiceBroker::GetJobManager()->CancelJob(m_id); }
 
   CEvent& GetEvent()
   {
@@ -91,13 +88,13 @@ public:
 
   bool Wait(unsigned int timeout)
   {
-    return m_result->m_event.WaitMSec(timeout);
+    return m_result->m_event.Wait(std::chrono::milliseconds(timeout));
   }
 
   bool GetDirectory(CFileItemList& list)
   {
     /* if it was not finished or failed, return failure */
-    if(!m_result->m_event.WaitMSec(0) || !m_result->m_result)
+    if (!m_result->m_event.Wait(0ms) || !m_result->m_result)
     {
       list.Clear();
       return false;
@@ -124,8 +121,11 @@ bool CDirectory::GetDirectory(const std::string& strPath, CFileItemList &items, 
   return GetDirectory(pathToUrl, items, hints);
 }
 
-bool CDirectory::GetDirectory(const std::string& strPath, std::shared_ptr<IDirectory> pDirectory,
-                              CFileItemList &items, const std::string &strMask, int flags)
+bool CDirectory::GetDirectory(const std::string& strPath,
+                              const std::shared_ptr<IDirectory>& pDirectory,
+                              CFileItemList& items,
+                              const std::string& strMask,
+                              int flags)
 {
   CHints hints;
   hints.flags = flags;
@@ -155,8 +155,10 @@ bool CDirectory::GetDirectory(const CURL& url, CFileItemList &items, const CHint
   return CDirectory::GetDirectory(url, pDirectory, items, hints);
 }
 
-bool CDirectory::GetDirectory(const CURL& url, std::shared_ptr<IDirectory> pDirectory,
-                              CFileItemList &items, const CHints &hints)
+bool CDirectory::GetDirectory(const CURL& url,
+                              const std::shared_ptr<IDirectory>& pDirectory,
+                              CFileItemList& items,
+                              const CHints& hints)
 {
   try
   {
@@ -176,10 +178,10 @@ bool CDirectory::GetDirectory(const CURL& url, std::shared_ptr<IDirectory> pDire
 
       pDirectory->SetFlags(hints.flags);
 
-      bool result = false, cancel = false;
+      bool result = false;
       CURL authUrl = realURL;
 
-      while (!result && !cancel)
+      while (!result)
       {
         const std::string pathToUrl(url.Get());
 
@@ -192,19 +194,18 @@ bool CDirectory::GetDirectory(const CURL& url, std::shared_ptr<IDirectory> pDire
 
         if (!result)
         {
-          if (!cancel)
+          // @TODO ProcessRequirements() can bring up the keyboard input dialog
+          // filesystem must not depend on GUI
+          if (CServiceBroker::GetAppMessenger()->IsProcessThread() &&
+              pDirectory->ProcessRequirements())
           {
-            // @TODO ProcessRequirements() can bring up the keyboard input dialog
-            // filesystem must not depend on GUI
-            if (g_application.IsCurrentThread() && pDirectory->ProcessRequirements())
-            {
-              authUrl.SetDomain("");
-              authUrl.SetUserName("");
-              authUrl.SetPassword("");
-              continue;
-            }
+            authUrl.SetDomain("");
+            authUrl.SetUserName("");
+            authUrl.SetPassword("");
+            continue;
           }
-          CLog::Log(LOGERROR, "%s - Error getting %s", __FUNCTION__, url.GetRedacted().c_str());
+
+          CLog::Log(LOGERROR, "{} - Error getting {}", __FUNCTION__, url.GetRedacted());
           return false;
         }
       }
@@ -299,11 +300,8 @@ bool CDirectory::GetDirectory(const CURL& url, std::shared_ptr<IDirectory> pDire
     return true;
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
-  catch (...)
-  {
-    CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
-  }
-  CLog::Log(LOGERROR, "%s - Error getting %s", __FUNCTION__, url.GetRedacted().c_str());
+  catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
+  CLog::Log(LOGERROR, "{} - Error getting {}", __FUNCTION__, url.GetRedacted());
   return false;
 }
 
@@ -328,11 +326,8 @@ bool CDirectory::Create(const CURL& url)
         return true;
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
-  catch (...)
-  {
-    CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
-  }
-  CLog::Log(LOGERROR, "%s - Error creating %s", __FUNCTION__, url.GetRedacted().c_str());
+  catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
+  CLog::Log(LOGERROR, "{} - Error creating {}", __FUNCTION__, url.GetRedacted());
   return false;
 }
 
@@ -366,11 +361,8 @@ bool CDirectory::Exists(const CURL& url, bool bUseCache /* = true */)
       return pDirectory->Exists(realURL);
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
-  catch (...)
-  {
-    CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
-  }
-  CLog::Log(LOGERROR, "%s - Error checking for %s", __FUNCTION__, url.GetRedacted().c_str());
+  catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
+  CLog::Log(LOGERROR, "{} - Error checking for {}", __FUNCTION__, url.GetRedacted());
   return false;
 }
 
@@ -403,11 +395,8 @@ bool CDirectory::Remove(const CURL& url)
       }
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
-  catch (...)
-  {
-    CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
-  }
-  CLog::Log(LOGERROR, "%s - Error removing %s", __FUNCTION__, url.GetRedacted().c_str());
+  catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
+  CLog::Log(LOGERROR, "{} - Error removing {}", __FUNCTION__, url.GetRedacted());
   return false;
 }
 
@@ -429,11 +418,8 @@ bool CDirectory::RemoveRecursive(const CURL& url)
       }
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
-  catch (...)
-  {
-    CLog::Log(LOGERROR, "%s - Unhandled exception", __FUNCTION__);
-  }
-  CLog::Log(LOGERROR, "%s - Error removing %s", __FUNCTION__, url.GetRedacted().c_str());
+  catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
+  CLog::Log(LOGERROR, "{} - Error removing {}", __FUNCTION__, url.GetRedacted());
   return false;
 }
 

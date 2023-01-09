@@ -13,6 +13,7 @@
 #include "dll_tracker.h"
 #include "dll_util.h"
 #include "filesystem/SpecialProtocol.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <climits>
@@ -61,7 +62,7 @@ extern "C" HMODULE __stdcall dllLoadLibraryExtended(const char* lib_file, const 
 
   if (sourcedll)
   {
-    /* also check for invalid paths wich begin with a \ */
+    /* also check for invalid paths which begin with a \ */
     if( libpath[0] == '\0' || libpath[0] == PATH_SEPARATOR_CHAR )
     {
       /* use calling dll's path as base address for this call */
@@ -90,7 +91,7 @@ extern "C" HMODULE __stdcall dllLoadLibraryExtended(const char* lib_file, const 
   if (dll)
     return (HMODULE)dll->GetHModule();
 
-  CLog::Log(LOGERROR, "LoadLibrary('%s') failed", libname);
+  CLog::Log(LOGERROR, "LoadLibrary('{}') failed", libname);
   return NULL;
 }
 
@@ -114,7 +115,7 @@ extern "C" HMODULE __stdcall dllLoadLibraryExExtended(const char* lpLibFileName,
   if (dwFlags & LOAD_LIBRARY_AS_DATAFILE) strcat(strFlags, "\n - LOAD_LIBRARY_AS_DATAFILE");
   if (dwFlags & LOAD_WITH_ALTERED_SEARCH_PATH) strcat(strFlags, "\n - LOAD_WITH_ALTERED_SEARCH_PATH");
 
-  CLog::Log(LOGDEBUG, "LoadLibraryExA called with flags: %s", strFlags);
+  CLog::Log(LOGDEBUG, "LoadLibraryExA called with flags: {}", strFlags);
 
   return dllLoadLibraryExtended(lpLibFileName, sourcedll);
 }
@@ -130,7 +131,7 @@ extern "C" int __stdcall dllFreeLibrary(HINSTANCE hLibModule)
 
   if( !dllhandle )
   {
-    CLog::Log(LOGERROR, "%s - Invalid hModule specified",__FUNCTION__);
+    CLog::Log(LOGERROR, "{} - Invalid hModule specified", __FUNCTION__);
     return 1;
   }
 
@@ -151,7 +152,7 @@ extern "C" intptr_t (*__stdcall dllGetProcAddress(HMODULE hModule, const char* f
 
   if( !dll )
   {
-    CLog::Log(LOGERROR, "%s - Invalid hModule specified",__FUNCTION__);
+    CLog::Log(LOGERROR, "{} - Invalid hModule specified", __FUNCTION__);
     return NULL;
   }
 
@@ -161,7 +162,8 @@ extern "C" intptr_t (*__stdcall dllGetProcAddress(HMODULE hModule, const char* f
   {
     if( dll->ResolveOrdinal(LOW_WORD(function), &address) )
     {
-      CLog::Log(LOGDEBUG, "%s(%p(%s), %d) => %p", __FUNCTION__, static_cast<void*>(hModule), dll->GetName(), LOW_WORD(function), address);
+      CLog::Log(LOGDEBUG, "{}({}({}), {}) => {}", __FUNCTION__, fmt::ptr(hModule), dll->GetName(),
+                LOW_WORD(function), fmt::ptr(address));
     }
     else if( dll->IsSystemDll() )
     {
@@ -174,36 +176,41 @@ extern "C" intptr_t (*__stdcall dllGetProcAddress(HMODULE hModule, const char* f
       if( track )
         tracker_dll_data_track(track->pDll, (uintptr_t)address);
 
-      CLog::Log(LOGDEBUG, "%s - created dummy function %s!%s",__FUNCTION__, dll->GetName(), ordinal);
+      CLog::Log(LOGDEBUG, "{} - created dummy function {}!{}", __FUNCTION__, dll->GetName(),
+                ordinal);
     }
     else
     {
       address = NULL;
-      CLog::Log(LOGDEBUG, "%s(%p(%s), '%s') => %p",__FUNCTION__ , static_cast<void*>(hModule), dll->GetName(), function, address);
+      CLog::Log(LOGDEBUG, "{}({}({}), '{}') => {}", __FUNCTION__, fmt::ptr(hModule), dll->GetName(),
+                function, fmt::ptr(address));
     }
   }
   else
   {
     if( dll->ResolveExport(function, &address) )
     {
-      CLog::Log(LOGDEBUG, "%s(%p(%s), '%s') => %p",__FUNCTION__ , static_cast<void*>(hModule), dll->GetName(), function, address);
+      CLog::Log(LOGDEBUG, "{}({}({}), '{}') => {}", __FUNCTION__, fmt::ptr(hModule), dll->GetName(),
+                function, fmt::ptr(address));
     }
     else
     {
       DllTrackInfo* track = tracker_get_dlltrackinfo(loc);
       /* some dll's require us to always return a function or it will fail, other's  */
       /* decide functionality depending on if the functions exist and may fail      */
-      if( dll->IsSystemDll() && track
-       && stricmp(track->pDll->GetName(), "CoreAVCDecoder.ax") == 0 )
+      if (dll->IsSystemDll() && track &&
+          StringUtils::CompareNoCase(track->pDll->GetName(), "CoreAVCDecoder.ax") == 0)
       {
         address = (void*)create_dummy_function(dll->GetName(), function);
         tracker_dll_data_track(track->pDll, (uintptr_t)address);
-        CLog::Log(LOGDEBUG, "%s - created dummy function %s!%s", __FUNCTION__, dll->GetName(), function);
+        CLog::Log(LOGDEBUG, "{} - created dummy function {}!{}", __FUNCTION__, dll->GetName(),
+                  function);
       }
       else
       {
         address = NULL;
-        CLog::Log(LOGDEBUG, "%s(%p(%s), '%s') => %p", __FUNCTION__, static_cast<void*>(hModule), dll->GetName(), function, address);
+        CLog::Log(LOGDEBUG, "{}({}({}), '{}') => {}", __FUNCTION__, fmt::ptr(hModule),
+                  dll->GetName(), function, fmt::ptr(address));
       }
     }
   }
@@ -229,17 +236,17 @@ extern "C" HMODULE WINAPI dllGetModuleHandleA(const char* lpModuleName)
 
   if (strrchr(strModuleName, '.') == 0) strcat(strModuleName, ".dll");
 
-  //CLog::Log(LOGDEBUG, "GetModuleHandleA(%s) .. looking up", lpModuleName);
+  //CLog::Log(LOGDEBUG, "GetModuleHandleA({}) .. looking up", lpModuleName);
 
   LibraryLoader *p = DllLoaderContainer::GetModule(strModuleName);
   delete []strModuleName;
 
   if (p)
   {
-    //CLog::Log(LOGDEBUG, "GetModuleHandleA('%s') => 0x%x", lpModuleName, h);
+    //CLog::Log(LOGDEBUG, "GetModuleHandleA('{}') => 0x{:x}", lpModuleName, h);
     return (HMODULE)p->GetHModule();
   }
 
-  CLog::Log(LOGDEBUG, "GetModuleHandleA('%s') failed", lpModuleName);
+  CLog::Log(LOGDEBUG, "GetModuleHandleA('{}') failed", lpModuleName);
   return NULL;
 }

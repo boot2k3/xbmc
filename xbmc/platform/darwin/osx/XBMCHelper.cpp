@@ -19,20 +19,27 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "threads/Atomics.h"
 #include "utils/SystemInfo.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 
 #include <fstream>
+#include <mutex>
 #include <signal.h>
 #include <sstream>
 
 #include <mach-o/dyld.h>
+#include <unistd.h>
 
 #include "PlatformDefs.h"
 
-static std::atomic_flag sg_singleton_lock_variable = ATOMIC_FLAG_INIT;
+namespace
+{
+
+std::mutex singletonMutex;
+
+}
+
 XBMCHelper* XBMCHelper::smp_instance = 0;
 
 #define XBMC_HELPER_PROGRAM "XBMCHelper"
@@ -44,7 +51,7 @@ static int GetBSDProcessList(kinfo_proc **procList, size_t *procCount);
 XBMCHelper&
 XBMCHelper::GetInstance()
 {
-  CAtomicSpinLock lock(sg_singleton_lock_variable);
+  std::lock_guard<std::mutex> lock(singletonMutex);
   if( ! smp_instance )
   {
     smp_instance = new XBMCHelper();
@@ -80,7 +87,7 @@ XBMCHelper::XBMCHelper()
 }
 
 /////////////////////////////////////////////////////////////////////////////
-bool XBMCHelper::OnSettingChanging(std::shared_ptr<const CSetting> setting)
+bool XBMCHelper::OnSettingChanging(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return false;
@@ -153,7 +160,7 @@ void XBMCHelper::Stop()
   int pid = GetProcessPid(XBMC_HELPER_PROGRAM);
   if (pid != -1)
   {
-    CLog::Log(LOGDEBUG,"XBMCHelper: Sending SIGKILL to %s\n", XBMC_HELPER_PROGRAM);
+    CLog::Log(LOGDEBUG, "XBMCHelper: Sending SIGKILL to {}", XBMC_HELPER_PROGRAM);
     kill(pid, SIGKILL);
   }
 }
@@ -211,12 +218,12 @@ void XBMCHelper::Configure()
     strConfig += strDelay;
 
     // Find out where we're running from.
-    char real_path[2*MAXPATHLEN];
-    char given_path[2*MAXPATHLEN];
-    uint32_t path_size = 2*MAXPATHLEN;
+    char given_path[2 * MAXPATHLEN];
+    uint32_t path_size = 2 * MAXPATHLEN;
 
     if (_NSGetExecutablePath(given_path, &path_size) == 0)
     {
+      char real_path[2 * MAXPATHLEN];
       if (realpath(given_path, real_path) != NULL)
       {
         strConfig += "--appPath \"";
@@ -378,7 +385,7 @@ void XBMCHelper::WriteFile(const char* fileName, const std::string& data)
   std::ofstream out(fileName);
   if (!out)
   {
-    CLog::Log(LOGERROR, "XBMCHelper: Unable to open file '%s'", fileName);
+    CLog::Log(LOGERROR, "XBMCHelper: Unable to open file '{}'", fileName);
   }
   else
   {

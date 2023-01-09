@@ -36,8 +36,6 @@ CAlbum::CAlbum(const CFileItem& item)
 {
   Reset();
   const CMusicInfoTag& tag = *item.GetMusicInfoTag();
-  KODI::TIME::SystemTime stTime;
-  tag.GetReleaseDate(stTime);
   strAlbum = tag.GetAlbum();
   strMusicBrainzAlbumID = tag.GetMusicBrainzAlbumID();
   strReleaseGroupMBID = tag.GetMusicBrainzReleaseGroupID();
@@ -49,15 +47,18 @@ CAlbum::CAlbum(const CFileItem& item)
   SetArtistCredits(tag.GetAlbumArtist(), tag.GetMusicBrainzAlbumArtistHints(), tag.GetMusicBrainzAlbumArtistID(),
                    tag.GetArtist(), tag.GetMusicBrainzArtistHints(), tag.GetMusicBrainzArtistID());
 
-  iYear = stTime.year;
+  strOrigReleaseDate = tag.GetOriginalDate();
+  strReleaseDate = tag.GetReleaseDate();
   strLabel = tag.GetRecordLabel();
   strType = tag.GetMusicBrainzReleaseType();
   bCompilation = tag.GetCompilation();
   iTimesPlayed = 0;
   bBoxedSet = tag.GetBoxset();
   dateAdded.Reset();
+  dateUpdated.Reset();
   lastPlayed.Reset();
   releaseType = tag.GetAlbumReleaseType();
+  strReleaseStatus = tag.GetAlbumReleaseStatus();
 }
 
 void CAlbum::SetArtistCredits(const std::vector<std::string>& names, const std::vector<std::string>& hints,
@@ -77,14 +78,12 @@ void CAlbum::SetArtistCredits(const std::vector<std::string>& names, const std::
     const std::vector<std::string> separators{ " feat. ", ";", ":", "|", "#", "/", ",", "&" };
 
     // Establish tag consistency
-    // Do the number of musicbrainz ids and *both* number of names and number of hints mis-match?
+    // Do the number of musicbrainz ids and *both* number of names and number of hints mismatch?
     if (albumartistHints.size() != mbids.size() && names.size() != mbids.size())
     {
-      // Tags mis-match - report it and then try to fix
-      CLog::Log(LOGDEBUG, "Mis-match in song file albumartist tags: %i mbid %i name album: %s %s",
-        (int)mbids.size(),
-        (int)names.size(),
-        strAlbum.c_str(), strArtistDesc.c_str());
+      // Tags mismatch - report it and then try to fix
+      CLog::Log(LOGDEBUG, "Mismatch in song file albumartist tags: {} mbid {} name album: {} {}",
+                (int)mbids.size(), (int)names.size(), strAlbum, strArtistDesc);
       /*
       Most likely we have no hints and a single artist name like "Artist1 feat. Artist2"
       or "Composer; Conductor, Orchestra, Soloist" or "Artist1/Artist2" where the
@@ -96,7 +95,7 @@ void CAlbum::SetArtistCredits(const std::vector<std::string>& names, const std::
       musicbrainz so ignore them but raise warning.
       */
 
-      // Do hints exist yet mis-match
+      // Do hints exist yet mismatch
       if (!albumartistHints.empty() && albumartistHints.size() != mbids.size())
       {
         if (names.size() == mbids.size())
@@ -110,10 +109,10 @@ void CAlbum::SetArtistCredits(const std::vector<std::string>& names, const std::
           // Extra hints, discard them.
           albumartistHints.resize(mbids.size());
       }
-      // Do hints not exist or still mis-match, try album artists
+      // Do hints not exist or still mismatch, try album artists
       if (albumartistHints.size() != mbids.size())
         albumartistHints = names;
-      // Still mis-match, try splitting the hints (now artists) until have matching number
+      // Still mismatch, try splitting the hints (now artists) until have matching number
       if (albumartistHints.size() < mbids.size())
         albumartistHints = StringUtils::SplitMulti(albumartistHints, separators, mbids.size());
       // Try matching on artists or artist hints field, if it is reliable
@@ -143,7 +142,7 @@ void CAlbum::SetArtistCredits(const std::vector<std::string>& names, const std::
     }
     else
     { // Either hints or album artists (or both) name matches number of musicbrainz id
-      // If hints mis-match, use album artists
+      // If hints mismatch, use album artists
       if (albumartistHints.size() != mbids.size())
         albumartistHints = names;
     }
@@ -217,9 +216,9 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
    a manual refresh of album information uses either the mbid as derived from tags or the album
    and artist names, not any previously scraped mbid.
 
-   When overwritting the data derived from tags, AND the original and scraped album have the same
+   When overwriting the data derived from tags, AND the original and scraped album have the same
    Musicbrainz album ID, then merging is used to keep Kodi up to date with changes in the Musicbrainz
-   database including album artist credits, song artist credits and song titles. However it is ony
+   database including album artist credits, song artist credits and song titles. However it is only
    appropriate when the music files are tagged with mbids, these are taken as definative, scraped
    mbids can not be depended on in this way.
 
@@ -248,17 +247,17 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
   }
 
   /*
-   Scraping can return different album artists from the originals derived from tags, even when doing
-   a lookup on name.
+   Scraping can return different album artists from the originals derived from tags, even when
+   doing a lookup on artist name.
 
-   When overwritting the data derived from tags, AND the original and scraped album have the same
+   When overwriting the data derived from tags, AND the original and scraped album have the same
    Musicbrainz album ID, then merging an album replaces both the album artsts and the song artists
-   with those scraped.
+   with those scraped (providing they are not empty).
 
    When not doing that kind of merge, for any matching artist names the Musicbrainz artist id
    returned by the scraper can be used to populate any previously missing Musicbrainz artist id values.
   */
-  if (bArtistSongMerge)
+  if (bArtistSongMerge && !source.artistCredits.empty())
   {
     artistCredits = source.artistCredits; // Replace artists and store mbid returned by scraper
     strArtistDesc.clear();  // @todo: set artist display string e.g. "artist1 & artist2" when scraped
@@ -270,7 +269,7 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
     {
       if (artistCredit.GetMusicBrainzArtistID().empty())
       {
-        for (auto sourceartistCredit : source.artistCredits)
+        for (const auto& sourceartistCredit : source.artistCredits)
         {
           if (StringUtils::EqualsNoCase(artistCredit.GetArtist(), sourceartistCredit.GetArtist()))
           {
@@ -288,8 +287,12 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
     genre = source.genre;
   if ((override && !source.strAlbum.empty()) || strAlbum.empty())
     strAlbum = source.strAlbum;
-  if ((override && source.iYear > 0) || iYear == 0)
-    iYear = source.iYear;
+  //@todo: validate ISO8601 format YYYY, YYYY-MM, or YYYY-MM-DD
+  if ((override && !source.strReleaseDate.empty()) || strReleaseDate.empty())
+    strReleaseDate = source.strReleaseDate;
+  if ((override && !source.strOrigReleaseDate.empty()) || strOrigReleaseDate.empty())
+    strOrigReleaseDate = source.strOrigReleaseDate;
+
   if (override)
     bCompilation = source.bCompilation;
   //  iTimesPlayed = source.iTimesPlayed; // times played is derived from songs
@@ -311,13 +314,14 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
   if ((override && !source.strType.empty()) || strType.empty())
     strType = source.strType;
 //  strPath = source.strPath; // don't merge the path
-  m_strDateOfRelease = source.m_strDateOfRelease;
+  if ((override && !source.strReleaseStatus.empty()) || strReleaseStatus.empty())
+    strReleaseStatus = source.strReleaseStatus;
   fRating = source.fRating;
   iUserrating = source.iUserrating;
   iVotes = source.iVotes;
 
   /*
-   When overwritting the data derived from tags, AND the original and scraped album have the same
+   When overwriting the data derived from tags, AND the original and scraped album have the same
    Musicbrainz album ID, update the local songs with scaped Musicbrainz information including the
    artist credits.
   */
@@ -326,7 +330,7 @@ void CAlbum::MergeScrapedAlbum(const CAlbum& source, bool override /* = true */)
     for (auto &song : songs)
     {
       if (!song.strMusicBrainzTrackID.empty())
-        for (auto sourceSong : source.songs)
+        for (const auto& sourceSong : source.songs)
           if ((sourceSong.strMusicBrainzTrackID == song.strMusicBrainzTrackID) && (sourceSong.iTrack == song.iTrack))
             song.MergeScrapedSong(sourceSong, override);
     }
@@ -377,12 +381,12 @@ const std::string CAlbum::GetAlbumArtistString() const
 
 const std::string CAlbum::GetAlbumArtistSort() const
 {
-  //The stored artist sort name string takes precidence but a
+  //The stored artist sort name string takes precedence but a
   //value could be created from individual sort names held in artistcredits
   if (!strArtistSort.empty())
     return strArtistSort;
   std::vector<std::string> artistvector;
-  for (auto artistcredit : artistCredits)
+  for (const auto& artistcredit : artistCredits)
     if (!artistcredit.GetSortName().empty())
       artistvector.emplace_back(artistcredit.GetSortName());
   std::string artistString;
@@ -414,6 +418,16 @@ void CAlbum::SetReleaseType(const std::string& strReleaseType)
 void CAlbum::SetDateAdded(const std::string& strDateAdded)
 {
   dateAdded.SetFromDBDateTime(strDateAdded);
+}
+
+void CAlbum::SetDateUpdated(const std::string& strDateUpdated)
+{
+  dateUpdated.SetFromDBDateTime(strDateUpdated);
+}
+
+void CAlbum::SetDateNew(const std::string& strDateNew)
+{
+  dateNew.SetFromDBDateTime(strDateNew);
 }
 
 void CAlbum::SetLastPlayed(const std::string& strLastPlayed)
@@ -484,11 +498,23 @@ bool CAlbum::Load(const TiXmlElement *album, bool append, bool prioritise)
   XMLUtils::GetBoolean(album, "boxset", bBoxedSet);
 
   XMLUtils::GetString(album,"review",strReview);
-  XMLUtils::GetString(album,"releasedate",m_strDateOfRelease);
   XMLUtils::GetString(album,"label",strLabel);
+  XMLUtils::GetInt(album, "duration", iAlbumDuration);
   XMLUtils::GetString(album,"type",strType);
+  XMLUtils::GetString(album, "releasestatus", strReleaseStatus);
 
-  XMLUtils::GetInt(album,"year",iYear);
+  XMLUtils::GetString(album, "releasedate", strReleaseDate);
+  StringUtils::Trim(strReleaseDate);  // @todo: validate ISO8601 format
+  // Support old style <year></year> for backwards compatibility
+  if (strReleaseDate.empty())
+  {
+    int year;
+    XMLUtils::GetInt(album, "year", year);
+    if (year > 0)
+      strReleaseDate = StringUtils::Format("{:04}", year);
+  }
+  XMLUtils::GetString(album, "originalreleasedate", strOrigReleaseDate);
+
   const TiXmlElement* rElement = album->FirstChildElement("rating");
   if (rElement)
   {
@@ -511,16 +537,16 @@ bool CAlbum::Load(const TiXmlElement *album, bool append, bool prioritise)
       rating *= (10.f / max_rating); // Normalise the Rating to between 0 and 10
     if (rating > 10.f)
       rating = 10.f;
-    iUserrating = MathUtils::round_int(rating);
+    iUserrating = MathUtils::round_int(static_cast<double>(rating));
   }
   XMLUtils::GetInt(album, "votes", iVotes);
 
-  size_t iThumbCount = thumbURL.m_url.size();
-  std::string xmlAdd = thumbURL.m_xml;
+  size_t iThumbCount = thumbURL.GetUrls().size();
+  std::string xmlAdd = thumbURL.GetData();
   const TiXmlElement* thumb = album->FirstChildElement("thumb");
   while (thumb)
   {
-    thumbURL.ParseElement(thumb);
+    thumbURL.ParseAndAppendUrl(thumb);
     if (prioritise)
     {
       std::string temp;
@@ -530,12 +556,12 @@ bool CAlbum::Load(const TiXmlElement *album, bool append, bool prioritise)
     thumb = thumb->NextSiblingElement("thumb");
   }
   // prioritise thumbs from nfos
-  if (prioritise && iThumbCount && iThumbCount != thumbURL.m_url.size())
+  if (prioritise && iThumbCount && iThumbCount != thumbURL.GetUrls().size())
   {
-    rotate(thumbURL.m_url.begin(),
-           thumbURL.m_url.begin()+iThumbCount,
-           thumbURL.m_url.end());
-    thumbURL.m_xml = xmlAdd;
+    auto thumbUrls = thumbURL.GetUrls();
+    rotate(thumbUrls.begin(), thumbUrls.begin() + iThumbCount, thumbUrls.end());
+    thumbURL.SetUrls(thumbUrls);
+    thumbURL.SetData(xmlAdd);
   }
 
   const TiXmlElement* albumArtistCreditsNode = album->FirstChildElement("albumArtistCredits");
@@ -600,12 +626,15 @@ bool CAlbum::Save(TiXmlNode *node, const std::string &tag, const std::string& st
 
   XMLUtils::SetString(album,      "review", strReview);
   XMLUtils::SetString(album,        "type", strType);
-  XMLUtils::SetString(album, "releasedate", m_strDateOfRelease);
+  XMLUtils::SetString(album, "releasestatus", strReleaseStatus);
+  XMLUtils::SetString(album, "releasedate", strReleaseDate);
+  XMLUtils::SetString(album, "originalreleasedate", strOrigReleaseDate);
   XMLUtils::SetString(album,       "label", strLabel);
-  if (!thumbURL.m_xml.empty())
+  XMLUtils::SetInt(album, "duration", iAlbumDuration);
+  if (thumbURL.HasData())
   {
     CXBMCTinyXML doc;
-    doc.Parse(thumbURL.m_xml);
+    doc.Parse(thumbURL.GetData());
     const TiXmlNode* thumb = doc.FirstChild("thumb");
     while (thumb)
     {
@@ -624,7 +653,6 @@ bool CAlbum::Save(TiXmlNode *node, const std::string &tag, const std::string& st
     userrating->ToElement()->SetAttribute("max", 10);
 
   XMLUtils::SetInt(album,           "votes", iVotes);
-  XMLUtils::SetInt(album,           "year", iYear);
 
   for (const auto& artistCredit : artistCredits)
   {

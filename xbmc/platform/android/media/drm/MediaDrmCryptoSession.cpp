@@ -53,11 +53,21 @@ CMediaDrmCryptoSession::CMediaDrmCryptoSession(const std::string& UUID, const st
   , m_hasKeys(false)
   , m_sessionId(nullptr)
 {
-  if (!StringUtils::EqualsNoCase(UUID, "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"))
-    throw std::runtime_error("mediaDrm: Invalid UUID size");
+  if (UUID.length() != 36 || UUID[8] != '-' || UUID[13] != '-' || UUID[18] != '-' ||
+      UUID[23] != '-')
+    throw std::runtime_error("MediaDrmCryptoSession: Invalid UUID format, expected "
+                             "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX");
 
   int64_t mostSigBits(0), leastSigBits(0);
-  const uint8_t uuidPtr[16] = {0xed,0xef,0x8b,0xa9,0x79,0xd6,0x4a,0xce,0xa3,0xc8,0x27,0xdc,0xd5,0x1d,0x21,0xed};
+  unsigned int uuidPtr[16];
+  if (sscanf(UUID.c_str(), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             &uuidPtr[0], &uuidPtr[1], &uuidPtr[2], &uuidPtr[3], &uuidPtr[4], &uuidPtr[5],
+             &uuidPtr[6], &uuidPtr[7], &uuidPtr[8], &uuidPtr[9], &uuidPtr[10], &uuidPtr[11],
+             &uuidPtr[12], &uuidPtr[13], &uuidPtr[14], &uuidPtr[15]) != 16)
+  {
+    throw std::runtime_error("MediaDrmCryptoSession: Cannot parse UUID: " + UUID);
+  }
+
   for (unsigned int i(0); i < 8; ++i)
     mostSigBits = (mostSigBits << 8) | uuidPtr[i];
   for (unsigned int i(8); i < 16; ++i)
@@ -160,8 +170,17 @@ void CMediaDrmCryptoSession::RestoreKeys(const std::string& keySetId)
   if (m_mediaDrm && keySetId != m_keySetId)
   {
     m_mediaDrm->restoreKeys(*m_sessionId, std::vector<char>(keySetId.begin(), keySetId.end()));
-    m_hasKeys = true;
-    m_keySetId = keySetId;
+    if (xbmc_jnienv()->ExceptionCheck())
+    {
+      CLog::Log(LOGERROR, "MediaDrm: restoreKeys exception");
+      xbmc_jnienv()->ExceptionDescribe();
+      xbmc_jnienv()->ExceptionClear();
+    }
+    else
+    {
+      m_hasKeys = true;
+      m_keySetId = keySetId;
+    }
   }
 }
 
@@ -267,7 +286,7 @@ bool CMediaDrmCryptoSession::ProvisionRequest()
   std::vector<char> provData = request.getData();
   std::string url = request.getDefaultUrl();
 
-  CLog::Log(LOGDEBUG, "MediaDrm: Provisioning: size: %lu, url: %s", provData.size(), url.c_str());
+  CLog::Log(LOGDEBUG, "MediaDrm: Provisioning: size: {}, url: {}", provData.size(), url);
 
   std::string tmp_str("{\"signedRequest\":\"");
   tmp_str += std::string(provData.data(), provData.size());

@@ -13,8 +13,18 @@
 #include "rendering/dx/DirectXHelper.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
+#include "windowing/WindowSystemFactory.h"
 
-std::unique_ptr<CWinSystemBase> CWinSystemBase::CreateWinSystem()
+#include "platform/win32/WIN32Util.h"
+
+using namespace std::chrono_literals;
+
+void CWinSystemWin10DX::Register()
+{
+  KODI::WINDOWING::CWindowSystemFactory::RegisterWindowSystem(CreateWinSystem);
+}
+
+std::unique_ptr<CWinSystemBase> CWinSystemWin10DX::CreateWinSystem()
 {
   return std::make_unique<CWinSystemWin10DX>();
 }
@@ -39,7 +49,7 @@ void CWinSystemWin10DX::PresentRenderImpl(bool rendered)
   }
 
   if (!rendered)
-    KODI::TIME::Sleep(40);
+    KODI::TIME::Sleep(40ms);
 }
 
 bool CWinSystemWin10DX::CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res)
@@ -152,4 +162,44 @@ void CWinSystemWin10DX::UninitHooks()
 
 void CWinSystemWin10DX::InitHooks(IDXGIOutput* pOutput)
 {
+}
+
+bool CWinSystemWin10DX::IsHDRDisplay()
+{
+  return false; // use tone mapping by default on Xbox
+}
+
+HDR_STATUS CWinSystemWin10DX::GetOSHDRStatus()
+{
+  return CWIN32Util::GetWindowsHDRStatus();
+}
+
+HDR_STATUS CWinSystemWin10DX::ToggleHDR()
+{
+  return m_deviceResources->ToggleHDR();
+}
+
+bool CWinSystemWin10DX::IsHDROutput() const
+{
+  return m_deviceResources->IsHDROutput();
+}
+
+bool CWinSystemWin10DX::IsTransferPQ() const
+{
+  return m_deviceResources->IsTransferPQ();
+}
+
+void CWinSystemWin10DX::SetHdrMetaData(DXGI_HDR_METADATA_HDR10& hdr10) const
+{
+  m_deviceResources->SetHdrMetaData(hdr10);
+}
+
+void CWinSystemWin10DX::SetHdrColorSpace(const DXGI_COLOR_SPACE_TYPE colorSpace) const
+{
+  m_deviceResources->SetHdrColorSpace(colorSpace);
+}
+
+DEBUG_INFO_RENDER CWinSystemWin10DX::GetDebugInfo()
+{
+  return m_deviceResources->GetDebugInfo();
 }

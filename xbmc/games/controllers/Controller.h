@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include "ControllerFeature.h"
 #include "ControllerTypes.h"
 #include "addons/Addon.h"
+#include "games/controllers/input/PhysicalFeature.h"
 #include "input/joysticks/JoystickTypes.h"
 
 #include <map>
@@ -23,7 +23,7 @@ namespace KODI
 namespace GAME
 {
 class CControllerLayout;
-class CControllerTopology;
+class CPhysicalTopology;
 
 using JOYSTICK::FEATURE_TYPE;
 
@@ -41,7 +41,7 @@ public:
    *
    * \return The features
    */
-  const std::vector<CControllerFeature>& Features(void) const { return m_features; }
+  const std::vector<CPhysicalFeature>& Features(void) const { return m_features; }
 
   /*!
    * \brief Get a feature by its name
@@ -50,7 +50,7 @@ public:
    *
    * \return The feature, or a feature of type FEATURE_TYPE::UNKNOWN if the name is invalid
    */
-  const CControllerFeature& GetFeature(const std::string &name) const;
+  const CPhysicalFeature& GetFeature(const std::string& name) const;
 
   /*!
    * \brief Get the count of controller features matching the specified types
@@ -68,7 +68,8 @@ public:
    *
    * \param type The feature type, or FEATURE_TYPE::UNKNOWN to get all features
    */
-  void GetFeatures(std::vector<std::string>& features, FEATURE_TYPE type = FEATURE_TYPE::UNKNOWN) const;
+  void GetFeatures(std::vector<std::string>& features,
+                   FEATURE_TYPE type = FEATURE_TYPE::UNKNOWN) const;
 
   /*!
    * \brief Get the type of the specified feature
@@ -77,7 +78,7 @@ public:
    *
    * \return The feature type, or FEATURE_TYPE::UNKNOWN if an invalid feature was specified
    */
-  FEATURE_TYPE FeatureType(const std::string &feature) const;
+  FEATURE_TYPE FeatureType(const std::string& feature) const;
 
   /*!
    * \brief Get the input type of the specified feature
@@ -107,13 +108,13 @@ public:
    *
    * \return The physical topology of the controller
    */
-  const CControllerTopology& Topology() const;
+  const CPhysicalTopology& Topology() const;
 
 private:
   std::unique_ptr<CControllerLayout> m_layout;
-  std::vector<CControllerFeature> m_features;
+  std::vector<CPhysicalFeature> m_features;
   bool m_bLoaded = false;
 };
 
-}
-}
+} // namespace GAME
+} // namespace KODI

@@ -24,6 +24,7 @@ public:
     int defaultPort;       //!< Default port to use for protocol
     std::string type;      //!< URL type for protocol
     int label;             //!< String ID to use as label in dialog
+    std::string addonId; //!< Addon identifier, leaved empty if inside Kodi
   };
 
   CGUIDialogNetworkSetup(void);
@@ -37,16 +38,16 @@ public:
 
   std::string ConstructPath() const;
   bool SetPath(const std::string &path);
-  bool IsConfirmed() const override { return m_confirmed; };
+  bool IsConfirmed() const override { return m_confirmed; }
 
 protected:
   // implementations of ISettingCallback
-  void OnSettingChanged(std::shared_ptr<const CSetting> setting) override;
-  void OnSettingAction(std::shared_ptr<const CSetting> setting) override;
+  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
+  void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
 
   // specialization of CGUIDialogSettingsBase
   bool AllowResettingSettings() const override { return false; }
-  void Save() override { }
+  bool Save() override { return true; }
   void SetupView() override;
 
   // specialization of CGUIDialogSettingsManualBase

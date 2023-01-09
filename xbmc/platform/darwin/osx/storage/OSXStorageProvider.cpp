@@ -21,9 +21,9 @@
 std::vector<std::pair<std::string, std::string>> COSXStorageProvider::m_mountsToNotify;
 std::vector<std::pair<std::string, std::string>> COSXStorageProvider::m_unmountsToNotify;
 
-IStorageProvider* IStorageProvider::CreateInstance()
+std::unique_ptr<IStorageProvider> IStorageProvider::CreateInstance()
 {
-  return new COSXStorageProvider();
+  return std::make_unique<COSXStorageProvider>();
 }
 
 COSXStorageProvider::COSXStorageProvider()
@@ -76,12 +76,12 @@ void COSXStorageProvider::GetLocalDrives(VECSOURCES& localDrives)
         {
           if (kCFBooleanFalse == CFDictionaryGetValue(details, kDADiskDescriptionMediaRemovableKey))
           {
-            CMediaSource share;
+            CMediaSource sharesrc;
 
-            share.strPath = mountpoint;
-            Cocoa_GetVolumeNameFromMountPoint(mountpoint.c_str(), share.strName);
-            share.m_ignore = true;
-            localDrives.push_back(share);
+            sharesrc.strPath = mountpoint;
+            Cocoa_GetVolumeNameFromMountPoint(mountpoint, sharesrc.strName);
+            sharesrc.m_ignore = true;
+            localDrives.push_back(sharesrc);
           }
           CFRelease(details);
         }
@@ -120,7 +120,7 @@ void COSXStorageProvider::GetRemovableDrives(VECSOURCES& removableDrives)
 
             share.strPath = mountpoint;
             share.m_iDriveType = CMediaSource::SOURCE_TYPE_REMOVABLE;
-            Cocoa_GetVolumeNameFromMountPoint(mountpoint.c_str(), share.strName);
+            Cocoa_GetVolumeNameFromMountPoint(mountpoint, share.strName);
             share.m_ignore = true;
             // detect if its a cd or dvd
             // needs to be ejectable
@@ -148,11 +148,11 @@ void COSXStorageProvider::GetRemovableDrives(VECSOURCES& removableDrives)
 std::vector<std::string> COSXStorageProvider::GetDiskUsage()
 {
   std::vector<std::string> result;
-  char line[1024];
 
   FILE* pipe = popen("df -HT ufs,cd9660,hfs,apfs,udf", "r");
   if (pipe)
   {
+    char line[1024];
     while (fgets(line, sizeof(line) - 1, pipe))
     {
       result.emplace_back(line);

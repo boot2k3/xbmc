@@ -11,10 +11,22 @@
 //-----------------------------------------------------------------------------
 // VAAPI
 //-----------------------------------------------------------------------------
-#if defined (HAVE_LIBVA)
+#if defined(HAVE_LIBVA) && defined(HAS_EGL)
 #include <va/va_wayland.h>
 #include "cores/VideoPlayer/DVDCodecs/Video/VAAPI.h"
+#if defined(HAS_GL)
 #include "cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGL.h"
+#endif
+#if defined(HAS_GLES)
+#include "cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGLES.h"
+#endif
+
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace WAYLAND
+{
 
 class CVaapiProxy : public VAAPI::IVaapiWinSystem
 {
@@ -28,62 +40,97 @@ public:
   void *eglDisplay;
 };
 
-CVaapiProxy* WAYLAND::VaapiProxyCreate()
+CVaapiProxy* VaapiProxyCreate()
 {
   return new CVaapiProxy();
 }
 
-void WAYLAND::VaapiProxyDelete(CVaapiProxy *proxy)
+void VaapiProxyDelete(CVaapiProxy* proxy)
 {
   delete proxy;
 }
 
-void WAYLAND::VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
+void VaapiProxyConfig(CVaapiProxy* proxy, void* dpy, void* eglDpy)
 {
   proxy->dpy = static_cast<wl_display*>(dpy);
   proxy->eglDisplay = eglDpy;
 }
 
-void WAYLAND::VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
+void VAAPIRegister(CVaapiProxy* winSystem, bool deepColor)
 {
   VAAPI::CDecoder::Register(winSystem, deepColor);
 }
 
-void WAYLAND::VAAPIRegisterRender(CVaapiProxy *winSystem, bool &general, bool &deepColor)
+#if defined(HAS_GL)
+void VAAPIRegisterRenderGL(CVaapiProxy* winSystem, bool& general, bool& deepColor)
 {
   EGLDisplay eglDpy = winSystem->eglDisplay;
   VADisplay vaDpy = vaGetDisplayWl(winSystem->dpy);
-  CRendererVAAPI::Register(winSystem, vaDpy, eglDpy, general, deepColor);
+  CRendererVAAPIGL::Register(winSystem, vaDpy, eglDpy, general, deepColor);
 }
+#endif
+
+#if defined(HAS_GLES)
+void VAAPIRegisterRenderGLES(CVaapiProxy* winSystem, bool& general, bool& deepColor)
+{
+  EGLDisplay eglDpy = winSystem->eglDisplay;
+  VADisplay vaDpy = vaGetDisplayWl(winSystem->dpy);
+  CRendererVAAPIGLES::Register(winSystem, vaDpy, eglDpy, general, deepColor);
+}
+#endif
+
+} // namespace WAYLAND
+} // namespace WINDOWING
+} // namespace KODI
 
 #else
+
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace WAYLAND
+{
 
 class CVaapiProxy
 {
 };
 
-CVaapiProxy* WAYLAND::VaapiProxyCreate()
+CVaapiProxy* VaapiProxyCreate()
 {
   return nullptr;
 }
 
-void WAYLAND::VaapiProxyDelete(CVaapiProxy *proxy)
+void VaapiProxyDelete(CVaapiProxy* proxy)
 {
 }
 
-void WAYLAND::VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
-{
-
-}
-
-void WAYLAND::VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
+void VaapiProxyConfig(CVaapiProxy* proxy, void* dpy, void* eglDpy)
 {
 
 }
 
-void WAYLAND::VAAPIRegisterRender(CVaapiProxy *winSystem, bool &general, bool &deepColor)
+void VAAPIRegister(CVaapiProxy* winSystem, bool deepColor)
 {
 
 }
+
+#if defined(HAS_GL)
+void VAAPIRegisterRenderGL(CVaapiProxy* winSystem, bool& general, bool& deepColor)
+{
+
+}
+#endif
+
+#if defined(HAS_GLES)
+void VAAPIRegisterRenderGLES(CVaapiProxy* winSystem, bool& general, bool& deepColor)
+{
+}
+#endif
+
+} // namespace WAYLAND
+} // namespace WINDOWING
+} // namespace KODI
+
 #endif
 

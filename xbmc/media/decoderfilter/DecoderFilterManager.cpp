@@ -18,9 +18,10 @@
 #include "Util.h"
 #include "cores/VideoPlayer/DVDStreamInfo.h"
 #include "filesystem/File.h"
-#include "threads/SingleLock.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 static const char* TAG_ROOT = "decoderfilter";
 static const char* TAG_FILTER = "filter";
@@ -52,7 +53,7 @@ bool CDecoderFilter::isValid(const CDVDStreamInfo& streamInfo) const
   if ((flags & m_flags) != flags)
     return false;
 
-  // remove codec pitch for comparision
+  // remove codec pitch for comparison
   if (m_minHeight && (streamInfo.height & ~31) <= m_minHeight)
     return false;
 
@@ -99,21 +100,21 @@ bool CDecoderFilter::Save(TiXmlNode *node) const
 
 bool CDecoderFilterManager::isValid(const std::string& name, const CDVDStreamInfo& streamInfo)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   std::set<CDecoderFilter>::const_iterator filter(m_filters.find(name));
   return filter != m_filters.end() ? filter->isValid(streamInfo) : m_filters.empty();
 }
 
 void CDecoderFilterManager::add(const CDecoderFilter& filter)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   std::pair<std::set<CDecoderFilter>::iterator, bool> res = m_filters.insert(filter);
   m_dirty = m_dirty || res.second;
 }
 
 bool CDecoderFilterManager::Load()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   m_filters.clear();
 
@@ -121,19 +122,20 @@ bool CDecoderFilterManager::Load()
   if (!XFILE::CFile::Exists(fileName))
     return true;
 
-  CLog::Log(LOGNOTICE, "%s: loading filters from %s", CLASSNAME, fileName.c_str());
+  CLog::Log(LOGINFO, "{}: loading filters from {}", CLASSNAME, fileName);
 
   CXBMCTinyXML xmlDoc;
   if (!xmlDoc.LoadFile(fileName))
   {
-    CLog::Log(LOGERROR, "%s: error loading: line %d, %s", CLASSNAME, xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+    CLog::Log(LOGERROR, "{}: error loading: line {}, {}", CLASSNAME, xmlDoc.ErrorRow(),
+              xmlDoc.ErrorDesc());
     return false;
   }
 
   const TiXmlElement *pRootElement = xmlDoc.RootElement();
   if (!pRootElement || !StringUtils::EqualsNoCase(pRootElement->ValueStr(), TAG_ROOT))
   {
-    CLog::Log(LOGERROR, "%s: invalid root element (%s)", CLASSNAME, pRootElement->ValueStr().c_str());
+    CLog::Log(LOGERROR, "{}: invalid root element ({})", CLASSNAME, pRootElement->ValueStr());
     return false;
   }
 
@@ -150,7 +152,7 @@ bool CDecoderFilterManager::Load()
 
 bool CDecoderFilterManager::Save() const
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   if (!m_dirty || m_filters.empty())
     return true;
 

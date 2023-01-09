@@ -10,8 +10,9 @@
 
 #include "ControllerDefinitions.h"
 #include "ControllerLayout.h"
-#include "ControllerTopology.h"
 #include "URL.h"
+#include "addons/addoninfo/AddonType.h"
+#include "games/controllers/input/PhysicalTopology.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
@@ -25,13 +26,12 @@ using namespace GAME;
 
 struct FeatureTypeEqual
 {
-  FeatureTypeEqual(FEATURE_TYPE type, JOYSTICK::INPUT_TYPE inputType) :
-    type(type),
-    inputType(inputType)
+  FeatureTypeEqual(FEATURE_TYPE type, JOYSTICK::INPUT_TYPE inputType)
+    : type(type), inputType(inputType)
   {
   }
 
-  bool operator()(const CControllerFeature& feature) const
+  bool operator()(const CPhysicalFeature& feature) const
   {
     if (type == FEATURE_TYPE::UNKNOWN)
       return true; // Match all feature types
@@ -55,47 +55,46 @@ struct FeatureTypeEqual
 
 const ControllerPtr CController::EmptyPtr;
 
-CController::CController(const ADDON::AddonInfoPtr& addonInfo) :
-  CAddon(addonInfo, ADDON::ADDON_GAME_CONTROLLER),
-  m_layout(new CControllerLayout)
+CController::CController(const ADDON::AddonInfoPtr& addonInfo)
+  : CAddon(addonInfo, ADDON::AddonType::GAME_CONTROLLER), m_layout(new CControllerLayout)
 {
 }
 
 CController::~CController() = default;
 
-const CControllerFeature& CController::GetFeature(const std::string &name) const
+const CPhysicalFeature& CController::GetFeature(const std::string& name) const
 {
-  auto it = std::find_if(m_features.begin(), m_features.end(),
-    [&name](const CControllerFeature &feature)
-    {
-      return name == feature.Name();
-    });
+  auto it =
+      std::find_if(m_features.begin(), m_features.end(),
+                   [&name](const CPhysicalFeature& feature) { return name == feature.Name(); });
 
   if (it != m_features.end())
     return *it;
 
-  static const CControllerFeature invalid{};
+  static const CPhysicalFeature invalid{};
   return invalid;
 }
 
-unsigned int CController::FeatureCount(FEATURE_TYPE type /* = FEATURE_TYPE::UNKNOWN */,
-                                       JOYSTICK::INPUT_TYPE inputType /* = JOYSTICK::INPUT_TYPE::UNKNOWN */) const
+unsigned int CController::FeatureCount(
+    FEATURE_TYPE type /* = FEATURE_TYPE::UNKNOWN */,
+    JOYSTICK::INPUT_TYPE inputType /* = JOYSTICK::INPUT_TYPE::UNKNOWN */) const
 {
-  auto featureCount = std::count_if(m_features.begin(), m_features.end(), FeatureTypeEqual(type, inputType));
+  auto featureCount =
+      std::count_if(m_features.begin(), m_features.end(), FeatureTypeEqual(type, inputType));
   return static_cast<unsigned int>(featureCount);
 }
 
 void CController::GetFeatures(std::vector<std::string>& features,
                               FEATURE_TYPE type /* = FEATURE_TYPE::UNKNOWN */) const
 {
-  for (const CControllerFeature& feature : m_features)
+  for (const CPhysicalFeature& feature : m_features)
   {
     if (type == FEATURE_TYPE::UNKNOWN || type == feature.Type())
       features.push_back(feature.Name());
   }
 }
 
-JOYSTICK::FEATURE_TYPE CController::FeatureType(const std::string &feature) const
+JOYSTICK::FEATURE_TYPE CController::FeatureType(const std::string& feature) const
 {
   for (auto it = m_features.begin(); it != m_features.end(); ++it)
   {
@@ -121,19 +120,20 @@ bool CController::LoadLayout(void)
   {
     std::string strLayoutXmlPath = LibPath();
 
-    CLog::Log(LOGINFO, "Loading controller layout: %s", CURL::GetRedacted(strLayoutXmlPath).c_str());
+    CLog::Log(LOGINFO, "Loading controller layout: {}", CURL::GetRedacted(strLayoutXmlPath));
 
     CXBMCTinyXML xmlDoc;
     if (!xmlDoc.LoadFile(strLayoutXmlPath))
     {
-      CLog::Log(LOGDEBUG, "Unable to load file: %s at line %d", xmlDoc.ErrorDesc(), xmlDoc.ErrorRow());
+      CLog::Log(LOGDEBUG, "Unable to load file: {} at line {}", xmlDoc.ErrorDesc(),
+                xmlDoc.ErrorRow());
       return false;
     }
 
     TiXmlElement* pRootElement = xmlDoc.RootElement();
     if (!pRootElement || pRootElement->NoChildren() || pRootElement->ValueStr() != LAYOUT_XML_ROOT)
     {
-      CLog::Log(LOGERROR, "Can't find root <%s> tag", LAYOUT_XML_ROOT);
+      CLog::Log(LOGERROR, "Can't find root <{}> tag", LAYOUT_XML_ROOT);
       return false;
     }
 
@@ -151,7 +151,7 @@ bool CController::LoadLayout(void)
   return m_bLoaded;
 }
 
-const CControllerTopology& CController::Topology() const
+const CPhysicalTopology& CController::Topology() const
 {
   return m_layout->Topology();
 }

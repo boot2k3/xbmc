@@ -1,9 +1,4 @@
-set(SOURCES Application.cpp
-            AppInboundProtocol.cpp
-            ApplicationPlayer.cpp
-            ApplicationStackHelper.cpp
-            AppParamParser.cpp
-            AutoSwitch.cpp
+set(SOURCES AutoSwitch.cpp
             BackgroundInfoLoader.cpp
             ContextMenuItem.cpp
             ContextMenuManager.cpp
@@ -35,15 +30,9 @@ set(SOURCES Application.cpp
             ThumbLoader.cpp
             URL.cpp
             Util.cpp
-            XBApplicationEx.cpp
             XBDateTime.cpp)
 
-set(HEADERS AppParamParser.h
-            Application.h
-            AppInboundProtocol.h
-            ApplicationPlayer.h
-            ApplicationStackHelper.h
-            AutoSwitch.h
+set(HEADERS AutoSwitch.h
             BackgroundInfoLoader.h
             CompileInfo.h
             ContextMenuItem.h
@@ -61,6 +50,7 @@ set(HEADERS AppParamParser.h
             GUILargeTextureManager.h
             GUIPassword.h
             GUIUserMessages.h
+            HDRStatus.h
             IFileItemListModifier.h
             IProgressCallback.h
             InfoScanner.h
@@ -82,9 +72,8 @@ set(HEADERS AppParamParser.h
             ThumbLoader.h
             URL.h
             Util.h
-            XBApplicationEx.h
             XBDateTime.h
-            system.h
+            system_egl.h
             system_gl.h)
 
 if(ENABLE_OPTICAL)

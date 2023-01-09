@@ -8,10 +8,10 @@
 
 #include "ContextMenuAddon.h"
 
-#include "AddonManager.h"
 #include "ContextMenuItem.h"
 #include "ContextMenuManager.h"
-#include "ServiceBroker.h"
+#include "addons/addoninfo/AddonType.h"
+#include "guilib/LocalizeStrings.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
@@ -21,11 +21,9 @@ namespace ADDON
 {
 
 CContextMenuAddon::CContextMenuAddon(const AddonInfoPtr& addonInfo)
-    : CAddon(addonInfo, ADDON_CONTEXT_ITEM)
+  : CAddon(addonInfo, AddonType::CONTEXTMENU_ITEM)
 {
-  std::vector<CContextMenuItem> items;
-
-  const CAddonExtensions* menu = Type(ADDON_CONTEXT_ITEM)->GetElement("menu");
+  const CAddonExtensions* menu = Type(AddonType::CONTEXTMENU_ITEM)->GetElement("menu");
   if (menu)
   {
     int tmp = 0;
@@ -34,7 +32,7 @@ CContextMenuAddon::CContextMenuAddon(const AddonInfoPtr& addonInfo)
   else
   {
     //backwards compatibility. add first item definition
-    const CAddonExtensions* elem = Type(ADDON_CONTEXT_ITEM)->GetElement("item");
+    const CAddonExtensions* elem = Type(AddonType::CONTEXTMENU_ITEM)->GetElement("item");
     if (elem)
     {
       std::string visCondition = elem->GetValue("visible").asString();
@@ -48,13 +46,17 @@ CContextMenuAddon::CContextMenuAddon(const AddonInfoPtr& addonInfo)
       if (StringUtils::IsNaturalNumber(label))
         label = g_localizeStrings.GetAddonString(ID(), atoi(label.c_str()));
 
-      CContextMenuItem menuItem = CContextMenuItem::CreateItem(label, parent,
-          URIUtils::AddFileToFolder(Path(), Type(ADDON_CONTEXT_ITEM)->LibName()), visCondition, ID());
+      CContextMenuItem menuItem = CContextMenuItem::CreateItem(
+          label, parent,
+          URIUtils::AddFileToFolder(Path(), Type(AddonType::CONTEXTMENU_ITEM)->LibName()),
+          visCondition, ID());
 
       m_items.push_back(menuItem);
     }
   }
 }
+
+CContextMenuAddon::~CContextMenuAddon() = default;
 
 void CContextMenuAddon::ParseMenu(
     const CAddonExtensions* elem,
@@ -76,10 +78,10 @@ void CContextMenuAddon::ParseMenu(
 
   m_items.push_back(CContextMenuItem::CreateGroup(menuLabel, parent, menuId, ID()));
 
-  for (const auto subMenu : elem->GetElements("menu"))
+  for (const auto& subMenu : elem->GetElements("menu"))
     ParseMenu(&subMenu.second, menuId, anonGroupCount);
 
-  for (const auto element : elem->GetElements("item"))
+  for (const auto& element : elem->GetElements("item"))
   {
     std::string visCondition = element.second.GetValue("visible").asString();
     std::string library = element.second.GetValue("@library").asString();
@@ -87,10 +89,17 @@ void CContextMenuAddon::ParseMenu(
     if (StringUtils::IsNaturalNumber(label))
       label = g_localizeStrings.GetAddonString(ID(), atoi(label.c_str()));
 
+    std::vector<std::string> args;
+    args.push_back(ID());
+ 
+    std::string arg = element.second.GetValue("@args").asString();
+    if (!arg.empty())
+      args.push_back(arg);
+
     if (!label.empty() && !library.empty() && !visCondition.empty())
     {
       auto menu = CContextMenuItem::CreateItem(label, menuId,
-          URIUtils::AddFileToFolder(Path(), library), visCondition, ID());
+          URIUtils::AddFileToFolder(Path(), library), visCondition, ID(), args);
       m_items.push_back(menu);
     }
   }

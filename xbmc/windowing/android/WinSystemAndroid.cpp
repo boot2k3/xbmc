@@ -24,7 +24,8 @@
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
+#include "system_egl.h"
+#include "utils/HDRCapabilities.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/Resolution.h"
@@ -32,21 +33,18 @@
 #include "platform/android/activity/XBMCApp.h"
 #include "platform/android/media/decoderfilter/MediaCodecDecoderFilterManager.h"
 #include "platform/android/media/drm/MediaDrmCryptoSession.h"
-#include "platform/android/powermanagement/AndroidPowerSyscall.h"
 
 #include <float.h>
+#include <mutex>
 #include <string.h>
 
-#include <EGL/egl.h>
 #include <EGL/eglplatform.h>
 
 using namespace KODI;
+using namespace std::chrono_literals;
 
 CWinSystemAndroid::CWinSystemAndroid()
 {
-  m_nativeDisplay = EGL_NO_DISPLAY;
-  m_nativeWindow = nullptr;
-
   m_displayWidth = 0;
   m_displayHeight = 0;
 
@@ -57,13 +55,11 @@ CWinSystemAndroid::CWinSystemAndroid()
   m_android = nullptr;
 
   m_winEvents.reset(new CWinEventsAndroid());
-  CAndroidPowerSyscall::Register();
 }
 
 CWinSystemAndroid::~CWinSystemAndroid()
 {
-  m_nativeWindow = nullptr;
-  delete m_dispResetTimer, m_dispResetTimer = nullptr;
+  delete m_dispResetTimer;
 }
 
 bool CWinSystemAndroid::InitWindowSystem()
@@ -94,7 +90,7 @@ bool CWinSystemAndroid::InitWindowSystem()
 
 bool CWinSystemAndroid::DestroyWindowSystem()
 {
-  CLog::Log(LOGNOTICE, "CWinSystemAndroid::%s", __FUNCTION__);
+  CLog::Log(LOGINFO, "CWinSystemAndroid::{}", __FUNCTION__);
 
   delete m_android;
   m_android = nullptr;
@@ -137,12 +133,13 @@ bool CWinSystemAndroid::CreateNewWindow(const std::string& name,
   m_stereo_mode = stereo_mode;
   m_bFullScreen = fullScreen;
 
-  m_nativeWindow = CXBMCApp::GetNativeWindow(2000);
+  m_nativeWindow = CXBMCApp::Get().GetNativeWindow(2000);
   if (!m_nativeWindow)
   {
     CLog::Log(LOGERROR, "CWinSystemAndroid::CreateNewWindow: failed");
     return false;
   }
+
   m_android->SetNativeResolution(res);
 
   return true;
@@ -150,8 +147,8 @@ bool CWinSystemAndroid::CreateNewWindow(const std::string& name,
 
 bool CWinSystemAndroid::DestroyWindow()
 {
-  CLog::Log(LOGNOTICE, "CWinSystemAndroid::%s", __FUNCTION__);
-  m_nativeWindow = nullptr;
+  CLog::Log(LOGINFO, "CWinSystemAndroid::{}", __FUNCTION__);
+  m_nativeWindow.reset();
   m_bWindowCreated = false;
   return true;
 }
@@ -168,7 +165,7 @@ void CWinSystemAndroid::UpdateResolutions(bool bUpdateDesktopRes)
   std::vector<RESOLUTION_INFO> resolutions;
   if (!m_android->ProbeResolutions(resolutions) || resolutions.empty())
   {
-    CLog::Log(LOGWARNING, "CWinSystemAndroid::%s failed.", __FUNCTION__);
+    CLog::Log(LOGWARNING, "CWinSystemAndroid::{} failed.", __FUNCTION__);
   }
 
   const RESOLUTION_INFO resWindow = CDisplaySettings::GetInstance().GetResolutionInfo(RES_WINDOW);
@@ -222,12 +219,13 @@ void CWinSystemAndroid::OnTimeout()
 
 void CWinSystemAndroid::InitiateModeChange()
 {
-  int delay = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
-                  "videoscreen.delayrefreshchange") *
-              100;
+  auto delay =
+      std::chrono::milliseconds(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+                                    "videoscreen.delayrefreshchange") *
+                                100);
 
-  if (delay < 2000)
-    delay = 2000;
+  if (delay < 2000ms)
+    delay = 2000ms;
   m_dispResetTimer->Stop();
   m_dispResetTimer->Start(delay);
 
@@ -236,8 +234,8 @@ void CWinSystemAndroid::InitiateModeChange()
 
 void CWinSystemAndroid::SetHdmiState(bool connected)
 {
-  CSingleLock lock(m_resourceSection);
-  CLog::Log(LOGDEBUG, "CWinSystemAndroid::SetHdmiState: state: %d", static_cast<int>(connected));
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  CLog::Log(LOGDEBUG, "CWinSystemAndroid::SetHdmiState: state: {}", static_cast<int>(connected));
 
   if (connected)
   {
@@ -292,13 +290,13 @@ bool CWinSystemAndroid::Show(bool raise)
 
 void CWinSystemAndroid::Register(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemAndroid::Unregister(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -323,4 +321,9 @@ std::unique_ptr<WINDOWING::IOSScreenSaver> CWinSystemAndroid::GetOSScreenSaverIm
 {
   std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> ret(new COSScreenSaverAndroid());
   return ret;
+}
+
+CHDRCapabilities CWinSystemAndroid::GetDisplayHDRCapabilities() const
+{
+  return CAndroidUtils::GetDisplayHDRCapabilities();
 }

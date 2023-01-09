@@ -7,7 +7,6 @@
  */
 
 #include "network/Network.h"
-#include "threads/SystemClock.h"
 #if defined(TARGET_DARWIN)
 #include <sys/param.h>
 #include <mach-o/dyld.h>
@@ -30,19 +29,19 @@
 #include "platform/android/activity/XBMCApp.h"
 #include "CompileInfo.h"
 #endif
-#include <stdlib.h>
-#include <algorithm>
-#include <array>
-
-#include "addons/VFSEntry.h"
 #include "ServiceBroker.h"
 #include "Util.h"
-#include "filesystem/PVRDirectory.h"
+#include "addons/VFSEntry.h"
 #include "filesystem/Directory.h"
-#include "filesystem/StackDirectory.h"
 #include "filesystem/MultiPathDirectory.h"
-#include "filesystem/SpecialProtocol.h"
+#include "filesystem/PVRDirectory.h"
 #include "filesystem/RSSDirectory.h"
+#include "filesystem/SpecialProtocol.h"
+#include "filesystem/StackDirectory.h"
+
+#include <algorithm>
+#include <array>
+#include <stdlib.h>
 #ifdef HAS_UPNP
 #include "filesystem/UPnPDirectory.h"
 #endif
@@ -59,24 +58,25 @@
 #include "CompileInfo.h"
 #include "platform/darwin/DarwinUtils.h"
 #endif
+#include "URL.h"
+#include "cores/VideoPlayer/DVDSubtitles/DVDSubtitleStream.h"
+#include "cores/VideoPlayer/DVDSubtitles/DVDSubtitleTagSami.h"
 #include "filesystem/File.h"
+#include "guilib/LocalizeStrings.h"
+#include "platform/Environment.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
-#include "utils/StringUtils.h"
-#include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
-#include "guilib/LocalizeStrings.h"
 #include "utils/Digest.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/FontUtils.h"
+#include "utils/LangCodeExpander.h"
+#include "utils/StringUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
-#include "platform/Environment.h"
-
-#include "cores/VideoPlayer/DVDSubtitles/DVDSubtitleTagSami.h"
-#include "cores/VideoPlayer/DVDSubtitles/DVDSubtitleStream.h"
-#include "URL.h"
-#include "utils/LangCodeExpander.h"
+#include "video/VideoDatabase.h"
 #include "video/VideoInfoTag.h"
 #ifdef HAVE_LIBCAP
   #include <sys/capability.h>
@@ -310,8 +310,6 @@ std::string CUtil::GetTitleFromPath(const CURL& url, bool bIsFolder /* = false *
   URIUtils::RemoveSlashAtEnd(path);
   std::string strFilename = URIUtils::GetFileName(path);
 
-  std::string strHostname = url.GetHostName();
-
 #ifdef HAS_UPNP
   // UPNP
   if (url.IsProtocol("upnp"))
@@ -397,7 +395,8 @@ void CUtil::CleanString(const std::string& strFileName,
 
   if (!reYear.RegComp(advancedSettings->m_videoCleanDateTimeRegExp))
   {
-    CLog::Log(LOGERROR, "%s: Invalid datetime clean RegExp:'%s'", __FUNCTION__, advancedSettings->m_videoCleanDateTimeRegExp.c_str());
+    CLog::Log(LOGERROR, "{}: Invalid datetime clean RegExp:'{}'", __FUNCTION__,
+              advancedSettings->m_videoCleanDateTimeRegExp);
   }
   else
   {
@@ -414,7 +413,7 @@ void CUtil::CleanString(const std::string& strFileName,
   {
     if (!reTags.RegComp(regexp.c_str()))
     { // invalid regexp - complain in logs
-      CLog::Log(LOGERROR, "%s: Invalid string clean RegExp:'%s'", __FUNCTION__, regexp.c_str());
+      CLog::Log(LOGERROR, "{}: Invalid string clean RegExp:'{}'", __FUNCTION__, regexp);
       continue;
     }
     int j=0;
@@ -501,7 +500,7 @@ void CUtil::RunShortcut(const char* szShortcutPath)
 {
 }
 
-std::string CUtil::GetHomePath(std::string strTarget)
+std::string CUtil::GetHomePath(const std::string& strTarget)
 {
   auto strPath = CEnvironment::getenv(strTarget);
 
@@ -534,7 +533,7 @@ bool CUtil::ExcludeFileOrFolder(const std::string& strFileOrFolder, const std::v
   {
     if (!regExExcludes.RegComp(regexp.c_str()))
     { // invalid regexp - complain in logs
-      CLog::Log(LOGERROR, "%s: Invalid exclude RegExp:'%s'", __FUNCTION__, regexp.c_str());
+      CLog::Log(LOGERROR, "{}: Invalid exclude RegExp:'{}'", __FUNCTION__, regexp);
       continue;
     }
     if (regExExcludes.RegFind(strFileOrFolder) > -1)
@@ -553,7 +552,7 @@ void CUtil::GetFileAndProtocol(const std::string& strURL, std::string& strDir)
   if (URIUtils::IsDVD(strURL)) return ;
 
   CURL url(strURL);
-  strDir = StringUtils::Format("%s://%s", url.GetProtocol().c_str(), url.GetFileName().c_str());
+  strDir = StringUtils::Format("{}://{}", url.GetProtocol(), url.GetFileName());
 }
 
 int CUtil::GetDVDIfoTitle(const std::string& strFile)
@@ -672,28 +671,10 @@ void CUtil::ClearSubtitles()
       if (item->GetPath().find("subtitle") != std::string::npos ||
           item->GetPath().find("vobsub_queue") != std::string::npos)
       {
-        CLog::Log(LOGDEBUG, "%s - Deleting temporary subtitle %s", __FUNCTION__, item->GetPath().c_str());
+        CLog::Log(LOGDEBUG, "{} - Deleting temporary subtitle {}", __FUNCTION__, item->GetPath());
         CFile::Delete(item->GetPath());
       }
     }
-  }
-}
-
-void CUtil::ClearTempFonts()
-{
-  std::string searchPath = "special://temp/fonts/";
-
-  if (!CDirectory::Exists(searchPath))
-    return;
-
-  CFileItemList items;
-  CDirectory::GetDirectory(searchPath, items, "", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_BYPASS_CACHE);
-
-  for (const auto &item : items)
-  {
-    if (item->m_bIsFolder)
-      continue;
-    CFile::Delete(item->GetPath());
   }
 }
 
@@ -706,14 +687,18 @@ int64_t CUtil::ToInt64(uint32_t high, uint32_t low)
   return n;
 }
 
+/*!
+  \brief Finds next unused filename that matches padded int format identifier provided
+  \param[in]  fn_template    filename template consisting of a padded int format identifier (eg screenshot%03d)
+  \param[in]  max            maximum number to search for available name
+  \return "" on failure, string next available name matching format identifier on success
+*/
+
 std::string CUtil::GetNextFilename(const std::string &fn_template, int max)
 {
-  if (fn_template.find("%03d") == std::string::npos)
-    return "";
-
   std::string searchPath = URIUtils::GetDirectory(fn_template);
   std::string mask = URIUtils::GetExtension(fn_template);
-  std::string name = StringUtils::Format(fn_template.c_str(), 0);
+  std::string name = StringUtils::Format(fn_template, 0);
 
   CFileItemList items;
   if (!CDirectory::GetDirectory(searchPath, items, mask, DIR_FLAG_NO_FILE_DIRS))
@@ -722,7 +707,7 @@ std::string CUtil::GetNextFilename(const std::string &fn_template, int max)
   items.SetFastLookup(true);
   for (int i = 0; i <= max; i++)
   {
-    std::string name = StringUtils::Format(fn_template.c_str(), i);
+    std::string name = StringUtils::Format(fn_template, i);
     if (!items.Get(name))
       return name;
   }
@@ -736,7 +721,7 @@ std::string CUtil::GetNextPathname(const std::string &path_template, int max)
 
   for (int i = 0; i <= max; i++)
   {
-    std::string name = StringUtils::Format(path_template.c_str(), i);
+    std::string name = StringUtils::Format(path_template, i);
     if (!CFile::Exists(name) && !CDirectory::Exists(name))
       return name;
   }
@@ -895,7 +880,7 @@ bool CUtil::CreateDirectoryEx(const std::string& strPath)
   // we currently only allow HD and smb and nfs paths
   if (!URIUtils::IsHD(strPath) && !URIUtils::IsSmb(strPath) && !URIUtils::IsNfs(strPath))
   {
-    CLog::Log(LOGERROR,"%s called with an unsupported path: %s", __FUNCTION__, strPath.c_str());
+    CLog::Log(LOGERROR, "{} called with an unsupported path: {}", __FUNCTION__, strPath);
     return false;
   }
 
@@ -904,7 +889,7 @@ bool CUtil::CreateDirectoryEx(const std::string& strPath)
     return false;
   std::string dir(dirs.front());
   URIUtils::AddSlashAtEnd(dir);
-  for (std::vector<std::string>::const_iterator it = dirs.begin() + 1; it != dirs.end(); it ++)
+  for (std::vector<std::string>::const_iterator it = dirs.begin() + 1; it != dirs.end(); ++it)
   {
     dir = URIUtils::AddFileToFolder(dir, *it);
     CDirectory::Create(dir);
@@ -956,7 +941,7 @@ std::string CUtil::MakeLegalPath(const std::string &strPathAndFile, int LegalTyp
   // "protocol://domain"
   std::string dir(dirs.front());
   URIUtils::AddSlashAtEnd(dir);
-  for (std::vector<std::string>::const_iterator it = dirs.begin() + 1; it != dirs.end(); it ++)
+  for (std::vector<std::string>::const_iterator it = dirs.begin() + 1; it != dirs.end(); ++it)
     dir = URIUtils::AddFileToFolder(dir, MakeLegalFileName(*it, LegalType));
   if (trailingSlash) URIUtils::AddSlashAtEnd(dir);
   return dir;
@@ -1017,33 +1002,6 @@ std::string CUtil::ValidatePath(const std::string &path, bool bFixDoubleSlashes 
     }
   }
   return result;
-}
-
-bool CUtil::IsUsingTTFSubtitles()
-{
-  return URIUtils::HasExtension(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_SUBTITLES_FONT), ".ttf");
-}
-
-void CUtil::SplitExecFunction(const std::string &execString, std::string &function, std::vector<std::string> &parameters)
-{
-  std::string paramString;
-
-  size_t iPos = execString.find("(");
-  size_t iPos2 = execString.rfind(")");
-  if (iPos != std::string::npos && iPos2 != std::string::npos)
-  {
-    paramString = execString.substr(iPos + 1, iPos2 - iPos - 1);
-    function = execString.substr(0, iPos);
-  }
-  else
-    function = execString;
-
-  // remove any whitespace, and the standard prefix (if it exists)
-  StringUtils::Trim(function);
-  if( StringUtils::StartsWithNoCase(function, "xbmc.") )
-    function.erase(0, 5);
-
-  SplitParams(paramString, parameters);
 }
 
 void CUtil::SplitParams(const std::string &paramString, std::vector<std::string> &parameters)
@@ -1121,7 +1079,8 @@ void CUtil::SplitParams(const std::string &paramString, std::vector<std::string>
     parameter += ch;
   }
   if (inFunction || inQuotes)
-    CLog::Log(LOGWARNING, "%s(%s) - end of string while searching for ) or \"", __FUNCTION__, paramString.c_str());
+    CLog::Log(LOGWARNING, "{}({}) - end of string while searching for ) or \"", __FUNCTION__,
+              paramString);
   if (whiteSpacePos)
     parameter.erase(whiteSpacePos);
   // trim off start and end quotes
@@ -1155,14 +1114,16 @@ int CUtil::GetMatchingSource(const std::string& strPath1, VECSOURCES& VECSOURCES
   if (StringUtils::StartsWith(strPath, "special://skin/"))
     return 1;
 
+  // do not return early if URL protocol is "plugin"
+  // since video- and/or audio-plugins can be configured as mediasource
+
   // stack://
   if (checkURL.IsProtocol("stack"))
     strPath.erase(0, 8); // remove the stack protocol
 
   if (checkURL.IsProtocol("shout"))
     strPath = checkURL.GetHostName();
-  if (checkURL.IsProtocol("plugin"))
-    return 1;
+
   if (checkURL.IsProtocol("multipath"))
     strPath = CMultiPathDirectory::GetFirstPath(strPath);
 
@@ -1221,7 +1182,7 @@ int CUtil::GetMatchingSource(const std::string& strPath1, VECSOURCES& VECSOURCES
         return i;
     }
 
-    // doesnt match a name, so try the source path
+    // doesn't match a name, so try the source path
     std::vector<std::string> vecPaths;
 
     // add any concatenated paths if they exist
@@ -1279,7 +1240,7 @@ int CUtil::GetMatchingSource(const std::string& strPath1, VECSOURCES& VECSOURCES
       return GetMatchingSource(strPath, VECSOURCES, bDummy);
     }
 
-    CLog::Log(LOGDEBUG,"CUtil::GetMatchingSource: no matching source found for [%s]", strPath1.c_str());
+    CLog::Log(LOGDEBUG, "CUtil::GetMatchingSource: no matching source found for [{}]", strPath1);
   }
   return iIndex;
 }
@@ -1410,7 +1371,7 @@ double CUtil::AlbumRelevance(const std::string& strAlbumTemp1, const std::string
   std::string strAlbum = strAlbum1;
   StringUtils::ToLower(strAlbum);
   double fAlbumPercentage = fstrcmp(strAlbumTemp.c_str(), strAlbum.c_str());
-  double fArtistPercentage = 0.0f;
+  double fArtistPercentage = 0.0;
   if (!strArtist1.empty())
   {
     std::string strArtistTemp = strArtistTemp1;
@@ -1419,7 +1380,7 @@ double CUtil::AlbumRelevance(const std::string& strAlbumTemp1, const std::string
     StringUtils::ToLower(strArtist);
     fArtistPercentage = fstrcmp(strArtistTemp.c_str(), strArtist.c_str());
   }
-  double fRelevance = fAlbumPercentage * 0.5f + fArtistPercentage * 0.5f;
+  double fRelevance = fAlbumPercentage * 0.5 + fArtistPercentage * 0.5;
   return fRelevance;
 }
 
@@ -1469,7 +1430,7 @@ bool CUtil::MakeShortenPath(std::string StrInput, std::string& StrOutput, size_t
     iStrInputSize = StrInput.size();
   }
   // replace any additional /../../ with just /../ if necessary
-  std::string replaceDots = StringUtils::Format("..%c..", cDelim);
+  std::string replaceDots = StringUtils::Format("..{}..", cDelim);
   while (StrInput.size() > (unsigned int)iTextMaxLength)
     if (!StringUtils::Replace(StrInput, replaceDots, ".."))
       break;
@@ -1505,8 +1466,7 @@ bool CUtil::SupportsWriteFileOperations(const std::string& strPath)
   if (URIUtils::IsMultiPath(strPath))
     return CMultiPathDirectory::SupportsWriteFileOperations(strPath);
 
-
-  if (CServiceBroker::IsBinaryAddonCacheUp())
+  if (CServiceBroker::IsAddonInterfaceUp())
   {
     CURL url(strPath);
     for (const auto& addon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
@@ -1569,11 +1529,10 @@ void CUtil::GetSkinThemes(std::vector<std::string>& vecTheme)
 void CUtil::InitRandomSeed()
 {
   // Init random seed
-  int64_t now;
-  now = CurrentHostCounter();
-  unsigned int seed = (unsigned int)now;
-//  CLog::Log(LOGDEBUG, "%s - Initializing random seed with %u", __FUNCTION__, seed);
-  srand(seed);
+  auto now = std::chrono::steady_clock::now();
+  auto seed = now.time_since_epoch();
+
+  srand(static_cast<unsigned int>(seed.count()));
 }
 
 #if defined(TARGET_POSIX) && !defined(TARGET_DARWIN_TVOS)
@@ -1906,7 +1865,8 @@ void CUtil::ScanPathsForAssociatedItems(const std::string& videoName,
       else
       {
         associatedFiles.push_back(pItem->GetPath());
-        CLog::Log(LOGINFO, "%s: found associated file %s\n", __FUNCTION__, CURL::GetRedacted(pItem->GetPath()).c_str());
+        CLog::Log(LOGINFO, "{}: found associated file {}", __FUNCTION__,
+                  CURL::GetRedacted(pItem->GetPath()));
       }
     }
     else
@@ -1922,7 +1882,7 @@ int CUtil::ScanArchiveForAssociatedItems(const std::string& strArchivePath,
                                          const std::vector<std::string>& item_exts,
                                          std::vector<std::string>& associatedFiles)
 {
-  CLog::LogF(LOGDEBUG, "Scanning archive %s", CURL::GetRedacted(strArchivePath).c_str());
+  CLog::LogF(LOGDEBUG, "Scanning archive {}", CURL::GetRedacted(strArchivePath));
   int nItemsAdded = 0;
   CFileItemList ItemList;
 
@@ -1946,6 +1906,14 @@ int CUtil::ScanArchiveForAssociatedItems(const std::string& strArchivePath,
     std::string strPathInRar = item->GetPath();
     std::string strExt = URIUtils::GetExtension(strPathInRar);
 
+    // Check another archive in archive
+    if (strExt == ".zip" || strExt == ".rar")
+    {
+      nItemsAdded +=
+          ScanArchiveForAssociatedItems(strPathInRar, videoNameNoExt, item_exts, associatedFiles);
+      continue;
+    }
+
     // check that the found filename matches the movie filename
     size_t fnl = videoNameNoExt.size();
     // NOTE: We don't know if videoNameNoExt is URL-encoded, so try both
@@ -1954,11 +1922,12 @@ int CUtil::ScanArchiveForAssociatedItems(const std::string& strArchivePath,
         StringUtils::StartsWithNoCase(URIUtils::GetFileName(strPathInRar), CURL::Decode(videoNameNoExt))))
       continue;
 
-    for (auto ext : item_exts)
+    for (const auto& ext : item_exts)
     {
       if (StringUtils::EqualsNoCase(strExt, ext))
       {
-        CLog::Log(LOGINFO, "%s: found associated file %s\n", __FUNCTION__, CURL::GetRedacted(strPathInRar).c_str());
+        CLog::Log(LOGINFO, "{}: found associated file {}", __FUNCTION__,
+                  CURL::GetRedacted(strPathInRar));
         associatedFiles.push_back(strPathInRar);
         nItemsAdded++;
         break;
@@ -1971,16 +1940,16 @@ int CUtil::ScanArchiveForAssociatedItems(const std::string& strArchivePath,
 
 void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<std::string>& vecSubtitles)
 {
-  unsigned int startTimer = XbmcThreads::SystemClockMillis();
+  auto start = std::chrono::steady_clock::now();
 
   CFileItem item(strMovie, false);
-  if (item.IsInternetStream()
+  if ((item.IsInternetStream() && !URIUtils::IsOnLAN(item.GetDynPath()))
     || item.IsPlayList()
     || item.IsLiveTV()
     || !item.IsVideo())
     return;
 
-  CLog::Log(LOGDEBUG, "%s: Searching for subtitles...", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{}: Searching for subtitles...", __FUNCTION__);
 
   std::string strBasePath;
   std::string strSubtitle;
@@ -2048,10 +2017,12 @@ void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<st
         {
           for (const auto &lang : TagConv.m_Langclass)
           {
-            std::string strDest = StringUtils::Format("special://temp/subtitle.%s.%zu.smi", lang.Name.c_str(), i);
+            std::string strDest =
+                StringUtils::Format("special://temp/subtitle.{}.{}.smi", lang.Name, i);
             if (CFile::Copy(vecSubtitles[i], strDest))
             {
-              CLog::Log(LOGINFO, " cached subtitle %s->%s\n", CURL::GetRedacted(vecSubtitles[i]).c_str(), strDest.c_str());
+              CLog::Log(LOGINFO, " cached subtitle {}->{}", CURL::GetRedacted(vecSubtitles[i]),
+                        strDest);
               vecSubtitles.push_back(strDest);
             }
           }
@@ -2059,7 +2030,10 @@ void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<st
       }
     }
   }
-  CLog::Log(LOGDEBUG, "%s: END (total time: %i ms)", __FUNCTION__, (int)(XbmcThreads::SystemClockMillis() - startTimer));
+
+  auto end = std::chrono::steady_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+  CLog::Log(LOGDEBUG, "{}: END (total time: {} ms)", __FUNCTION__, duration.count());
 }
 
 ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string& videoPath, const std::string& associatedFile)
@@ -2078,7 +2052,8 @@ ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string
   else if (URIUtils::GetExtension(associatedFile) == ".sub" && URIUtils::IsInArchive(associatedFile))
   {
     // exclude parsing of vobsub file names that are embedded in an archive
-    CLog::Log(LOGDEBUG, "%s - skipping archived vobsub filename parsing: %s", __FUNCTION__, CURL::GetRedacted(associatedFile).c_str());
+    CLog::Log(LOGDEBUG, "{} - skipping archived vobsub filename parsing: {}", __FUNCTION__,
+              CURL::GetRedacted(associatedFile));
     toParse.clear();
   }
 
@@ -2093,20 +2068,8 @@ ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string
     std::vector<std::string> tokens;
     StringUtils::Tokenize(inputString, tokens, delimiters);
 
-    for (std::vector<std::string>::iterator it = tokens.begin(); it != tokens.end(); ++it)
+    for (auto it = tokens.rbegin(); it != tokens.rend(); ++it)
     {
-      if (info.language.empty())
-      {
-        std::string langTmp(*it);
-        std::string langCode;
-        // try to recognize language
-        if (g_LangCodeExpander.ConvertToISO6392B(langTmp, langCode))
-        {
-          info.language = langCode;
-          continue;
-        }
-      }
-
       // try to recognize a flag
       std::string flag_tmp(*it);
       StringUtils::ToLower(flag_tmp);
@@ -2126,7 +2089,18 @@ ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string
         continue;
       }
 
-      name += " " + (*it);
+      if (info.language.empty())
+      {
+        std::string langCode;
+        // try to recognize language
+        if (g_LangCodeExpander.ConvertToISO6392B(*it, langCode))
+        {
+          info.language = langCode;
+          continue;
+        }
+      }
+
+      name = (*it) + " " + name;
     }
   }
   name += " ";
@@ -2136,8 +2110,8 @@ ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string
   if (info.flag == 0)
     info.flag = StreamFlags::FLAG_NONE;
 
-  CLog::Log(LOGDEBUG, "%s - Language = '%s' / Name = '%s' / Flag = '%u' from %s",
-             __FUNCTION__, info.language.c_str(), info.name.c_str(), info.flag, CURL::GetRedacted(associatedFile).c_str());
+  CLog::Log(LOGDEBUG, "{} - Language = '{}' / Name = '{}' / Flag = '{}' from {}", __FUNCTION__,
+            info.language, info.name, info.flag, CURL::GetRedacted(associatedFile));
 
   return info;
 }
@@ -2258,30 +2232,6 @@ std::string CUtil::GetVobSubIdxFromSub(const std::string& vobSub)
   return std::string();
 }
 
-void CUtil::ScanForExternalDemuxSub(const std::string& videoPath, std::vector<std::string>& vecSubtitles)
-{
-  CFileItem item(videoPath, false);
-  if (item.IsInternetStream()
-    || item.IsPlayList()
-    || item.IsLiveTV()
-    || item.IsPVR()
-    || !item.IsVideo())
-    return;
-
-  std::string strBasePath;
-  std::string strSubtitle;
-
-  GetVideoBasePathAndFileName(videoPath, strBasePath, strSubtitle);
-
-  CFileItemList items;
-  const std::vector<std::string> common_sub_dirs = { "subs", "subtitles", "vobsubs", "sub", "vobsub", "subtitle" };
-  const std::string DemuxSubExtensions = ".sup";
-  GetItemsToScan(strBasePath, DemuxSubExtensions, common_sub_dirs, items);
-
-  std::vector<std::string> exts = StringUtils::Split(DemuxSubExtensions, "|");
-  ScanPathsForAssociatedItems(strSubtitle, items, exts, vecSubtitles);
-}
-
 void CUtil::ScanForExternalAudio(const std::string& videoPath, std::vector<std::string>& vecAudio)
 {
   CFileItem item(videoPath, false);
@@ -2302,7 +2252,20 @@ void CUtil::ScanForExternalAudio(const std::string& videoPath, std::vector<std::
   GetItemsToScan(strBasePath, CServiceBroker::GetFileExtensionProvider().GetMusicExtensions(), common_sub_dirs, items);
 
   std::vector<std::string> exts = StringUtils::Split(CServiceBroker::GetFileExtensionProvider().GetMusicExtensions(), "|");
-  ScanPathsForAssociatedItems(strAudio, items, exts, vecAudio);
+
+  CVideoDatabase database;
+  database.Open();
+  bool useAllExternalAudio = database.GetUseAllExternalAudioForVideo(videoPath);
+
+  if (useAllExternalAudio)
+  {
+    for (const auto& audioItem : items.GetList())
+    {
+      vecAudio.push_back(audioItem.get()->GetPath());
+    }
+  }
+  else
+    ScanPathsForAssociatedItems(strAudio, items, exts, vecAudio);
 }
 
 bool CUtil::CanBindPrivileged()
@@ -2368,3 +2331,20 @@ int CUtil::GetRandomNumber()
 #endif
 }
 
+void CUtil::CopyUserDataIfNeeded(const std::string& strPath,
+                                 const std::string& file,
+                                 const std::string& destname)
+{
+  std::string destPath;
+  if (destname.empty())
+    destPath = URIUtils::AddFileToFolder(strPath, file);
+  else
+    destPath = URIUtils::AddFileToFolder(strPath, destname);
+
+  if (!CFile::Exists(destPath))
+  {
+    // need to copy it across
+    std::string srcPath = URIUtils::AddFileToFolder("special://xbmc/userdata/", file);
+    CFile::Copy(srcPath, destPath);
+  }
+}

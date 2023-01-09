@@ -12,6 +12,7 @@
 
 #include <list>
 #include <stack>
+#include <utility>
 #include <vector>
 
 class CGUIListItem;
@@ -23,11 +24,14 @@ namespace INFO
 class InfoSingle : public InfoBool
 {
 public:
-  InfoSingle(const std::string &expression, int context, unsigned int &refreshCounter)
-    : InfoBool(expression, context, refreshCounter) {};
+  InfoSingle(const std::string& expression, int context, unsigned int& refreshCounter)
+    : InfoBool(expression, context, refreshCounter)
+  {
+  }
   void Initialize() override;
 
-  void Update(const CGUIListItem *item) override;
+  void Update(int contextWindow, const CGUIListItem* item) override;
+
 private:
   int m_condition;             ///< actual condition this represents
 };
@@ -37,13 +41,16 @@ private:
 class InfoExpression : public InfoBool
 {
 public:
-  InfoExpression(const std::string &expression, int context, unsigned int &refreshCounter)
-    : InfoBool(expression, context, refreshCounter) {};
+  InfoExpression(const std::string& expression, int context, unsigned int& refreshCounter)
+    : InfoBool(expression, context, refreshCounter)
+  {
+  }
   ~InfoExpression() override = default;
 
   void Initialize() override;
 
-  void Update(const CGUIListItem *item) override;
+  void Update(int contextWindow, const CGUIListItem* item) override;
+
 private:
   typedef enum
   {
@@ -67,7 +74,7 @@ private:
   {
   public:
     virtual ~InfoSubexpression(void) = default; // so we can destruct derived classes using a pointer to their base class
-    virtual bool Evaluate(const CGUIListItem *item) = 0;
+    virtual bool Evaluate(int contextWindow, const CGUIListItem* item) = 0;
     virtual node_type_t Type() const=0;
   };
 
@@ -77,9 +84,10 @@ private:
   class InfoLeaf : public InfoSubexpression
   {
   public:
-    InfoLeaf(InfoPtr info, bool invert) : m_info(info), m_invert(invert) {};
-    bool Evaluate(const CGUIListItem *item) override;
-    node_type_t Type() const override { return NODE_LEAF; };
+    InfoLeaf(InfoPtr info, bool invert) : m_info(std::move(info)), m_invert(invert) {}
+    bool Evaluate(int contextWindow, const CGUIListItem* item) override;
+    node_type_t Type() const override { return NODE_LEAF; }
+
   private:
     InfoPtr m_info;
     bool m_invert;
@@ -91,9 +99,10 @@ private:
   public:
     InfoAssociativeGroup(node_type_t type, const InfoSubexpressionPtr &left, const InfoSubexpressionPtr &right);
     void AddChild(const InfoSubexpressionPtr &child);
-    void Merge(std::shared_ptr<InfoAssociativeGroup> other);
-    bool Evaluate(const CGUIListItem *item) override;
-    node_type_t Type() const override { return m_type; };
+    void Merge(const std::shared_ptr<InfoAssociativeGroup>& other);
+    bool Evaluate(int contextWindow, const CGUIListItem* item) override;
+    node_type_t Type() const override { return m_type; }
+
   private:
     node_type_t m_type;
     std::list<InfoSubexpressionPtr> m_children;

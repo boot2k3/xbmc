@@ -50,7 +50,8 @@ bool CWebSocketV8::Handshake(const char* data, size_t length, std::string &respo
 
   // The request must be GET
   value = header.getMethod();
-  if (value == NULL || strnicmp(value, WS_HTTP_METHOD, strlen(WS_HTTP_METHOD)) != 0)
+  if (value == NULL ||
+      StringUtils::CompareNoCase(value, WS_HTTP_METHOD, strlen(WS_HTTP_METHOD)) != 0)
   {
     CLog::Log(LOGINFO, "WebSocket [hybi-10]: invalid HTTP method received (GET expected)");
     return false;
@@ -71,7 +72,8 @@ bool CWebSocketV8::Handshake(const char* data, size_t length, std::string &respo
 
   if (fVersion < 1.1f)
   {
-    CLog::Log(LOGINFO, "WebSocket [hybi-10]: invalid HTTP version %f (1.1 or higher expected)", fVersion);
+    CLog::Log(LOGINFO, "WebSocket [hybi-10]: invalid HTTP version {:f} (1.1 or higher expected)",
+              fVersion);
     return false;
   }
 
@@ -115,7 +117,7 @@ bool CWebSocketV8::Handshake(const char* data, size_t length, std::string &respo
   if (!websocketProtocol.empty())
     httpResponse.AddHeader(WS_HEADER_PROTOCOL, websocketProtocol);
 
-  response = response = httpResponse.Create();
+  response = httpResponse.Create();
 
   m_state = WebSocketStateConnected;
 

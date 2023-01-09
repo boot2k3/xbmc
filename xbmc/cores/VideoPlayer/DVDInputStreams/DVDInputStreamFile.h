@@ -19,12 +19,11 @@ public:
   void Close() override;
   int Read(uint8_t* buf, int buf_size) override;
   int64_t Seek(int64_t offset, int whence) override;
-  bool Pause(double dTime) override { return false; };
   bool IsEOF() override;
   int64_t GetLength() override;
   BitstreamStats GetBitstreamStats() const override ;
   int GetBlockSize() override;
-  void SetReadRate(unsigned rate) override;
+  void SetReadRate(uint32_t rate) override;
   bool GetCacheStatus(XFILE::SCacheStatus *status) override;
 
 protected:

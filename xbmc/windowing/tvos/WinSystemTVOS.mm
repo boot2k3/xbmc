@@ -8,6 +8,7 @@
 
 #include "WinSystemTVOS.h"
 
+#include "ServiceBroker.h"
 #import "cores/AudioEngine/Sinks/AESinkDARWINTVOS.h"
 #include "cores/RetroPlayer/process/ios/RPProcessInfoIOS.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGLES.h"
@@ -24,11 +25,11 @@
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/OSScreenSaver.h"
+#include "windowing/WindowSystemFactory.h"
 #import "windowing/tvos/OSScreenSaverTVOS.h"
 #import "windowing/tvos/VideoSyncTVos.h"
 #import "windowing/tvos/WinEventsTVOS.h"
@@ -38,6 +39,7 @@
 #import "platform/darwin/tvos/XBMCController.h"
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #import <Foundation/Foundation.h>
@@ -45,13 +47,15 @@
 #import <OpenGLES/ES2/glext.h>
 #import <QuartzCore/CADisplayLink.h>
 
+using namespace std::chrono_literals;
+
 #define CONST_HDMI "HDMI"
 
 // if there was a devicelost callback
 // but no device reset for 3 secs
 // a timeout fires the reset callback
 // (for ensuring that e.x. AE isn't stuck)
-constexpr uint32_t LOST_DEVICE_TIMEOUT_MS{3000};
+constexpr auto LOST_DEVICE_TIMEOUT_MS{3000ms};
 
 // TVOSDisplayLinkCallback is defined in the lower part of the file
 @interface TVOSDisplayLinkCallback : NSObject
@@ -72,10 +76,14 @@ struct CADisplayLinkWrapper
   TVOSDisplayLinkCallback* callbackClass;
 };
 
-std::unique_ptr<CWinSystemBase> CWinSystemBase::CreateWinSystem()
+void CWinSystemTVOS::Register()
 {
-  std::unique_ptr<CWinSystemBase> winSystem = std::make_unique<CWinSystemTVOS>();
-  return winSystem;
+  KODI::WINDOWING::CWindowSystemFactory::RegisterWindowSystem(CreateWinSystem);
+}
+
+std::unique_ptr<CWinSystemBase> CWinSystemTVOS::CreateWinSystem()
+{
+  return std::make_unique<CWinSystemTVOS>();
 }
 
 void CWinSystemTVOS::MessagePush(XBMC_Event* newEvent)
@@ -90,7 +98,7 @@ size_t CWinSystemTVOS::GetQueueSize()
 
 void CWinSystemTVOS::AnnounceOnLostDevice()
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   // tell any shared resources
   CLog::Log(LOGDEBUG, "CWinSystemTVOS::AnnounceOnLostDevice");
   for (auto dispResource : m_resources)
@@ -99,7 +107,7 @@ void CWinSystemTVOS::AnnounceOnLostDevice()
 
 void CWinSystemTVOS::AnnounceOnResetDevice()
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   // tell any shared resources
   CLog::Log(LOGDEBUG, "CWinSystemTVOS::AnnounceOnResetDevice");
   for (auto dispResource : m_resources)
@@ -178,7 +186,7 @@ bool CWinSystemTVOS::CreateNewWindow(const std::string& name, bool fullScreen, R
     m_eglext += " ";
   }
 
-  CLog::Log(LOGDEBUG, "EGL_EXTENSIONS: {}", m_eglext.c_str());
+  CLog::Log(LOGDEBUG, "EGL_EXTENSIONS: {}", m_eglext);
 
   // register platform dependent objects
   CDVDFactoryCodec::ClearHWAccels();
@@ -218,7 +226,7 @@ bool CWinSystemTVOS::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool b
   m_bFullScreen = fullScreen;
 
   CLog::Log(LOGDEBUG, "About to switch to {} x {} @ {}", m_nWidth, m_nHeight, res.fRefreshRate);
-  SwitchToVideoMode(res.iWidth, res.iHeight, res.fRefreshRate);
+  SwitchToVideoMode(res.iWidth, res.iHeight, static_cast<double>(res.fRefreshRate));
   CRenderSystemGLES::ResetRenderSystem(res.iWidth, res.iHeight);
 
   return true;
@@ -226,8 +234,8 @@ bool CWinSystemTVOS::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool b
 
 bool CWinSystemTVOS::SwitchToVideoMode(int width, int height, double refreshrate)
 {
-  /*! @todo Currently support SDR dynamic range only. HDR shouldnt be done during a
-   *  modeswitch. Look to create supplemental method to handle sdr/hdr enable
+  /*! @todo Currently support SDR dynamic range only. HDR shouldn't be done during
+   *  a modeswitch. Look to create supplemental method to handle sdr/hdr enable
    */
   [g_xbmcController.displayManager displayRateSwitch:refreshrate
                                     withDynamicRange:0 /*dynamicRange*/];
@@ -238,7 +246,7 @@ bool CWinSystemTVOS::GetScreenResolution(int* w, int* h, double* fps, int screen
 {
   *w = [g_xbmcController.displayManager getScreenSize].width;
   *h = [g_xbmcController.displayManager getScreenSize].height;
-  *fps = [g_xbmcController.displayManager getDisplayRate];
+  *fps = static_cast<double>([g_xbmcController.displayManager getDisplayRate]);
 
   CLog::Log(LOGDEBUG, "Current resolution Screen: {} with {} x {} @ {}", screenIdx, *w, *h, *fps);
   return true;
@@ -282,7 +290,7 @@ void CWinSystemTVOS::FillInVideoModes(int screenIdx)
   {
     RESOLUTION_INFO res;
     UpdateDesktopResolution(res, CONST_HDMI, w, h, refreshrate, 0);
-    CLog::Log(LOGNOTICE, "Found possible resolution for display {} with {} x {} RefreshRate:{} \n",
+    CLog::Log(LOGINFO, "Found possible resolution for display {} with {} x {} RefreshRate:{} ",
               screenIdx, w, h, refreshrate);
 
     CServiceBroker::GetWinSystem()->GetGfxContext().ResetOverscan(res);
@@ -321,13 +329,13 @@ bool CWinSystemTVOS::EndRender()
 
 void CWinSystemTVOS::Register(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemTVOS::Unregister(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -335,9 +343,9 @@ void CWinSystemTVOS::Unregister(IDispResource* resource)
 
 void CWinSystemTVOS::OnAppFocusChange(bool focus)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_bIsBackgrounded = !focus;
-  CLog::Log(LOGDEBUG, "CWinSystemTVOS::OnAppFocusChange: %d", focus ? 1 : 0);
+  CLog::Log(LOGDEBUG, "CWinSystemTVOS::OnAppFocusChange: {}", focus ? 1 : 0);
   for (auto dispResource : m_resources)
     dispResource->OnAppFocusChange(focus);
 }
@@ -397,7 +405,7 @@ void CWinSystemTVOS::NotifyAppActiveChange(bool bActivated)
 {
   if (bActivated && m_bWasFullScreenBeforeMinimize &&
       !CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenRoot())
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
 }
 
 bool CWinSystemTVOS::Minimize()
@@ -405,7 +413,7 @@ bool CWinSystemTVOS::Minimize()
   m_bWasFullScreenBeforeMinimize =
       CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenRoot();
   if (m_bWasFullScreenBeforeMinimize)
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
 
   return true;
 }
@@ -430,10 +438,13 @@ CVEAGLContext CWinSystemTVOS::GetEAGLContextObj()
   return [g_xbmcController getEAGLContextObj];
 }
 
-void CWinSystemTVOS::GetConnectedOutputs(std::vector<std::string>* outputs)
+std::vector<std::string> CWinSystemTVOS::GetConnectedOutputs()
 {
-  outputs->push_back("Default");
-  outputs->push_back(CONST_HDMI);
+  std::vector<std::string> outputs;
+  outputs.emplace_back("Default");
+  outputs.emplace_back(CONST_HDMI);
+
+  return outputs;
 }
 
 bool CWinSystemTVOS::MessagePump()

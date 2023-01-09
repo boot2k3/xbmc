@@ -9,6 +9,7 @@
 #include "WinRenderer.h"
 
 #include "RenderCapture.h"
+#include "RenderCaptureDX.h"
 #include "RenderFactory.h"
 #include "RenderFlags.h"
 #include "rendering/dx/RenderContext.h"
@@ -20,6 +21,8 @@
 #include "windows/RendererDXVA.h"
 #include "windows/RendererShaders.h"
 #include "windows/RendererSoftware.h"
+
+#include <mutex>
 
 struct render_details
 {
@@ -71,7 +74,7 @@ CWinRenderer::~CWinRenderer()
 CRendererBase* CWinRenderer::SelectRenderer(const VideoPicture& picture)
 {
   int iRequestedMethod = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_RENDERMETHOD);
-  CLog::LogF(LOGDEBUG, "requested render method: %d", iRequestedMethod);
+  CLog::LogF(LOGDEBUG, "requested render method: {}", iRequestedMethod);
 
   std::map<RenderMethod, int> weights;
   for (auto& details : RenderMethodDetails)
@@ -210,8 +213,9 @@ void CWinRenderer::RenderUpdate(int index, int index2, bool clear, unsigned int 
   DX::Windowing()->SetAlphaBlendEnable(alpha < 255);
 
   ManageRenderArea();
-  m_renderer->Render(index, index2, DX::Windowing()->GetBackBuffer(), 
-                     m_sourceRect, m_destRect, GetScreenRect(), flags);
+  m_renderer->Render(index, index2, DX::Windowing()->GetBackBuffer(), m_sourceRect, m_destRect,
+                     GetScreenRect(), flags);
+  DX::Windowing()->SetAlphaBlendEnable(true);
 }
 
 bool CWinRenderer::RenderCapture(CRenderCapture* capture)
@@ -224,7 +228,9 @@ bool CWinRenderer::RenderCapture(CRenderCapture* capture)
   {
     const CRect destRect(0, 0, static_cast<float>(capture->GetWidth()), static_cast<float>(capture->GetHeight()));
 
-    m_renderer->Render(capture->GetTarget(), m_sourceRect, destRect, GetScreenRect());
+    auto cap = static_cast<CRenderCaptureDX*>(capture);
+
+    m_renderer->Render(cap->GetTarget(), m_sourceRect, destRect, GetScreenRect());
     capture->EndRender();
 
     return true;
@@ -243,14 +249,14 @@ void CWinRenderer::SetBufferSize(int numBuffers)
 
 void CWinRenderer::PreInit()
 {
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bConfigured = false;
   UnInit();
 }
 
 void CWinRenderer::UnInit()
 {
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_renderer.reset();
   m_bConfigured = false;
@@ -264,7 +270,7 @@ bool CWinRenderer::Flush(bool saveBuffers)
   return m_renderer->Flush(saveBuffers);
 }
 
-bool CWinRenderer::Supports(ERENDERFEATURE feature)
+bool CWinRenderer::Supports(ERENDERFEATURE feature) const
 {
   if(feature == RENDERFEATURE_BRIGHTNESS)
     return true;
@@ -285,7 +291,7 @@ bool CWinRenderer::Supports(ERENDERFEATURE feature)
   return false;
 }
 
-bool CWinRenderer::Supports(ESCALINGMETHOD method)
+bool CWinRenderer::Supports(ESCALINGMETHOD method) const
 {
   if (!m_bConfigured)
     return false;
@@ -331,4 +337,17 @@ bool CWinRenderer::NeedBuffer(int idx)
     return false;
 
   return m_renderer->NeedBuffer(idx);
+}
+
+DEBUG_INFO_VIDEO CWinRenderer::GetDebugInfo(int idx)
+{
+  if (!m_bConfigured)
+    return {};
+
+  return m_renderer->GetDebugInfo(idx);
+}
+
+CRenderCapture* CWinRenderer::GetRenderCapture()
+{
+  return new CRenderCaptureDX;
 }

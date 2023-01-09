@@ -26,6 +26,8 @@
 #include <sys/wait.h>
 #endif
 
+using namespace std::chrono_literals;
+
 CXRandR::CXRandR(bool query)
 {
   m_bInit = false;
@@ -66,7 +68,7 @@ bool CXRandR::Query(bool force, int screennum, bool ignoreoff)
   {
     cmd  = getenv("KODI_BIN_HOME");
     cmd += "/" + appname + "-xrandr";
-    cmd = StringUtils::Format("%s -q --screen %d", cmd.c_str(), screennum);
+    cmd = StringUtils::Format("{} -q --screen {}", cmd, screennum);
   }
 
   FILE* file = popen(cmd.c_str(),"r");
@@ -98,7 +100,7 @@ bool CXRandR::Query(bool force, int screennum, bool ignoreoff)
     XOutput xoutput;
     xoutput.name = output->Attribute("name");
     StringUtils::Trim(xoutput.name);
-    xoutput.isConnected = (strcasecmp(output->Attribute("connected"), "true") == 0);
+    xoutput.isConnected = (StringUtils::CompareNoCase(output->Attribute("connected"), "true") == 0);
     xoutput.screen = screennum;
     xoutput.w = (output->Attribute("w") != NULL ? atoi(output->Attribute("w")) : 0);
     xoutput.h = (output->Attribute("h") != NULL ? atoi(output->Attribute("h")) : 0);
@@ -107,8 +109,9 @@ bool CXRandR::Query(bool force, int screennum, bool ignoreoff)
     xoutput.crtc = (output->Attribute("crtc") != NULL ? atoi(output->Attribute("crtc")) : 0);
     xoutput.wmm = (output->Attribute("wmm") != NULL ? atoi(output->Attribute("wmm")) : 0);
     xoutput.hmm = (output->Attribute("hmm") != NULL ? atoi(output->Attribute("hmm")) : 0);
-    if (output->Attribute("rotation") != NULL
-        && (strcasecmp(output->Attribute("rotation"), "left") == 0 || strcasecmp(output->Attribute("rotation"), "right") == 0))
+    if (output->Attribute("rotation") != NULL &&
+        (StringUtils::CompareNoCase(output->Attribute("rotation"), "left") == 0 ||
+         StringUtils::CompareNoCase(output->Attribute("rotation"), "right") == 0))
     {
       xoutput.isRotated = true;
     }
@@ -127,8 +130,8 @@ bool CXRandR::Query(bool force, int screennum, bool ignoreoff)
       xmode.hz = atof(mode->Attribute("hz"));
       xmode.w = atoi(mode->Attribute("w"));
       xmode.h = atoi(mode->Attribute("h"));
-      xmode.isPreferred = (strcasecmp(mode->Attribute("preferred"), "true") == 0);
-      xmode.isCurrent = (strcasecmp(mode->Attribute("current"), "true") == 0);
+      xmode.isPreferred = (StringUtils::CompareNoCase(mode->Attribute("preferred"), "true") == 0);
+      xmode.isCurrent = (StringUtils::CompareNoCase(mode->Attribute("current"), "true") == 0);
       xoutput.modes.push_back(xmode);
       if (xmode.isCurrent)
         hascurrent = true;
@@ -136,7 +139,8 @@ bool CXRandR::Query(bool force, int screennum, bool ignoreoff)
     if (hascurrent || !ignoreoff)
       m_outputs.push_back(xoutput);
     else
-      CLog::Log(LOGWARNING, "CXRandR::Query - output %s has no current mode, assuming disconnected", xoutput.name.c_str());
+      CLog::Log(LOGWARNING, "CXRandR::Query - output {} has no current mode, assuming disconnected",
+                xoutput.name);
   }
   return m_outputs.size() > 0;
 }
@@ -155,7 +159,7 @@ bool CXRandR::TurnOffOutput(const std::string& name)
   {
     cmd  = getenv("KODI_BIN_HOME");
     cmd += "/" + appname + "-xrandr";
-    cmd = StringUtils::Format("%s --screen %d --output %s --off", cmd.c_str(), output->screen, name.c_str());
+    cmd = StringUtils::Format("{} --screen {} --output {} --off", cmd, output->screen, name);
   }
 
   int status = system(cmd.c_str());
@@ -200,7 +204,7 @@ bool CXRandR::TurnOnOutput(const std::string& name)
   if (!SetMode(*output, mode))
     return false;
 
-  XbmcThreads::EndTime timeout(5000);
+  XbmcThreads::EndTime<> timeout(5s);
   while (!timeout.IsTimePast())
   {
     if (!Query(true))
@@ -210,7 +214,7 @@ bool CXRandR::TurnOnOutput(const std::string& name)
     if (output && output->h > 0)
       return true;
 
-    KODI::TIME::Sleep(200);
+    KODI::TIME::Sleep(200ms);
   }
 
   return false;
@@ -227,7 +231,7 @@ void CXRandR::SaveState()
   Query(true);
 }
 
-bool CXRandR::SetMode(XOutput output, XMode mode)
+bool CXRandR::SetMode(const XOutput& output, const XMode& mode)
 {
   if ((output.name == "" && mode.id == ""))
     return true;
@@ -248,7 +252,9 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
 
   if (!isOutputFound)
   {
-    CLog::Log(LOGERROR, "CXRandR::SetMode: asked to change resolution for non existing output: %s mode: %s", output.name.c_str(), mode.id.c_str());
+    CLog::Log(LOGERROR,
+              "CXRandR::SetMode: asked to change resolution for non existing output: {} mode: {}",
+              output.name, mode.id);
     return false;
   }
 
@@ -268,7 +274,10 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
       }
       else
       {
-        CLog::Log(LOGERROR, "CXRandR::SetMode: asked to change resolution for mode that exists but with different w/h/hz: %s mode: %s. Searching for similar modes...", output.name.c_str(), mode.id.c_str());
+        CLog::Log(LOGERROR,
+                  "CXRandR::SetMode: asked to change resolution for mode that exists but with "
+                  "different w/h/hz: {} mode: {}. Searching for similar modes...",
+                  output.name, mode.id);
         break;
       }
     }
@@ -284,7 +293,8 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
       {
         isModeFound = true;
         modeFound = outputFound.modes[i];
-        CLog::Log(LOGWARNING, "CXRandR::SetMode: found alternative mode (same hz): %s mode: %s.", output.name.c_str(), outputFound.modes[i].id.c_str());
+        CLog::Log(LOGWARNING, "CXRandR::SetMode: found alternative mode (same hz): {} mode: {}.",
+                  output.name, outputFound.modes[i].id);
       }
     }
   }
@@ -298,7 +308,9 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
       {
         isModeFound = true;
         modeFound = outputFound.modes[i];
-        CLog::Log(LOGWARNING, "CXRandR::SetMode: found alternative mode (different hz): %s mode: %s.", output.name.c_str(), outputFound.modes[i].id.c_str());
+        CLog::Log(LOGWARNING,
+                  "CXRandR::SetMode: found alternative mode (different hz): {} mode: {}.",
+                  output.name, outputFound.modes[i].id);
       }
     }
   }
@@ -306,7 +318,9 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
   // Let's try finding a mode that is the same
   if (!isModeFound)
   {
-    CLog::Log(LOGERROR, "CXRandR::SetMode: asked to change resolution for non existing mode: %s mode: %s", output.name.c_str(), mode.id.c_str());
+    CLog::Log(LOGERROR,
+              "CXRandR::SetMode: asked to change resolution for non existing mode: {} mode: {}",
+              output.name, mode.id);
     return false;
   }
 
@@ -322,7 +336,7 @@ bool CXRandR::SetMode(XOutput output, XMode mode)
                outputFound.screen, outputFound.name.c_str(), modeFound.id.c_str());
   else
     return false;
-  CLog::Log(LOGINFO, "XRANDR: %s", cmd);
+  CLog::Log(LOGINFO, "XRANDR: {}", cmd);
   int status = system(cmd);
   if (status == -1)
     return false;
@@ -390,7 +404,7 @@ void CXRandR::LoadCustomModeLinesToAllOutputs(void)
   }
 
   TiXmlElement *pRootElement = xmlDoc.RootElement();
-  if (strcasecmp(pRootElement->Value(), "modelines") != 0)
+  if (StringUtils::CompareNoCase(pRootElement->Value(), "modelines") != 0)
   {
     //! @todo ERROR
     return;
@@ -414,7 +428,7 @@ void CXRandR::LoadCustomModeLinesToAllOutputs(void)
       snprintf(cmd, sizeof(cmd), "%s/%s-xrandr --newmode \"%s\" %s > /dev/null 2>&1", getenv("KODI_BIN_HOME"),
                appname.c_str(), name.c_str(), strModeLine.c_str());
       if (system(cmd) != 0)
-        CLog::Log(LOGERROR, "Unable to create modeline \"%s\"", name.c_str());
+        CLog::Log(LOGERROR, "Unable to create modeline \"{}\"", name);
     }
 
     for (unsigned int i = 0; i < m_outputs.size(); i++)
@@ -424,7 +438,7 @@ void CXRandR::LoadCustomModeLinesToAllOutputs(void)
         snprintf(cmd, sizeof(cmd), "%s/%s-xrandr --addmode %s \"%s\"  > /dev/null 2>&1", getenv("KODI_BIN_HOME"),
                  appname.c_str(), m_outputs[i].name.c_str(), name.c_str());
         if (system(cmd) != 0)
-          CLog::Log(LOGERROR, "Unable to add modeline \"%s\"", name.c_str());
+          CLog::Log(LOGERROR, "Unable to add modeline \"{}\"", name);
       }
     }
   }
@@ -479,7 +493,7 @@ int CXRandR::GetCrtc(int x, int y, float &hz)
         (m_outputs[i].y <= y && (m_outputs[i].y+m_outputs[i].h) > y))
     {
       crtc = m_outputs[i].crtc;
-      for (auto mode: m_outputs[i].modes)
+      for (const auto& mode : m_outputs[i].modes)
       {
         if (mode.isCurrent)
         {

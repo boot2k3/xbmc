@@ -12,7 +12,7 @@
 #include "guilib/LocalizeStrings.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClients.h"
-#include "pvr/guilib/PVRGUIActions.h"
+#include "pvr/guilib/PVRGUIActionsParentalControl.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/SettingsManager.h"
@@ -20,6 +20,7 @@
 #include "utils/log.h"
 
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -62,18 +63,30 @@ CPVRSettings::~CPVRSettings()
   settings->GetSettingsManager()->UnregisterSettingsHandler(this);
 }
 
+void CPVRSettings::RegisterCallback(ISettingCallback* callback)
+{
+  std::unique_lock<CCriticalSection> lock(m_critSection);
+  m_callbacks.insert(callback);
+}
+
+void CPVRSettings::UnregisterCallback(ISettingCallback* callback)
+{
+  std::unique_lock<CCriticalSection> lock(m_critSection);
+  m_callbacks.erase(callback);
+}
+
 void CPVRSettings::Init(const std::set<std::string>& settingNames)
 {
-  for (auto settingName : settingNames)
+  for (const auto& settingName : settingNames)
   {
     SettingPtr setting = CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(settingName);
     if (!setting)
     {
-      CLog::LogF(LOGERROR, "Unknown PVR setting '%s'", settingName.c_str());
+      CLog::LogF(LOGERROR, "Unknown PVR setting '{}'", settingName);
       continue;
     }
 
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     m_settings.insert(std::make_pair(settingName, setting->Clone(settingName)));
   }
 }
@@ -83,7 +96,7 @@ void CPVRSettings::OnSettingsLoaded()
   std::set<std::string> settingNames;
 
   {
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     for (const auto& settingName : m_settings)
       settingNames.insert(settingName.first);
 
@@ -93,18 +106,23 @@ void CPVRSettings::OnSettingsLoaded()
   Init(settingNames);
 }
 
-void CPVRSettings::OnSettingChanged(std::shared_ptr<const CSetting> setting)
+void CPVRSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == nullptr)
     return;
 
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   m_settings[setting->GetId()] = setting->Clone(setting->GetId());
+  const auto callbacks(m_callbacks);
+  lock.unlock();
+
+  for (const auto& callback : callbacks)
+    callback->OnSettingChanged(setting);
 }
 
 bool CPVRSettings::GetBoolValue(const std::string& settingName) const
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   auto settingIt = m_settings.find(settingName);
   if (settingIt != m_settings.end() && (*settingIt).second->GetType() == SettingType::Boolean)
   {
@@ -113,13 +131,13 @@ bool CPVRSettings::GetBoolValue(const std::string& settingName) const
       return setting->GetValue();
   }
 
-  CLog::LogF(LOGERROR, "PVR setting '%s' not found or wrong type given", settingName.c_str());
+  CLog::LogF(LOGERROR, "PVR setting '{}' not found or wrong type given", settingName);
   return false;
 }
 
 int CPVRSettings::GetIntValue(const std::string& settingName) const
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   auto settingIt = m_settings.find(settingName);
   if (settingIt != m_settings.end() && (*settingIt).second->GetType() == SettingType::Integer)
   {
@@ -128,13 +146,13 @@ int CPVRSettings::GetIntValue(const std::string& settingName) const
       return setting->GetValue();
   }
 
-  CLog::LogF(LOGERROR, "PVR setting '%s' not found or wrong type given", settingName.c_str());
+  CLog::LogF(LOGERROR, "PVR setting '{}' not found or wrong type given", settingName);
   return -1;
 }
 
 std::string CPVRSettings::GetStringValue(const std::string& settingName) const
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   auto settingIt = m_settings.find(settingName);
   if (settingIt != m_settings.end() && (*settingIt).second->GetType() == SettingType::String)
   {
@@ -143,12 +161,14 @@ std::string CPVRSettings::GetStringValue(const std::string& settingName) const
       return setting->GetValue();
   }
 
-  CLog::LogF(LOGERROR, "PVR setting '%s' not found or wrong type given", settingName.c_str());
+  CLog::LogF(LOGERROR, "PVR setting '{}' not found or wrong type given", settingName);
   return "";
 }
 
-void CPVRSettings::MarginTimeFiller(
-  SettingConstPtr /*setting*/, std::vector<IntegerSettingOption>& list, int& current, void* /*data*/)
+void CPVRSettings::MarginTimeFiller(const SettingConstPtr& /*setting*/,
+                                    std::vector<IntegerSettingOption>& list,
+                                    int& current,
+                                    void* /*data*/)
 {
   list.clear();
 
@@ -159,11 +179,15 @@ void CPVRSettings::MarginTimeFiller(
 
   for (int iValue : marginTimeValues)
   {
-    list.emplace_back(StringUtils::Format(g_localizeStrings.Get(14044).c_str(), iValue) /* %i min */, iValue);
+    list.emplace_back(StringUtils::Format(g_localizeStrings.Get(14044), iValue) /* {} min */,
+                      iValue);
   }
 }
 
-bool CPVRSettings::IsSettingVisible(const std::string& condition, const std::string& value, std::shared_ptr<const CSetting> setting, void* data)
+bool CPVRSettings::IsSettingVisible(const std::string& condition,
+                                    const std::string& value,
+                                    const std::shared_ptr<const CSetting>& setting,
+                                    void* data)
 {
   if (setting == nullptr)
     return false;
@@ -172,8 +196,19 @@ bool CPVRSettings::IsSettingVisible(const std::string& condition, const std::str
 
   if (settingId == CSettings::SETTING_PVRMANAGER_USEBACKENDCHANNELNUMBERS)
   {
-    // Setting is only visible if exactly one PVR client is enabeld.
-    return CServiceBroker::GetPVRManager().Clients()->EnabledClientAmount() == 1;
+    // Setting is only visible if exactly one PVR client is enabled or
+    // the expert setting to always use backend numbers is enabled
+    const auto& settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+    int enabledClientAmount = CServiceBroker::GetPVRManager().Clients()->EnabledClientAmount();
+
+    return enabledClientAmount == 1 ||
+           (settings->GetBool(CSettings::SETTING_PVRMANAGER_USEBACKENDCHANNELNUMBERSALWAYS) &&
+            enabledClientAmount > 1);
+  }
+  else if (settingId == CSettings::SETTING_PVRMANAGER_USEBACKENDCHANNELNUMBERSALWAYS)
+  {
+    // Setting is only visible if more than one PVR client is enabled.
+    return CServiceBroker::GetPVRManager().Clients()->EnabledClientAmount() > 1;
   }
   else if (settingId == CSettings::SETTING_PVRMANAGER_CLIENTPRIORITIES)
   {
@@ -187,7 +222,11 @@ bool CPVRSettings::IsSettingVisible(const std::string& condition, const std::str
   }
 }
 
-bool CPVRSettings::CheckParentalPin(const std::string& condition, const std::string& value, std::shared_ptr<const CSetting> setting, void* data)
+bool CPVRSettings::CheckParentalPin(const std::string& condition,
+                                    const std::string& value,
+                                    const std::shared_ptr<const CSetting>& setting,
+                                    void* data)
 {
-  return CServiceBroker::GetPVRManager().GUIActions()->CheckParentalPIN() == ParentalCheckResult::SUCCESS;
+  return CServiceBroker::GetPVRManager().Get<PVR::GUI::Parental>().CheckParentalPIN() ==
+         ParentalCheckResult::SUCCESS;
 }

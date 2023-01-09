@@ -24,13 +24,16 @@ using namespace KODI;
 using namespace JOYSTICK;
 using namespace PERIPHERALS;
 
-CAddonInputHandling::CAddonInputHandling(CPeripherals& manager, CPeripheral* peripheral, IInputHandler* handler, IDriverReceiver* receiver)
+CAddonInputHandling::CAddonInputHandling(CPeripherals& manager,
+                                         CPeripheral* peripheral,
+                                         IInputHandler* handler,
+                                         IDriverReceiver* receiver)
 {
   PeripheralAddonPtr addon = manager.GetAddonWithButtonMap(peripheral);
 
   if (!addon)
   {
-    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"%s\"", peripheral->DeviceName().c_str());
+    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"{}\"", peripheral->DeviceName());
   }
   else
   {
@@ -54,13 +57,15 @@ CAddonInputHandling::CAddonInputHandling(CPeripherals& manager, CPeripheral* per
   }
 }
 
-CAddonInputHandling::CAddonInputHandling(CPeripherals& manager, CPeripheral* peripheral, KEYBOARD::IKeyboardInputHandler* handler)
+CAddonInputHandling::CAddonInputHandling(CPeripherals& manager,
+                                         CPeripheral* peripheral,
+                                         KEYBOARD::IKeyboardInputHandler* handler)
 {
   PeripheralAddonPtr addon = manager.GetAddonWithButtonMap(peripheral);
 
   if (!addon)
   {
-    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"%s\"", peripheral->DeviceName().c_str());
+    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"{}\"", peripheral->DeviceName());
   }
   else
   {
@@ -76,13 +81,15 @@ CAddonInputHandling::CAddonInputHandling(CPeripherals& manager, CPeripheral* per
   }
 }
 
-CAddonInputHandling::CAddonInputHandling(CPeripherals& manager, CPeripheral* peripheral, MOUSE::IMouseInputHandler* handler)
+CAddonInputHandling::CAddonInputHandling(CPeripherals& manager,
+                                         CPeripheral* peripheral,
+                                         MOUSE::IMouseInputHandler* handler)
 {
   PeripheralAddonPtr addon = manager.GetAddonWithButtonMap(peripheral);
 
   if (!addon)
   {
-    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"%s\"", peripheral->DeviceName().c_str());
+    CLog::Log(LOGDEBUG, "Failed to locate add-on for \"{}\"", peripheral->DeviceName());
   }
   else
   {
@@ -122,7 +129,10 @@ bool CAddonInputHandling::OnHatMotion(unsigned int hatIndex, HAT_STATE state)
   return false;
 }
 
-bool CAddonInputHandling::OnAxisMotion(unsigned int axisIndex, float position, int center, unsigned int range)
+bool CAddonInputHandling::OnAxisMotion(unsigned int axisIndex,
+                                       float position,
+                                       int center,
+                                       unsigned int range)
 {
   if (m_driverHandler)
     return m_driverHandler->OnAxisMotion(axisIndex, position, center, range);
@@ -130,10 +140,10 @@ bool CAddonInputHandling::OnAxisMotion(unsigned int axisIndex, float position, i
   return false;
 }
 
-void CAddonInputHandling::ProcessAxisMotions(void)
+void CAddonInputHandling::OnInputFrame(void)
 {
   if (m_driverHandler)
-    m_driverHandler->ProcessAxisMotions();
+    m_driverHandler->OnInputFrame();
 }
 
 bool CAddonInputHandling::OnKeyPress(const CKey& key)
@@ -149,7 +159,6 @@ void CAddonInputHandling::OnKeyRelease(const CKey& key)
   if (m_keyboardHandler)
     m_keyboardHandler->OnKeyRelease(key);
 }
-
 
 bool CAddonInputHandling::OnPosition(int x, int y)
 {

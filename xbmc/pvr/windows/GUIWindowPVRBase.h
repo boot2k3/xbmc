@@ -62,9 +62,10 @@ namespace PVR
     bool Update(const std::string& strDirectory, bool updateFilterPath = true) override;
     void UpdateButtons() override;
     bool OnAction(const CAction& action) override;
-    bool OnBack(int actionID) override;
     void SetInvalid() override;
     bool CanBeActivated() const override;
+
+    bool UseFileDirectories() override { return false; }
 
     /*!
      * @brief CEventStream callback for PVR events.
@@ -134,7 +135,7 @@ namespace PVR
 
     std::unique_ptr<CGUIPVRChannelGroupsSelector> m_channelGroupsSelector;
     std::shared_ptr<CPVRChannelGroup> m_channelGroup;
-    XbmcThreads::EndTime m_refreshTimeout;
+    XbmcThreads::EndTime<> m_refreshTimeout;
     CGUIDialogProgressBarHandle* m_progressHandle; /*!< progress dialog that is displayed while the pvr manager is loading */
   };
 }

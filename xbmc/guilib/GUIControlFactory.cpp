@@ -11,6 +11,7 @@
 #include "GUIAction.h"
 #include "GUIBorderedImage.h"
 #include "GUIButtonControl.h"
+#include "GUIColorButtonControl.h"
 #include "GUIColorManager.h"
 #include "GUIControlGroup.h"
 #include "GUIControlGroupList.h"
@@ -44,7 +45,6 @@
 #include "GUIVisualisationControl.h"
 #include "GUIWrappingListContainer.h"
 #include "LocalizeStrings.h"
-#include "Util.h"
 #include "addons/Skin.h"
 #include "cores/RetroPlayer/guicontrols/GUIGameControl.h"
 #include "games/controllers/guicontrols/GUIGameController.h"
@@ -54,6 +54,7 @@
 #include "utils/RssManager.h"
 #include "utils/StringUtils.h"
 #include "utils/XMLUtils.h"
+#include "utils/log.h"
 
 using namespace KODI;
 using namespace KODI::GUILIB;
@@ -65,41 +66,42 @@ typedef struct
   CGUIControl::GUICONTROLTYPES type;
 } ControlMapping;
 
-static const ControlMapping controls[] =
-   {{"button",            CGUIControl::GUICONTROL_BUTTON},
-    {"fadelabel",         CGUIControl::GUICONTROL_FADELABEL},
-    {"image",             CGUIControl::GUICONTROL_IMAGE},
-    {"image",             CGUIControl::GUICONTROL_BORDEREDIMAGE},
-    {"label",             CGUIControl::GUICONTROL_LABEL},
-    {"label",             CGUIControl::GUICONTROL_LISTLABEL},
-    {"group",             CGUIControl::GUICONTROL_GROUP},
-    {"group",             CGUIControl::GUICONTROL_LISTGROUP},
-    {"progress",          CGUIControl::GUICONTROL_PROGRESS},
-    {"radiobutton",       CGUIControl::GUICONTROL_RADIO},
-    {"rss",               CGUIControl::GUICONTROL_RSS},
-    {"slider",            CGUIControl::GUICONTROL_SLIDER},
-    {"sliderex",          CGUIControl::GUICONTROL_SETTINGS_SLIDER},
-    {"spincontrol",       CGUIControl::GUICONTROL_SPIN},
-    {"spincontrolex",     CGUIControl::GUICONTROL_SPINEX},
-    {"textbox",           CGUIControl::GUICONTROL_TEXTBOX},
-    {"togglebutton",      CGUIControl::GUICONTROL_TOGGLEBUTTON},
-    {"videowindow",       CGUIControl::GUICONTROL_VIDEO},
-    {"gamewindow",        CGUIControl::GUICONTROL_GAME},
-    {"mover",             CGUIControl::GUICONTROL_MOVER},
-    {"resize",            CGUIControl::GUICONTROL_RESIZE},
-    {"edit",              CGUIControl::GUICONTROL_EDIT},
-    {"visualisation",     CGUIControl::GUICONTROL_VISUALISATION},
-    {"renderaddon",       CGUIControl::GUICONTROL_RENDERADDON},
-    {"multiimage",        CGUIControl::GUICONTROL_MULTI_IMAGE},
-    {"grouplist",         CGUIControl::GUICONTROL_GROUPLIST},
-    {"scrollbar",         CGUIControl::GUICONTROL_SCROLLBAR},
-    {"gamecontroller",    CGUIControl::GUICONTROL_GAMECONTROLLER},
-    {"list",              CGUIControl::GUICONTAINER_LIST},
-    {"wraplist",          CGUIControl::GUICONTAINER_WRAPLIST},
-    {"fixedlist",         CGUIControl::GUICONTAINER_FIXEDLIST},
-    {"epggrid",           CGUIControl::GUICONTAINER_EPGGRID},
-    {"panel",             CGUIControl::GUICONTAINER_PANEL},
-    {"ranges",            CGUIControl::GUICONTROL_RANGES}};
+static const ControlMapping controls[] = {
+    {"button", CGUIControl::GUICONTROL_BUTTON},
+    {"fadelabel", CGUIControl::GUICONTROL_FADELABEL},
+    {"image", CGUIControl::GUICONTROL_IMAGE},
+    {"image", CGUIControl::GUICONTROL_BORDEREDIMAGE},
+    {"label", CGUIControl::GUICONTROL_LABEL},
+    {"label", CGUIControl::GUICONTROL_LISTLABEL},
+    {"group", CGUIControl::GUICONTROL_GROUP},
+    {"group", CGUIControl::GUICONTROL_LISTGROUP},
+    {"progress", CGUIControl::GUICONTROL_PROGRESS},
+    {"radiobutton", CGUIControl::GUICONTROL_RADIO},
+    {"rss", CGUIControl::GUICONTROL_RSS},
+    {"slider", CGUIControl::GUICONTROL_SLIDER},
+    {"sliderex", CGUIControl::GUICONTROL_SETTINGS_SLIDER},
+    {"spincontrol", CGUIControl::GUICONTROL_SPIN},
+    {"spincontrolex", CGUIControl::GUICONTROL_SPINEX},
+    {"textbox", CGUIControl::GUICONTROL_TEXTBOX},
+    {"togglebutton", CGUIControl::GUICONTROL_TOGGLEBUTTON},
+    {"videowindow", CGUIControl::GUICONTROL_VIDEO},
+    {"gamewindow", CGUIControl::GUICONTROL_GAME},
+    {"mover", CGUIControl::GUICONTROL_MOVER},
+    {"resize", CGUIControl::GUICONTROL_RESIZE},
+    {"edit", CGUIControl::GUICONTROL_EDIT},
+    {"visualisation", CGUIControl::GUICONTROL_VISUALISATION},
+    {"renderaddon", CGUIControl::GUICONTROL_RENDERADDON},
+    {"multiimage", CGUIControl::GUICONTROL_MULTI_IMAGE},
+    {"grouplist", CGUIControl::GUICONTROL_GROUPLIST},
+    {"scrollbar", CGUIControl::GUICONTROL_SCROLLBAR},
+    {"gamecontroller", CGUIControl::GUICONTROL_GAMECONTROLLER},
+    {"list", CGUIControl::GUICONTAINER_LIST},
+    {"wraplist", CGUIControl::GUICONTAINER_WRAPLIST},
+    {"fixedlist", CGUIControl::GUICONTAINER_FIXEDLIST},
+    {"epggrid", CGUIControl::GUICONTAINER_EPGGRID},
+    {"panel", CGUIControl::GUICONTAINER_PANEL},
+    {"ranges", CGUIControl::GUICONTROL_RANGES},
+    {"colorbutton", CGUIControl::GUICONTROL_COLORBUTTON}};
 
 CGUIControl::GUICONTROLTYPES CGUIControlFactory::TranslateControlType(const std::string &type)
 {
@@ -192,7 +194,7 @@ bool CGUIControlFactory::GetDimension(const TiXmlNode *pRootNode, const char* st
 {
   const TiXmlElement* pNode = pRootNode->FirstChildElement(strTag);
   if (!pNode || !pNode->FirstChild()) return false;
-  if (0 == strnicmp("auto", pNode->FirstChild()->Value(), 4))
+  if (0 == StringUtils::CompareNoCase("auto", pNode->FirstChild()->Value(), 4))
   { // auto-width - at least min must be set
     value = ParsePosition(pNode->Attribute("max"), parentSize);
     min = ParsePosition(pNode->Attribute("min"), parentSize);
@@ -259,6 +261,7 @@ bool CGUIControlFactory::GetDimensions(const TiXmlNode *node, const char *leftTa
     {
       width = std::max(0.0f, right - left); // if left=0, this fills to size of parent
       hasLeft = true;
+      hasWidth = true;
     }
     else if (hasCenter)
     {
@@ -271,12 +274,14 @@ bool CGUIControlFactory::GetDimensions(const TiXmlNode *node, const char *leftTa
       { // centre given, so fill to edge of parent
         width = std::max(0.0f, std::min(parentSize - center, center) * 2);
         left = center - width/2;
-        hasLeft = hasWidth = true;
+        hasLeft = true;
+        hasWidth = true;
       }
     }
     else if (hasLeft) // neither right nor center specified
     {
       width = std::max(0.0f, parentSize - left); // if left=0, this fills to parent
+      hasWidth = true;
     }
   }
   return hasLeft && hasWidth;
@@ -337,16 +342,22 @@ bool CGUIControlFactory::GetTexture(const TiXmlNode* pRootNode, const char* strT
   if (!pNode) return false;
   const char *border = pNode->Attribute("border");
   if (border)
+  {
     GetRectFromString(border, image.border);
+    const char* borderinfill = pNode->Attribute("infill");
+    image.m_infill = (!borderinfill || !StringUtils::EqualsNoCase(borderinfill, "false"));
+  }
   image.orientation = 0;
   const char *flipX = pNode->Attribute("flipx");
-  if (flipX && strcmpi(flipX, "true") == 0) image.orientation = 1;
+  if (flipX && StringUtils::CompareNoCase(flipX, "true") == 0)
+    image.orientation = 1;
   const char *flipY = pNode->Attribute("flipy");
-  if (flipY && strcmpi(flipY, "true") == 0) image.orientation = 3 - image.orientation;  // either 3 or 2
+  if (flipY && StringUtils::CompareNoCase(flipY, "true") == 0)
+    image.orientation = 3 - image.orientation; // either 3 or 2
   image.diffuse = XMLUtils::GetAttribute(pNode, "diffuse");
   image.diffuseColor.Parse(XMLUtils::GetAttribute(pNode, "colordiffuse"), 0);
   const char *background = pNode->Attribute("background");
-  if (background && strnicmp(background, "true", 4) == 0)
+  if (background && StringUtils::CompareNoCase(background, "true", 4) == 0)
     image.useLarge = true;
   image.filename = pNode->FirstChild() ? pNode->FirstChild()->Value() : "";
   return true;
@@ -453,7 +464,7 @@ bool CGUIControlFactory::GetAnimations(TiXmlNode *control, const CRect &rect, in
       CAnimation anim;
       anim.Create(node, rect, context);
       animations.push_back(anim);
-      if (strcmpi(node->FirstChild()->Value(), "VisibleChange") == 0)
+      if (StringUtils::CompareNoCase(node->FirstChild()->Value(), "VisibleChange") == 0)
       { // add the hidden one as well
         TiXmlElement hidden(*node);
         hidden.FirstChild()->SetValue("hidden");
@@ -479,22 +490,22 @@ bool CGUIControlFactory::GetAnimations(TiXmlNode *control, const CRect &rect, in
   return ret;
 }
 
-bool CGUIControlFactory::GetActions(const TiXmlNode* pRootNode, const char* strTag, CGUIAction& action)
+bool CGUIControlFactory::GetActions(const TiXmlNode* pRootNode,
+                                    const char* strTag,
+                                    CGUIAction& actions)
 {
-  action.m_actions.clear();
+  actions.Reset();
   const TiXmlElement* pElement = pRootNode->FirstChildElement(strTag);
   while (pElement)
   {
     if (pElement->FirstChild())
     {
-      CGUIAction::cond_action_pair pair;
-      pair.condition = XMLUtils::GetAttribute(pElement, "condition");
-      pair.action = pElement->FirstChild()->Value();
-      action.m_actions.push_back(pair);
+      actions.Append(
+          {XMLUtils::GetAttribute(pElement, "condition"), pElement->FirstChild()->Value()});
     }
     pElement = pElement->NextSiblingElement(strTag);
   }
-  return action.m_actions.size() > 0;
+  return actions.HasAnyActions();
 }
 
 bool CGUIControlFactory::GetHitRect(const TiXmlNode *control, CRect &rect, const CRect &parentRect)
@@ -532,7 +543,9 @@ bool CGUIControlFactory::GetScroller(const TiXmlNode *control, const std::string
   return false;
 }
 
-bool CGUIControlFactory::GetColor(const TiXmlNode *control, const char *strTag, UTILS::Color &value)
+bool CGUIControlFactory::GetColor(const TiXmlNode* control,
+                                  const char* strTag,
+                                  UTILS::COLOR::Color& value)
 {
   const TiXmlElement* node = control->FirstChildElement(strTag);
   if (node && node->FirstChild())
@@ -592,7 +605,7 @@ void CGUIControlFactory::GetInfoLabels(const TiXmlNode *pControlNode, const std:
   int labelNumber = 0;
   if (XMLUtils::GetInt(pControlNode, "number", labelNumber))
   {
-    std::string label = StringUtils::Format("%i", labelNumber);
+    std::string label = std::to_string(labelNumber);
     infoLabels.emplace_back(label);
     return; // done
   }
@@ -615,7 +628,7 @@ void CGUIControlFactory::GetInfoLabels(const TiXmlNode *pControlNode, const std:
     {
       if (infoNode->FirstChild())
       {
-        std::string info = StringUtils::Format("$INFO[%s]", infoNode->FirstChild()->Value());
+        std::string info = StringUtils::Format("$INFO[{}]", infoNode->FirstChild()->Value());
         infoLabels.emplace_back(info, fallback, parentID);
       }
       infoNode = infoNode->NextSibling("info");
@@ -651,6 +664,51 @@ std::string CGUIControlFactory::GetType(const TiXmlElement *pControlNode)
   return type;
 }
 
+bool CGUIControlFactory::GetMovingSpeedConfig(const TiXmlNode* pRootNode,
+                                              const char* strTag,
+                                              UTILS::MOVING_SPEED::MapEventConfig& movingSpeedCfg)
+{
+  const TiXmlElement* msNode = pRootNode->FirstChildElement(strTag);
+  if (!msNode)
+    return false;
+
+  float globalAccel{StringUtils::ToFloat(XMLUtils::GetAttribute(msNode, "acceleration"))};
+  float globalMaxVel{StringUtils::ToFloat(XMLUtils::GetAttribute(msNode, "maxvelocity"))};
+  uint32_t globalResetTimeout{
+      StringUtils::ToUint32(XMLUtils::GetAttribute(msNode, "resettimeout"))};
+  float globalDelta{StringUtils::ToFloat(XMLUtils::GetAttribute(msNode, "delta"))};
+
+  const TiXmlElement* configElement{msNode->FirstChildElement("eventconfig")};
+  while (configElement)
+  {
+    const char* eventType = configElement->Attribute("type");
+    if (!eventType)
+    {
+      CLog::LogF(LOGERROR, "Failed to parse XML \"eventconfig\" tag missing \"type\" attribute");
+      continue;
+    }
+
+    const char* accelerationStr{configElement->Attribute("acceleration")};
+    float acceleration = accelerationStr ? StringUtils::ToFloat(accelerationStr) : globalAccel;
+
+    const char* maxVelocityStr{configElement->Attribute("maxvelocity")};
+    float maxVelocity = maxVelocityStr ? StringUtils::ToFloat(maxVelocityStr) : globalMaxVel;
+
+    const char* resetTimeoutStr{configElement->Attribute("resettimeout")};
+    uint32_t resetTimeout =
+        resetTimeoutStr ? StringUtils::ToUint32(resetTimeoutStr) : globalResetTimeout;
+
+    const char* deltaStr{configElement->Attribute("delta")};
+    float delta = deltaStr ? StringUtils::ToFloat(deltaStr) : globalDelta;
+
+    UTILS::MOVING_SPEED::EventCfg eventCfg{acceleration, maxVelocity, resetTimeout, delta};
+    movingSpeedCfg.emplace(UTILS::MOVING_SPEED::ParseEventType(eventType), eventCfg);
+
+    configElement = configElement->NextSiblingElement("eventconfig");
+  }
+  return true;
+}
+
 CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlElement* pControlNode, bool insideContainer)
 {
   // get the control type
@@ -666,6 +724,7 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
 
   int pageControl = 0;
   GUIINFO::CGUIInfoColor colorDiffuse(0xFFFFFFFF);
+  GUIINFO::CGUIInfoColor colorBox(0xFF000000);
   int defaultControl = 0;
   bool  defaultAlways = false;
   std::string strTmp;
@@ -701,6 +760,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   CTextureInfo textureRadioOffFocus, textureRadioOffNoFocus;
   CTextureInfo textureRadioOnDisabled, textureRadioOffDisabled;
   CTextureInfo textureProgressIndicator;
+  CTextureInfo textureColorMask, textureColorDisabledMask;
+
   GUIINFO::CGUIInfoLabel texturePath;
   CRect borderSize;
 
@@ -748,6 +809,11 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   float radioPosX = 0;
   float radioPosY = 0;
 
+  float colorWidth = 0;
+  float colorHeight = 0;
+  float colorPosX = 0;
+  float colorPosY = 0;
+
   std::string altLabel;
   std::string strLabel2;
   std::string action;
@@ -766,6 +832,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   bool resetOnLabelChange = true;
   bool bPassword = false;
   std::string visibleCondition;
+
+  UTILS::MOVING_SPEED::MapEventConfig movingSpeedCfg;
 
   /////////////////////////////////////////////////////////////////////////////
   // Read control properties from XML
@@ -816,12 +884,13 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   if (XMLUtils::GetInt(pControlNode, "defaultcontrol", defaultControl))
   {
     const char *always = pControlNode->FirstChildElement("defaultcontrol")->Attribute("always");
-    if (always && strnicmp(always, "true", 4) == 0)
+    if (always && StringUtils::CompareNoCase(always, "true", 4) == 0)
       defaultAlways = true;
   }
   XMLUtils::GetInt(pControlNode, "pagecontrol", pageControl);
 
   GetInfoColor(pControlNode, "colordiffuse", colorDiffuse, parentID);
+  GetInfoColor(pControlNode, "colorbox", colorBox, parentID);
 
   GetConditionalVisibility(pControlNode, visibleCondition, allowHiddenFocus);
   XMLUtils::GetString(pControlNode, "enable", enableCondition);
@@ -853,7 +922,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   GetActions(pControlNode, "ontextchange", textChangeActions);
   GetActions(pControlNode, "onfocus", focusActions);
   GetActions(pControlNode, "onunfocus", unfocusActions);
-  focusActions.m_sendThreadMessages = unfocusActions.m_sendThreadMessages = true;
+  focusActions.EnableSendThreadMessageMode();
+  unfocusActions.EnableSendThreadMessageMode();
   GetActions(pControlNode, "altclick", altclickActions);
 
   std::string infoString;
@@ -905,6 +975,9 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   GetTexture(pControlNode, "texturesliderbarfocus", textureBarFocus);
   GetTexture(pControlNode, "textureslidernib", textureNib);
   GetTexture(pControlNode, "textureslidernibfocus", textureNibFocus);
+
+  GetTexture(pControlNode, "texturecolormask", textureColorMask);
+  GetTexture(pControlNode, "texturecolordisabledmask", textureColorDisabledMask);
 
   XMLUtils::GetString(pControlNode, "title", strTitle);
   XMLUtils::GetString(pControlNode, "tagset", strRSSTags);
@@ -987,6 +1060,12 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   XMLUtils::GetFloat(pControlNode, "radioheight", radioHeight);
   XMLUtils::GetFloat(pControlNode, "radioposx", radioPosX);
   XMLUtils::GetFloat(pControlNode, "radioposy", radioPosY);
+
+  XMLUtils::GetFloat(pControlNode, "colorwidth", colorWidth);
+  XMLUtils::GetFloat(pControlNode, "colorheight", colorHeight);
+  XMLUtils::GetFloat(pControlNode, "colorposx", colorPosX);
+  XMLUtils::GetFloat(pControlNode, "colorposy", colorPosY);
+
   std::string borderStr;
   if (XMLUtils::GetString(pControlNode, "bordersize", borderStr))
     GetRectFromString(borderStr, borderSize);
@@ -1046,7 +1125,7 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
       viewType = VIEW_TYPE_BIG_INFO;
     const char *label = itemElement->Attribute("label");
     if (label)
-      viewLabel = GUIINFO::CGUIInfoLabel::GetLabel(FilterLabel(label));
+      viewLabel = GUIINFO::CGUIInfoLabel::GetLabel(FilterLabel(label), INFO::DEFAULT_CONTEXT);
   }
 
   TiXmlElement *cam = pControlNode->FirstChildElement("camera");
@@ -1065,6 +1144,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   GetString(pControlNode, "scrollsuffix", labelInfo.scrollSuffix);
 
   XMLUtils::GetString(pControlNode, "action", action);
+
+  GetMovingSpeedConfig(pControlNode, "movingspeed", movingSpeedCfg);
 
   /////////////////////////////////////////////////////////////////////////////
   // Instantiate a new control using the properties gathered above
@@ -1102,7 +1183,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
     break;
   case CGUIControl::GUICONTROL_LABEL:
     {
-      const GUIINFO::CGUIInfoLabel &content = (infoLabels.size()) ? infoLabels[0] : GUIINFO::CGUIInfoLabel("");
+      static const GUIINFO::CGUIInfoLabel empty;
+      const GUIINFO::CGUIInfoLabel& content = !infoLabels.empty() ? infoLabels[0] : empty;
       if (insideContainer)
       { // inside lists we use CGUIListLabel
         control = new CGUIListLabel(parentID, id, posX, posY, width, height, labelInfo, content, scrollValue);
@@ -1432,16 +1514,14 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
     break;
   case CGUIControl::GUICONTROL_MOVER:
     {
-      control = new CGUIMoverControl(
-        parentID, id, posX, posY, width, height,
-        textureFocus, textureNoFocus);
+      control = new CGUIMoverControl(parentID, id, posX, posY, width, height, textureFocus,
+                                     textureNoFocus, movingSpeedCfg);
     }
     break;
   case CGUIControl::GUICONTROL_RESIZE:
     {
-      control = new CGUIResizeControl(
-        parentID, id, posX, posY, width, height,
-        textureFocus, textureNoFocus);
+      control = new CGUIResizeControl(parentID, id, posX, posY, width, height, textureFocus,
+                                      textureNoFocus, movingSpeedCfg);
     }
     break;
   case CGUIControl::GUICONTROL_SPINEX:
@@ -1466,6 +1546,21 @@ CGUIControl* CGUIControlFactory::Create(int parentID, const CRect &rect, TiXmlEl
   case CGUIControl::GUICONTROL_GAMECONTROLLER:
     control = new GAME::CGUIGameController(parentID, id, posX, posY, width, height);
     break;
+  case CGUIControl::GUICONTROL_COLORBUTTON:
+  {
+    control = new CGUIColorButtonControl(parentID, id, posX, posY, width, height, textureFocus,
+                                         textureNoFocus, labelInfo, textureColorMask,
+                                         textureColorDisabledMask);
+
+    CGUIColorButtonControl* rcontrol = static_cast<CGUIColorButtonControl*>(control);
+    rcontrol->SetLabel(strLabel);
+    rcontrol->SetImageBoxColor(colorBox);
+    rcontrol->SetColorDimensions(colorPosX, colorPosY, colorWidth, colorHeight);
+    rcontrol->SetClickActions(clickActions);
+    rcontrol->SetFocusActions(focusActions);
+    rcontrol->SetUnFocusActions(unfocusActions);
+  }
+  break;
   default:
     break;
   }

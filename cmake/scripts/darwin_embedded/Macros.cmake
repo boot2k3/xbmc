@@ -2,7 +2,15 @@ function(core_link_library lib wraplib)
   if(CMAKE_GENERATOR MATCHES "Unix Makefiles" OR CMAKE_GENERATOR STREQUAL Ninja)
     set(wrapper_obj cores/dll-loader/exports/CMakeFiles/wrapper.dir/wrapper.c.o)
   elseif(CMAKE_GENERATOR MATCHES "Xcode")
-    set(wrapper_obj cores/dll-loader/exports/kodi.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/wrapper.build/Objects-$(CURRENT_VARIANT)/$(CURRENT_ARCH)/wrapper.o)
+    # CURRENT_VARIANT is an Xcode env var
+    # CPU is a project cmake var
+    # Xcode new build system (CMAKE_XCODE_BUILD_SYSTEM=12) requires the env var CURRENT_VARIANT to be passed WITHOUT brackets
+    # Xcode Legacy build system (CMAKE_XCODE_BUILD_SYSTEM=1) requires the env var CURRENT_VARIANT to be passed WITH brackets
+    if(CMAKE_XCODE_BUILD_SYSTEM STREQUAL 12)
+      set(wrapper_obj cores/dll-loader/exports/kodi.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/wrapper.build/Objects-$CURRENT_VARIANT/${CPU}/wrapper.o)
+    else()
+      set(wrapper_obj cores/dll-loader/exports/kodi.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/wrapper.build/Objects-$(CURRENT_VARIANT)/${CPU}/wrapper.o)
+    endif()
   else()
     message(FATAL_ERROR "Unsupported generator in core_link_library")
   endif()
@@ -18,12 +26,6 @@ function(core_link_library lib wraplib)
     set(check_arg ${ARGV2})
     set(data_arg  ${ARGV3})
 
-    # iOS: EFFECTIVE_PLATFORM_NAME is not resolved
-    # http://public.kitware.com/pipermail/cmake/2016-March/063049.html
-    if(CORE_SYSTEM_NAME STREQUAL darwin_embedded)
-      get_target_property(dir ${lib} BINARY_DIR)
-      set(link_lib ${dir}/${CORE_BUILD_CONFIG}/${CMAKE_STATIC_LIBRARY_PREFIX}${lib}${CMAKE_STATIC_LIBRARY_SUFFIX})
-    endif()
   else()
     set(target ${ARGV2})
     set(link_lib ${lib})
@@ -52,8 +54,7 @@ function(core_link_library lib wraplib)
                      COMMAND ${CMAKE_C_COMPILER}
                      ARGS    ${CUSTOM_COMMAND_ARGS_LDFLAGS} ${export} -Wl,-force_load ${link_lib} ${extra_libs}
                              -o ${CMAKE_BINARY_DIR}/${wraplib}-${ARCH}${extension}
-                     DEPENDS ${target} wrapper.def wrapper
-                     VERBATIM)
+                     DEPENDS ${target} wrapper.def wrapper)
 
   get_filename_component(libname ${wraplib} NAME_WE)
   add_custom_target(wrap_${libname} ALL DEPENDS ${wraplib}-${ARCH}${extension})

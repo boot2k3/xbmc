@@ -30,8 +30,8 @@ public:
                        const CTextureInfo& barTexture, const CTextureInfo& barTextureFocus,
                        const CTextureInfo& nibTexture, const CTextureInfo& nibTextureFocus,
                        ORIENTATION orientation, bool showOnePage);
-  ~GUIScrollBarControl(void) override;
-  GUIScrollBarControl *Clone() const override { return new GUIScrollBarControl(*this); };
+  ~GUIScrollBarControl() override = default;
+  GUIScrollBarControl* Clone() const override { return new GUIScrollBarControl(*this); }
 
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
   void Render() override;
@@ -48,16 +48,16 @@ public:
   bool IsVisible() const override;
 protected:
   EVENT_RESULT OnMouseEvent(const CPoint &point, const CMouseEvent &event) override;
-  bool UpdateColors() override;
+  bool UpdateColors(const CGUIListItem* item) override;
   bool UpdateBarSize();
   bool Move(int iNumSteps);
   virtual void SetFromPosition(const CPoint &point);
 
-  CGUITexture m_guiBackground;
-  CGUITexture m_guiBarNoFocus;
-  CGUITexture m_guiBarFocus;
-  CGUITexture m_guiNibNoFocus;
-  CGUITexture m_guiNibFocus;
+  std::unique_ptr<CGUITexture> m_guiBackground;
+  std::unique_ptr<CGUITexture> m_guiBarNoFocus;
+  std::unique_ptr<CGUITexture> m_guiBarFocus;
+  std::unique_ptr<CGUITexture> m_guiNibNoFocus;
+  std::unique_ptr<CGUITexture> m_guiNibFocus;
 
   int m_numItems;
   int m_pageSize;
@@ -65,5 +65,8 @@ protected:
 
   bool m_showOnePage;
   ORIENTATION m_orientation;
+
+private:
+  GUIScrollBarControl(const GUIScrollBarControl& control);
 };
 

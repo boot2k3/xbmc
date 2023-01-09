@@ -44,7 +44,10 @@ bool CGUIWindowEventLog::OnMessage(CGUIMessage& message)
     // check if we should clear all items
     if (iControl == CONTROL_BUTTON_CLEAR)
     {
-      CServiceBroker::GetEventLog().Clear(CViewStateSettings::GetInstance().GetEventLevel(), CViewStateSettings::GetInstance().ShowHigherEventLevels());
+      auto eventLog = CServiceBroker::GetEventLog();
+      if (eventLog)
+        eventLog->Clear(CViewStateSettings::GetInstance().GetEventLevel(),
+                        CViewStateSettings::GetInstance().ShowHigherEventLevels());
 
       // refresh the list
       Refresh(true);
@@ -142,7 +145,11 @@ void CGUIWindowEventLog::GetContextButtons(int itemNumber, CContextButtons &butt
   if (eventIdentifier.empty())
     return;
 
-  EventPtr eventPtr = CServiceBroker::GetEventLog().Get(eventIdentifier);
+  auto eventLog = CServiceBroker::GetEventLog();
+  if (!eventLog)
+    return;
+
+  EventPtr eventPtr = eventLog->Get(eventIdentifier);
   if (eventPtr == nullptr)
     return;
 
@@ -177,7 +184,9 @@ void CGUIWindowEventLog::UpdateButtons()
 
   EventLevel eventLevel = CViewStateSettings::GetInstance().GetEventLevel();
   // set the label of the "level" button
-  SET_CONTROL_LABEL(CONTROL_BUTTON_LEVEL, StringUtils::Format(g_localizeStrings.Get(14119).c_str(), g_localizeStrings.Get(14115 + (int)eventLevel).c_str()));
+  SET_CONTROL_LABEL(CONTROL_BUTTON_LEVEL,
+                    StringUtils::Format(g_localizeStrings.Get(14119),
+                                        g_localizeStrings.Get(14115 + (int)eventLevel)));
 
   // set the label, value and enabled state of the "level only" button
   SET_CONTROL_LABEL(CONTROL_BUTTON_LEVEL_ONLY, 14120);
@@ -219,7 +228,7 @@ bool CGUIWindowEventLog::GetDirectory(const std::string &strDirectory, CFileItem
   return result;
 }
 
-bool CGUIWindowEventLog::OnSelect(CFileItemPtr item)
+bool CGUIWindowEventLog::OnSelect(const CFileItemPtr& item)
 {
   if (item == nullptr)
     return false;
@@ -228,7 +237,7 @@ bool CGUIWindowEventLog::OnSelect(CFileItemPtr item)
   return true;
 }
 
-bool CGUIWindowEventLog::OnDelete(CFileItemPtr item)
+bool CGUIWindowEventLog::OnDelete(const CFileItemPtr& item)
 {
   if (item == nullptr)
     return false;
@@ -237,11 +246,15 @@ bool CGUIWindowEventLog::OnDelete(CFileItemPtr item)
   if (eventIdentifier.empty())
     return false;
 
-  CServiceBroker::GetEventLog().Remove(eventIdentifier);
+  auto eventLog = CServiceBroker::GetEventLog();
+  if (!eventLog)
+    return false;
+
+  eventLog->Remove(eventIdentifier);
   return true;
 }
 
-bool CGUIWindowEventLog::OnExecute(CFileItemPtr item)
+bool CGUIWindowEventLog::OnExecute(const CFileItemPtr& item)
 {
   if (item == nullptr)
     return false;
@@ -250,7 +263,11 @@ bool CGUIWindowEventLog::OnExecute(CFileItemPtr item)
   if (eventIdentifier.empty())
     return false;
 
-  const EventPtr eventPtr = CServiceBroker::GetEventLog().Get(eventIdentifier);
+  auto eventLog = CServiceBroker::GetEventLog();
+  if (!eventLog)
+    return false;
+
+  const EventPtr eventPtr = eventLog->Get(eventIdentifier);
   if (eventPtr == nullptr)
     return false;
 
@@ -260,7 +277,7 @@ bool CGUIWindowEventLog::OnExecute(CFileItemPtr item)
   return eventPtr->Execute();
 }
 
-void CGUIWindowEventLog::OnEventAdded(CFileItemPtr item)
+void CGUIWindowEventLog::OnEventAdded(const CFileItemPtr& item)
 {
   if (!IsActive())
     return;
@@ -268,7 +285,7 @@ void CGUIWindowEventLog::OnEventAdded(CFileItemPtr item)
   Refresh(true);
 }
 
-void CGUIWindowEventLog::OnEventRemoved(CFileItemPtr item)
+void CGUIWindowEventLog::OnEventRemoved(const CFileItemPtr& item)
 {
   if (!IsActive())
     return;

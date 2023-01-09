@@ -27,18 +27,13 @@ CPPFLAGS="@platform_cflags@ @platform_includes@ -isystem @prefix@/@deps_dir@/inc
 
 export PKG_CONFIG=@prefix@/@tool_dir@/bin/pkg-config
 export PKG_CONFIG_LIBDIR=@prefix@/@deps_dir@/lib/pkgconfig
-export YASM=@prefix@/@tool_dir@/bin/yasm
-export NASM=@prefix@/@tool_dir@/bin/yasm
+export NASM=@prefix@/@tool_dir@/bin/nasm
 LIBGCRYPT_CONFIG=@prefix@/@deps_dir@/bin/libgcrypt-config
 
 PATH=@prefix@/@tool_dir@/bin:@use_toolchain@/usr/bin:@use_toolchain@/bin:$PATH
 LD_LIBRARY_PATH=@prefix@/@tool_dir@/lib:$LD_LIBRARY_PATH
 
-PYTHON_VERSION=3.7
-PYTHON_LDFLAGS="-L@prefix@/@deps_dir@/lib -lpython${PYTHON_VERSION} -lc -ldl -lm -lexpat -lffi -lintl -lutil -lssl -lcrypto"
-PYTHON_CPPFLAGS=-I@prefix@/@deps_dir@/include/python${PYTHON_VERSION}
-PYTHON_SITE_PKG=@prefix@/@deps_dir@/lib/python${PYTHON_VERSION}/site-packages
-PYTHON_NOVERSIONCHECK=no-check
+PYTHON_VERSION=3.9
 NATIVE_ROOT=@prefix@/@tool_dir@
 
 #libomxil-bellagio
@@ -54,13 +49,6 @@ gl_cv_header_working_stdint_h=yes
 #libcec
 ac_cv_search_dlopen=-ldl
 
-#libgcrypt
-if test "${PACKAGE_NAME}" = "libgcrypt"; then
-  ac_cv_path_GPG_ERROR_CONFIG=@prefix@/@deps_dir@/bin/gpg-error-config
-  ac_cv_sys_symbol_underscore=no
-  CFLAGS="$CFLAGS -std=gnu99"
-fi
-
 #python
 ac_cv_func_gethostbyname_r=no
 ac_cv_header_sys_un_h=yes
@@ -70,30 +58,23 @@ ac_cv_file__dev_ptc=no
 #gnutls
 gl_cv_func_gettimeofday_clobber=no
 
+#wayland
+if test "${PACKAGE_NAME}" = "wayland"; then
+  # wayland insists on building tests which rely on assert, which cannot work with -DNDEBUG
+  # Maybe it would be better not to define -DNDEBUG globally for release builds?
+  export CFLAGS=`echo ${CFLAGS} | sed 's/-DNDEBUG=1//g'`
+  export CPPFLAGS=`echo ${CPPFLAGS} | sed 's/-DNDEBUG=1//g'`
+fi
+
 
 if test "@platform_os@" = "android"; then
   ac_cv_func_srand=yes
   ac_cv_func_rand=yes
-
-  #python: android doesn't have libutil
-  PYTHON_LDFLAGS="-L@prefix@/@deps_dir@/lib -lpython${PYTHON_VERSION} -lc -ldl -lm -lexpat -lffi -lintl -lssl -lcrypto"
-
 fi
 
 if test "@platform_os@" = "darwin_embedded"; then
-  ac_cv_search_clock_gettime=no
-  ac_cv_func_clock_gettime=no
+  # there is no clock_settime on iOS/tvOS as of latest version 13.X
   ac_cv_func_clock_settime=no
-  ac_cv_func_futimens=no
-  ac_cv_func_getentropy=no
-  ac_cv_func_utimensat=no
-
-  # tweaks for libffi
-  if test "${PACKAGE_NAME}" = "libffi" ; then
-    if test "@use_cpu@" = "arm64"; then
-      host_alias=aarch64-apple-darwin
-    fi
-  fi
 
   # tweaks for flac
   if test "${ac_unique_file}" = "src/flac/main.c" ; then
@@ -103,9 +84,10 @@ if test "@platform_os@" = "darwin_embedded"; then
   fi
 fi
 
-# Python3 build for appletvos
 if test "@target_platform@" = "appletvos"; then
   ac_cv_func_sigaltstack=no
+  ac_cv_func_vfork_works=no
+  ac_cv_func_fork=no
 fi
 
 #Fix for older, broken android toolchains

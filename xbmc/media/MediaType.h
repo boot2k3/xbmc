@@ -9,7 +9,6 @@
 #pragma once
 
 #include <map>
-#include <set>
 #include <string>
 
 using MediaType = std::string;
@@ -42,7 +41,8 @@ public:
   static std::string GetCapitalLocalization(const MediaType &mediaType);
   static std::string GetCapitalPluralLocalization(const MediaType &mediaType);
 
-  typedef struct MediaTypeInfo {
+  struct MediaTypeInfo
+  {
     MediaTypeInfo(const MediaType &mediaType, const std::string &plural, bool container,
                   int localizationSingular, int localizationPlural,
                   int localizationSingularCapital, int localizationPluralCapital)
@@ -62,7 +62,7 @@ public:
     int localizationPlural;
     int localizationSingularCapital;
     int localizationPluralCapital;
-  } MediaTypeInfo;
+  };
 
 private:
   static std::map<std::string, MediaTypeInfo>::const_iterator findMediaType(const std::string &mediaType);

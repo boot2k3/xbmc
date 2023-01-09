@@ -22,7 +22,7 @@ using namespace GAME;
 std::string CGUIDialogAxisDetection::GetDialogText()
 {
   // "Press all analog buttons now to detect them:[CR][CR]%s"
-  std::string dialogText = g_localizeStrings.Get(35020);
+  const std::string& dialogText = g_localizeStrings.Get(35020);
 
   std::vector<std::string> primitives;
 
@@ -32,7 +32,7 @@ std::string CGUIDialogAxisDetection::GetDialogText()
     primitives.emplace_back(JOYSTICK::CJoystickTranslator::GetPrimitiveName(axis));
   }
 
-  return StringUtils::Format(dialogText.c_str(), StringUtils::Join(primitives, " | ").c_str());
+  return StringUtils::Format(dialogText, StringUtils::Join(primitives, " | "));
 }
 
 std::string CGUIDialogAxisDetection::GetDialogHeader()
@@ -45,7 +45,7 @@ bool CGUIDialogAxisDetection::MapPrimitiveInternal(JOYSTICK::IButtonMap* buttonM
                                                    const JOYSTICK::CDriverPrimitive& primitive)
 {
   if (primitive.Type() == JOYSTICK::PRIMITIVE_TYPE::SEMIAXIS)
-    AddAxis(buttonMap->DeviceName(), primitive.Index());
+    AddAxis(buttonMap->Location(), primitive.Index());
 
   return true;
 }
@@ -54,32 +54,31 @@ bool CGUIDialogAxisDetection::AcceptsPrimitive(JOYSTICK::PRIMITIVE_TYPE type) co
 {
   switch (type)
   {
-  case JOYSTICK::PRIMITIVE_TYPE::SEMIAXIS:
-    return true;
-  default:
-    break;
+    case JOYSTICK::PRIMITIVE_TYPE::SEMIAXIS:
+      return true;
+    default:
+      break;
   }
 
   return false;
 }
 
-void CGUIDialogAxisDetection::OnLateAxis(const JOYSTICK::IButtonMap* buttonMap, unsigned int axisIndex)
+void CGUIDialogAxisDetection::OnLateAxis(const JOYSTICK::IButtonMap* buttonMap,
+                                         unsigned int axisIndex)
 {
-  AddAxis(buttonMap->DeviceName(), axisIndex);
+  AddAxis(buttonMap->Location(), axisIndex);
 }
 
-void CGUIDialogAxisDetection::AddAxis(const std::string& deviceName, unsigned int axisIndex)
+void CGUIDialogAxisDetection::AddAxis(const std::string& deviceLocation, unsigned int axisIndex)
 {
   auto it = std::find_if(m_detectedAxes.begin(), m_detectedAxes.end(),
-    [&deviceName, axisIndex](const AxisEntry& axis)
-    {
-      return axis.first == deviceName &&
-             axis.second == axisIndex;
-    });
+                         [&deviceLocation, axisIndex](const AxisEntry& axis) {
+                           return axis.first == deviceLocation && axis.second == axisIndex;
+                         });
 
   if (it == m_detectedAxes.end())
   {
-    m_detectedAxes.emplace_back(std::make_pair(deviceName, axisIndex));
+    m_detectedAxes.emplace_back(std::make_pair(deviceLocation, axisIndex));
     m_captureEvent.Set();
   }
 }

@@ -17,7 +17,6 @@ CFTPParse::CFTPParse()
   m_flagtrycwd = 0;
   m_flagtryretr = 0;
   m_size = 0;
-  m_time = 0;
 }
 
 std::string CFTPParse::getName()
@@ -45,7 +44,7 @@ time_t CFTPParse::getTime()
   return m_time;
 }
 
-void CFTPParse::setTime(std::string str)
+void CFTPParse::setTime(const std::string& str)
 {
   /* Variables used to capture patterns via the regexes */
   std::string month;
@@ -324,7 +323,7 @@ int CFTPParse::getDayOfWeek(int month, int date, int year)
   return day_of_week;
 }
 
-int CFTPParse::FTPParse(std::string str)
+int CFTPParse::FTPParse(const std::string& str)
 {
   /* Various variable to capture patterns via the regexes */
   std::string permissions;

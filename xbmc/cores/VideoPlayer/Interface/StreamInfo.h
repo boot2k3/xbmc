@@ -17,16 +17,25 @@ typedef CRectGen<float>  CRect;
 
 enum StreamFlags
 {
-  FLAG_NONE = 0x0000
-  , FLAG_DEFAULT = 0x0001
-  , FLAG_DUB = 0x0002
-  , FLAG_ORIGINAL = 0x0004
-  , FLAG_COMMENT = 0x0008
-  , FLAG_LYRICS = 0x0010
-  , FLAG_KARAOKE = 0x0020
-  , FLAG_FORCED = 0x0040
-  , FLAG_HEARING_IMPAIRED = 0x0080
-  , FLAG_VISUAL_IMPAIRED = 0x0100
+  FLAG_NONE = 0x0000,
+  FLAG_DEFAULT = 0x0001,
+  FLAG_DUB = 0x0002,
+  FLAG_ORIGINAL = 0x0004,
+  FLAG_COMMENT = 0x0008,
+  FLAG_LYRICS = 0x0010,
+  FLAG_KARAOKE = 0x0020,
+  FLAG_FORCED = 0x0040,
+  FLAG_HEARING_IMPAIRED = 0x0080,
+  FLAG_VISUAL_IMPAIRED = 0x0100,
+  FLAG_STILL_IMAGES = 0x100000
+};
+
+enum class StreamHdrType
+{
+  HDR_TYPE_NONE, ///< <b>None</b>, returns an empty string when used in infolabels
+  HDR_TYPE_HDR10, ///< <b>HDR10</b>, returns `hdr10` when used in infolabels
+  HDR_TYPE_DOLBYVISION, ///< <b>Dolby Vision</b>, returns `dolbyvision` when used in infolabels
+  HDR_TYPE_HLG ///< <b>HLG</b>, returns `hlg` when used in infolabels
 };
 
 struct StreamInfo
@@ -60,8 +69,10 @@ struct VideoStreamInfo : StreamInfo
   int width = 0;
   CRect SrcRect;
   CRect DestRect;
+  CRect VideoRect;
   std::string stereoMode;
   int angles = 0;
+  StreamHdrType hdrType = StreamHdrType::HDR_TYPE_NONE;
 };
 
 struct ProgramInfo

@@ -10,7 +10,7 @@
 
 #include "DVDDemuxUtils.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/contrib/cc_decoder708.h"
-#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h"
+#include "cores/VideoPlayer/Interface/TimingConstants.h"
 
 #include <algorithm>
 
@@ -86,12 +86,11 @@ bool reorder_sort (CCaptionBlock *lhs, CCaptionBlock *rhs)
   return (lhs->m_pts > rhs->m_pts);
 }
 
-CDVDDemuxCC::CDVDDemuxCC(AVCodecID codec)
+CDVDDemuxCC::CDVDDemuxCC(AVCodecID codec) : m_codec(codec)
 {
   m_hasData = false;
   m_curPts = 0.0;
   m_ccDecoder = NULL;
-  m_codec = codec;
 }
 
 CDVDDemuxCC::~CDVDDemuxCC()
@@ -114,6 +113,7 @@ std::vector<CDemuxStream*> CDVDDemuxCC::GetStreams() const
   std::vector<CDemuxStream*> streams;
 
   int num = GetNrOfStreams();
+  streams.reserve(num);
   for (int i = 0; i < num; ++i)
   {
     streams.push_back(const_cast<CDemuxStreamSubtitle*>(&m_streams[i]));
@@ -314,11 +314,12 @@ void CDVDDemuxCC::Handler(int service, void *userdata)
   if (idx >= ctx->m_streamdata.size())
   {
     CDemuxStreamSubtitle stream;
+    stream.source = STREAM_SOURCE_VIDEOMUX;
     stream.language = "cc";
     stream.flags = FLAG_HEARING_IMPAIRED;
     stream.codec = AV_CODEC_ID_TEXT;
     stream.uniqueId = service;
-    ctx->m_streams.push_back(stream);
+    ctx->m_streams.push_back(std::move(stream));
 
     streamdata data;
     data.streamIdx = idx;

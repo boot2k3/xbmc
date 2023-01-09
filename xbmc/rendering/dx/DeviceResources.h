@@ -8,21 +8,21 @@
 
 #pragma once
 
-#include <wrl.h>
-#include <wrl/client.h>
-#include <concrt.h>
-#if defined(TARGET_WINDOWS_STORE)
-#include <dxgi1_3.h>
-#else
-#include <dxgi1_2.h>
-#endif
+#include "DirectXHelper.h"
+#include "HDRStatus.h"
+#include "guilib/D3DResource.h"
+
 #include <functional>
 #include <memory>
 
-#include "DirectXHelper.h"
-#include "guilib/D3DResource.h"
+#include <concrt.h>
+#include <dxgi1_5.h>
+#include <wrl.h>
+#include <wrl/client.h>
 
 struct RESOLUTION_INFO;
+struct DEBUG_INFO_RENDER;
+struct VideoDriverInfo;
 
 namespace DX
 {
@@ -80,6 +80,16 @@ namespace DX
 
     bool SetFullScreen(bool fullscreen, RESOLUTION_INFO& res);
 
+    // Apply display settings changes
+    void ApplyDisplaySettings();
+
+    // HDR display support
+    HDR_STATUS ToggleHDR();
+    void SetHdrMetaData(DXGI_HDR_METADATA_HDR10& hdr10) const;
+    void SetHdrColorSpace(const DXGI_COLOR_SPACE_TYPE colorSpace);
+    bool IsHDROutput() const { return m_IsHDROutput; }
+    bool IsTransferPQ() const { return m_IsTransferPQ; }
+
     // DX resources registration
     void Register(ID3DResource *resource);
     void Unregister(ID3DResource *resource);
@@ -102,7 +112,11 @@ namespace DX
     void SetWindow(const winrt::Windows::UI::Core::CoreWindow& window);
     void SetWindowPos(winrt::Windows::Foundation::Rect rect);
 #endif // TARGET_WINDOWS_STORE
-    bool DoesTextureSharingWork();
+    bool IsNV12SharedTexturesSupported() const { return m_NV12SharedTexturesSupport; }
+    bool IsDXVA2SharedDecoderSurfaces() const { return m_DXVA2SharedDecoderSurfaces; }
+
+    // Gets debug info from swapchain
+    DEBUG_INFO_RENDER GetDebugInfo() const;
 
   private:
     class CBackBuffer : public CD3DTexture
@@ -114,6 +128,7 @@ namespace DX
     };
 
     HRESULT CreateSwapChain(DXGI_SWAP_CHAIN_DESC1 &desc, DXGI_SWAP_CHAIN_FULLSCREEN_DESC &fsDesc, IDXGISwapChain1 **ppSwapChain) const;
+    void DestroySwapChain();
     void CreateDeviceIndependentResources();
     void CreateDeviceResources();
     void CreateWindowSizeDependentResources();
@@ -122,6 +137,9 @@ namespace DX
     void OnDeviceRestored();
     void HandleOutputChange(const std::function<bool(DXGI_OUTPUT_DESC)>& cmpFunc);
     bool CreateFactory();
+    void CheckNV12SharedTexturesSupport();
+    VideoDriverInfo GetVideoDriverVersion();
+    void CheckDXVA2SharedDecoderSurfaces();
 
     HWND m_window{ nullptr };
 #if defined(TARGET_WINDOWS_STORE)
@@ -158,7 +176,12 @@ namespace DX
     Concurrency::critical_section m_criticalSection;
     Concurrency::critical_section m_resourceSection;
     std::vector<ID3DResource*> m_resources;
+
     bool m_stereoEnabled;
     bool m_bDeviceCreated;
+    bool m_IsHDROutput;
+    bool m_IsTransferPQ;
+    bool m_NV12SharedTexturesSupport{false};
+    bool m_DXVA2SharedDecoderSurfaces{false};
   };
 }

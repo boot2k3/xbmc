@@ -8,6 +8,9 @@
 
 #include "VideoLibrary.h"
 
+#include "FileItem.h"
+#include "PVROperations.h"
+#include "ServiceBroker.h"
 #include "TextureDatabase.h"
 #include "Util.h"
 #include "messaging/ApplicationMessenger.h"
@@ -16,10 +19,10 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoDbUrl.h"
 #include "video/VideoLibraryQueue.h"
 
 using namespace JSONRPC;
-using namespace KODI::MESSAGING;
 
 JSONRPC_STATUS CVideoLibrary::GetMovies(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
@@ -101,7 +104,7 @@ JSONRPC_STATUS CVideoLibrary::GetMovieSets(const std::string &method, ITransport
     return InternalError;
 
   CFileItemList items;
-  if (!videodatabase.GetSetsNav("videodb://movies/sets/", items, VIDEODB_CONTENT_MOVIES))
+  if (!videodatabase.GetSetsNav("videodb://movies/sets/", items, VideoDbContentType::MOVIES))
     return InternalError;
 
   HandleFileItemList("setid", false, "sets", items, parameterObject, result);
@@ -202,7 +205,7 @@ JSONRPC_STATUS CVideoLibrary::GetSeasons(const std::string &method, ITransportLa
 
   int tvshowID = (int)parameterObject["tvshowid"].asInteger();
 
-  std::string strPath = StringUtils::Format("videodb://tvshows/titles/%i/", tvshowID);
+  std::string strPath = StringUtils::Format("videodb://tvshows/titles/{}/", tvshowID);
   CFileItemList items;
   if (!videodatabase.GetSeasonsNav(strPath, items, -1, -1, -1, -1, tvshowID, false))
     return InternalError;
@@ -243,7 +246,7 @@ JSONRPC_STATUS CVideoLibrary::GetEpisodes(const std::string &method, ITransportL
   int tvshowID = (int)parameterObject["tvshowid"].asInteger();
   int season   = (int)parameterObject["season"].asInteger();
 
-  std::string strPath = StringUtils::Format("videodb://tvshows/titles/%i/%i/", tvshowID, season);
+  std::string strPath = StringUtils::Format("videodb://tvshows/titles/{}/{}/", tvshowID, season);
 
   CVideoDbUrl videoUrl;
   if (!videoUrl.FromString(strPath))
@@ -304,7 +307,8 @@ JSONRPC_STATUS CVideoLibrary::GetEpisodeDetails(const std::string &method, ITran
   if (tvshowid <= 0)
     tvshowid = videodatabase.GetTvShowForEpisode(id);
 
-  std::string basePath = StringUtils::Format("videodb://tvshows/titles/%i/%i/%i", tvshowid, infos.m_iSeason, id);
+  std::string basePath =
+      StringUtils::Format("videodb://tvshows/titles/{}/{}/{}", tvshowid, infos.m_iSeason, id);
   pItem->SetPath(basePath);
 
   HandleFileItem("episodeid", true, "episodedetails", pItem, parameterObject, parameterObject["properties"], result, false);
@@ -430,23 +434,23 @@ JSONRPC_STATUS CVideoLibrary::GetGenres(const std::string &method, ITransportLay
 {
   std::string media = parameterObject["type"].asString();
   StringUtils::ToLower(media);
-  int idContent = -1;
+  VideoDbContentType idContent = VideoDbContentType::UNKNOWN;
 
   std::string strPath = "videodb://";
   /* select which video content to get genres from*/
   if (media == MediaTypeMovie)
   {
-    idContent = VIDEODB_CONTENT_MOVIES;
+    idContent = VideoDbContentType::MOVIES;
     strPath += "movies";
   }
   else if (media == MediaTypeTvShow)
   {
-    idContent = VIDEODB_CONTENT_TVSHOWS;
+    idContent = VideoDbContentType::TVSHOWS;
     strPath += "tvshows";
   }
   else if (media == MediaTypeMusicVideo)
   {
-    idContent = VIDEODB_CONTENT_MUSICVIDEOS;
+    idContent = VideoDbContentType::MUSICVIDEOS;
     strPath += "musicvideos";
   }
   strPath += "/genres/";
@@ -471,23 +475,23 @@ JSONRPC_STATUS CVideoLibrary::GetTags(const std::string &method, ITransportLayer
 {
   std::string media = parameterObject["type"].asString();
   StringUtils::ToLower(media);
-  int idContent = -1;
+  VideoDbContentType idContent = VideoDbContentType::UNKNOWN;
 
   std::string strPath = "videodb://";
   /* select which video content to get tags from*/
   if (media == MediaTypeMovie)
   {
-    idContent = VIDEODB_CONTENT_MOVIES;
+    idContent = VideoDbContentType::MOVIES;
     strPath += "movies";
   }
   else if (media == MediaTypeTvShow)
   {
-    idContent = VIDEODB_CONTENT_TVSHOWS;
+    idContent = VideoDbContentType::TVSHOWS;
     strPath += "tvshows";
   }
   else if (media == MediaTypeMusicVideo)
   {
-    idContent = VIDEODB_CONTENT_MUSICVIDEOS;
+    idContent = VideoDbContentType::MUSICVIDEOS;
     strPath += "musicvideos";
   }
   strPath += "/tags/";
@@ -505,6 +509,86 @@ JSONRPC_STATUS CVideoLibrary::GetTags(const std::string &method, ITransportLayer
     items[i]->GetVideoInfoTag()->m_strTitle = items[i]->GetLabel();
 
   HandleFileItemList("tagid", false, "tags", items, parameterObject, result);
+  return OK;
+}
+
+namespace
+{
+  const std::map<std::string, std::string> mediaIDTypes = {
+    {"episodeid", MediaTypeEpisode},
+    {"tvshowid", MediaTypeTvShow},
+    {"seasonid", MediaTypeSeason},
+    {"movieid", MediaTypeMovie},
+    {"setid", MediaTypeVideoCollection},
+    {"musicvideoid", MediaTypeMusicVideo},
+  };
+}
+
+JSONRPC_STATUS CVideoLibrary::GetAvailableArtTypes(const std::string& method, ITransportLayer* transport, IClient* client, const CVariant& parameterObject, CVariant& result)
+{
+  std::string mediaType;
+  int mediaID = -1;
+  for (const auto& mediaIDType : mediaIDTypes) {
+    if (parameterObject["item"].isMember(mediaIDType.first))
+    {
+      mediaType = mediaIDType.second;
+      mediaID = parameterObject["item"][mediaIDType.first].asInteger32();
+      break;
+    }
+  }
+  if (mediaID == -1)
+    return InternalError;
+
+  CVideoDatabase videodatabase;
+  if (!videodatabase.Open())
+    return InternalError;
+
+  CVariant availablearttypes = CVariant(CVariant::VariantTypeArray);
+  for (const auto& artType : videodatabase.GetAvailableArtTypesForItem(mediaID, mediaType))
+  {
+    availablearttypes.append(artType);
+  }
+  result = CVariant(CVariant::VariantTypeObject);
+  result["availablearttypes"] = availablearttypes;
+
+  return OK;
+}
+
+JSONRPC_STATUS CVideoLibrary::GetAvailableArt(const std::string& method, ITransportLayer* transport, IClient* client, const CVariant& parameterObject, CVariant& result)
+{
+  std::string mediaType;
+  int mediaID = -1;
+  for (const auto& mediaIDType : mediaIDTypes) {
+    if (parameterObject["item"].isMember(mediaIDType.first))
+    {
+      mediaType = mediaIDType.second;
+      mediaID = parameterObject["item"][mediaIDType.first].asInteger32();
+      break;
+    }
+  }
+  if (mediaID == -1)
+    return InternalError;
+
+  std::string artType = parameterObject["arttype"].asString();
+  StringUtils::ToLower(artType);
+
+  CVideoDatabase videodatabase;
+  if (!videodatabase.Open())
+    return InternalError;
+
+  CVariant availableart = CVariant(CVariant::VariantTypeArray);
+  for (const auto& artentry : videodatabase.GetAvailableArtForItem(mediaID, mediaType, artType))
+  {
+    CVariant item = CVariant(CVariant::VariantTypeObject);
+    item["url"] = CTextureUtils::GetWrappedImageURL(artentry.m_url);
+    item["arttype"] = artentry.m_aspect;
+    if (!artentry.m_preview.empty())
+      item["previewurl"] = CTextureUtils::GetWrappedImageURL(artentry.m_preview);
+    availableart.append(item);
+  }
+  result = CVariant(CVariant::VariantTypeObject);
+  result["availableart"] = availableart;
+
   return OK;
 }
 
@@ -692,7 +776,7 @@ JSONRPC_STATUS CVideoLibrary::SetEpisodeDetails(const std::string &method, ITran
   std::set<std::string> updatedDetails;
   UpdateVideoTag(parameterObject, infos, artwork, removedArtwork, updatedDetails);
 
-  if (videodatabase.SetDetailsForEpisode(infos.m_strFileNameAndPath, infos, artwork, tvshowid, id) <= 0)
+  if (videodatabase.SetDetailsForEpisode(infos, artwork, tvshowid, id) <= 0)
     return InternalError;
 
   if (!videodatabase.RemoveArtForItem(infos.m_iDbId, MediaTypeEpisode, removedArtwork))
@@ -743,7 +827,7 @@ JSONRPC_STATUS CVideoLibrary::SetMusicVideoDetails(const std::string &method, IT
   // due to scrapers not supporting them
   videodatabase.RemoveTagsFromItem(id, MediaTypeMusicVideo);
 
-  if (videodatabase.SetDetailsForMusicVideo(infos.m_strFileNameAndPath, infos, artwork, id) <= 0)
+  if (videodatabase.SetDetailsForMusicVideo(infos, artwork, id) <= 0)
     return InternalError;
 
   if (!videodatabase.RemoveArtForItem(infos.m_iDbId, MediaTypeMusicVideo, removedArtwork))
@@ -872,9 +956,11 @@ JSONRPC_STATUS CVideoLibrary::RemoveMusicVideo(const std::string &method, ITrans
 JSONRPC_STATUS CVideoLibrary::Scan(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
   std::string directory = parameterObject["directory"].asString();
-  std::string cmd = StringUtils::Format("updatelibrary(video, %s, %s)", StringUtils::Paramify(directory).c_str(), parameterObject["showdialogs"].asBoolean() ? "true" : "false");
+  std::string cmd =
+      StringUtils::Format("updatelibrary(video, {}, {})", StringUtils::Paramify(directory),
+                          parameterObject["showdialogs"].asBoolean() ? "true" : "false");
 
-  CApplicationMessenger::GetInstance().SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
+  CServiceBroker::GetAppMessenger()->SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
   return ACK;
 }
 
@@ -882,36 +968,48 @@ JSONRPC_STATUS CVideoLibrary::Export(const std::string &method, ITransportLayer 
 {
   std::string cmd;
   if (parameterObject["options"].isMember("path"))
-    cmd = StringUtils::Format("exportlibrary2(video, singlefile, %s)", StringUtils::Paramify(parameterObject["options"]["path"].asString()).c_str());
+    cmd = StringUtils::Format("exportlibrary2(video, singlefile, {})",
+                              StringUtils::Paramify(parameterObject["options"]["path"].asString()));
   else
   {
     cmd = "exportlibrary2(video, separate, dummy";
-    if (parameterObject["options"].asBoolean("images"))
+    if (parameterObject["options"]["images"].isBoolean() &&
+        parameterObject["options"]["images"].asBoolean() == true)
       cmd += ", artwork";
-    if (parameterObject["options"].asBoolean("overwrite"))
+    if (parameterObject["options"]["overwrite"].isBoolean() &&
+        parameterObject["options"]["overwrite"].asBoolean() == true)
       cmd += ", overwrite";
-    if (parameterObject["options"].asBoolean("actorthumbs"))
+    if (parameterObject["options"]["actorthumbs"].isBoolean() &&
+        parameterObject["options"]["actorthumbs"].asBoolean() == true)
       cmd += ", actorthumbs";
     cmd += ")";
   }
 
-  CApplicationMessenger::GetInstance().SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
+  CServiceBroker::GetAppMessenger()->SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
   return ACK;
 }
 
 JSONRPC_STATUS CVideoLibrary::Clean(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
+  std::string directory = parameterObject["directory"].asString();
   std::string cmd;
   if (parameterObject["content"].empty())
-    cmd = StringUtils::Format("cleanlibrary(video, {0})", parameterObject["showdialogs"].asBoolean() ? "true" : "false");
+    cmd = StringUtils::Format("cleanlibrary(video, {0}, {1})",
+                              parameterObject["showdialogs"].asBoolean() ? "true" : "false",
+                              StringUtils::Paramify(directory));
   else
-    cmd = StringUtils::Format("cleanlibrary({0}, {1})", parameterObject["content"].asString(), parameterObject["showdialogs"].asBoolean() ? "true" : "false");
+    cmd = StringUtils::Format("cleanlibrary({0}, {1}, {2})", parameterObject["content"].asString(),
+                              parameterObject["showdialogs"].asBoolean() ? "true" : "false",
+                              StringUtils::Paramify(directory));
 
-  CApplicationMessenger::GetInstance().SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
+  CServiceBroker::GetAppMessenger()->SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, cmd);
   return ACK;
 }
 
-bool CVideoLibrary::FillFileItem(const std::string &strFilename, CFileItemPtr &item, const CVariant &parameterObject /* = CVariant(CVariant::VariantTypeArray) */)
+bool CVideoLibrary::FillFileItem(
+    const std::string& strFilename,
+    std::shared_ptr<CFileItem>& item,
+    const CVariant& parameterObject /* = CVariant(CVariant::VariantTypeArray) */)
 {
   CVideoDatabase videodatabase;
   if (strFilename.empty())
@@ -949,6 +1047,7 @@ bool CVideoLibrary::FillFileItemList(const CVariant &parameterObject, CFileItemL
   int movieID = (int)parameterObject["movieid"].asInteger(-1);
   int episodeID = (int)parameterObject["episodeid"].asInteger(-1);
   int musicVideoID = (int)parameterObject["musicvideoid"].asInteger(-1);
+  int recordingID = static_cast<int>(parameterObject["recordingid"].asInteger());
 
   bool success = false;
   CFileItemPtr fileItem(new CFileItem());
@@ -987,6 +1086,17 @@ bool CVideoLibrary::FillFileItemList(const CVariant &parameterObject, CFileItemL
       success = true;
     }
   }
+  if (recordingID > 0)
+  {
+    std::shared_ptr<CFileItem> recordingFileItem =
+        CPVROperations::GetRecordingFileItem(recordingID);
+
+    if (recordingFileItem)
+    {
+      list.Add(recordingFileItem);
+      success = true;
+    }
+  }
 
   return success;
 }
@@ -996,9 +1106,15 @@ int CVideoLibrary::RequiresAdditionalDetails(const MediaType& mediaType, const C
   if (mediaType != MediaTypeMovie && mediaType != MediaTypeTvShow && mediaType != MediaTypeEpisode && mediaType != MediaTypeMusicVideo)
     return VideoDbDetailsNone;
 
+  return GetDetailsFromJsonParameters(parameterObject);
+}
+
+int CVideoLibrary::GetDetailsFromJsonParameters(const CVariant& parameterObject)
+{
   const CVariant& properties = parameterObject["properties"];
   int details = VideoDbDetailsNone;
-  for (CVariant::const_iterator_array itr = properties.begin_array(); itr != properties.end_array(); itr++)
+  for (CVariant::const_iterator_array itr = properties.begin_array(); itr != properties.end_array();
+       ++itr)
   {
     std::string propertyValue = itr->asString();
     if (propertyValue == "cast")
@@ -1050,14 +1166,14 @@ void CVideoLibrary::UpdateResumePoint(const CVariant &parameterObject, CVideoInf
 {
   if (!parameterObject["resume"].isNull())
   {
-    int position = (int)parameterObject["resume"]["position"].asInteger();
-    if (position == 0)
+    double position = (double)parameterObject["resume"]["position"].asDouble();
+    if (position == 0.0)
       videodatabase.ClearBookMarksOfFile(details.m_strFileNameAndPath, CBookmark::RESUME);
     else
     {
       CBookmark bookmark;
-      int total = (int)parameterObject["resume"]["total"].asInteger();
-      if (total <= 0 && !videodatabase.GetResumeBookMark(details.m_strFileNameAndPath, bookmark))
+      double total = (double)parameterObject["resume"]["total"].asDouble();
+      if (total <= 0.0 && !videodatabase.GetResumeBookMark(details.m_strFileNameAndPath, bookmark))
         bookmark.totalTimeInSeconds = details.m_streamDetails.GetVideoDuration();
       else
         bookmark.totalTimeInSeconds = total;
@@ -1122,7 +1238,7 @@ void CVideoLibrary::UpdateVideoTag(const CVariant &parameterObject, CVideoInfoTa
   if (ParameterNotNull(parameterObject, "ratings"))
   {
     CVariant ratings = parameterObject["ratings"];
-    for (CVariant::const_iterator_map rIt = ratings.begin_map(); rIt != ratings.end_map(); rIt++)
+    for (CVariant::const_iterator_map rIt = ratings.begin_map(); rIt != ratings.end_map(); ++rIt)
     {
       if (rIt->second.isObject() && ParameterNotNull(rIt->second, "rating"))
       {
@@ -1158,7 +1274,8 @@ void CVideoLibrary::UpdateVideoTag(const CVariant &parameterObject, CVideoInfoTa
   if (ParameterNotNull(parameterObject, "uniqueid"))
   {
     CVariant uniqueids = parameterObject["uniqueid"];
-    for (CVariant::const_iterator_map idIt = uniqueids.begin_map(); idIt != uniqueids.end_map(); idIt++)
+    for (CVariant::const_iterator_map idIt = uniqueids.begin_map(); idIt != uniqueids.end_map();
+         ++idIt)
     {
       if (idIt->second.isString() && !idIt->second.asString().empty())
       {
@@ -1245,7 +1362,7 @@ void CVideoLibrary::UpdateVideoTag(const CVariant &parameterObject, CVideoInfoTa
   if (ParameterNotNull(parameterObject, "art"))
   {
     CVariant art = parameterObject["art"];
-    for (CVariant::const_iterator_map artIt = art.begin_map(); artIt != art.end_map(); artIt++)
+    for (CVariant::const_iterator_map artIt = art.begin_map(); artIt != art.end_map(); ++artIt)
     {
       if (artIt->second.isString() && !artIt->second.asString().empty())
       {

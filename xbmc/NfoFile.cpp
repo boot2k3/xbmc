@@ -15,6 +15,7 @@
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
 #include "addons/AddonSystemSettings.h"
+#include "addons/addoninfo/AddonType.h"
 #include "filesystem/File.h"
 #include "music/Album.h"
 #include "music/Artist.h"
@@ -37,23 +38,23 @@ CInfoScanner::INFO_TYPE CNfoFile::Create(const std::string& strPath,
   CFileItemList items;
   bool bNfo=false;
 
-  if (m_type == ADDON_SCRAPER_ALBUMS)
+  if (m_type == AddonType::SCRAPER_ALBUMS)
   {
     CAlbum album;
     bNfo = GetDetails(album);
   }
-  else if (m_type == ADDON_SCRAPER_ARTISTS)
+  else if (m_type == AddonType::SCRAPER_ARTISTS)
   {
     CArtist artist;
     bNfo = GetDetails(artist);
   }
-  else if (m_type == ADDON_SCRAPER_TVSHOWS || m_type == ADDON_SCRAPER_MOVIES
-           || m_type == ADDON_SCRAPER_MUSICVIDEOS)
+  else if (m_type == AddonType::SCRAPER_TVSHOWS || m_type == AddonType::SCRAPER_MOVIES ||
+           m_type == AddonType::SCRAPER_MUSICVIDEOS)
   {
     // first check if it's an XML file with the info we need
     CVideoInfoTag details;
     bNfo = GetDetails(details);
-    if (episode > -1 && bNfo && m_type == ADDON_SCRAPER_TVSHOWS)
+    if (episode > -1 && bNfo && m_type == AddonType::SCRAPER_TVSHOWS)
     {
       int infos=0;
       while (m_headPos != std::string::npos && details.m_iEpisode != episode)
@@ -88,7 +89,7 @@ CInfoScanner::INFO_TYPE CNfoFile::Create(const std::string& strPath,
     return CInfoScanner::ERROR_NFO;
   if (bNfo)
   {
-    if (m_scurl.m_url.empty())
+    if (!m_scurl.HasUrls())
     {
       if (m_doc.find("[scrape url]") != std::string::npos)
         return CInfoScanner::OVERRIDE_NFO;
@@ -98,7 +99,7 @@ CInfoScanner::INFO_TYPE CNfoFile::Create(const std::string& strPath,
     else
       return CInfoScanner::COMBINED_NFO;
   }
-  return m_scurl.m_url.empty() ? CInfoScanner::NO_NFO : CInfoScanner::URL_NFO;
+  return m_scurl.HasUrls() ? CInfoScanner::URL_NFO : CInfoScanner::NO_NFO;
 }
 
 // return value: 0 - success; 1 - no result; skip; 2 - error
@@ -124,17 +125,17 @@ int CNfoFile::Scrape(ScraperPtr& scraper, CScraperUrl& url,
       return 2;
   }
 
-  return url.m_url.empty() ? 1 : 0;
+  return url.HasUrls() ? 0 : 1;
 }
 
 int CNfoFile::Load(const std::string& strFile)
 {
   Close();
   XFILE::CFile file;
-  XFILE::auto_buffer buf;
+  std::vector<uint8_t> buf;
   if (file.LoadFile(strFile, buf) > 0)
   {
-    m_doc.assign(buf.get(), buf.size());
+    m_doc.assign(reinterpret_cast<char*>(buf.data()), buf.size());
     m_headPos = 0;
     return 0;
   }
@@ -149,8 +150,7 @@ void CNfoFile::Close()
   m_scurl.Clear();
 }
 
-std::vector<ScraperPtr> CNfoFile::GetScrapers(TYPE type,
-                                              ScraperPtr selectedScraper)
+std::vector<ScraperPtr> CNfoFile::GetScrapers(AddonType type, const ScraperPtr& selectedScraper)
 {
   AddonPtr addon;
   ScraperPtr defaultScraper;

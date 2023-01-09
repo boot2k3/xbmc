@@ -8,11 +8,14 @@
 
 #pragma once
 
+#include "HDRStatus.h"
 #include "OSScreenSaver.h"
 #include "Resolution.h"
 #include "VideoSync.h"
 #include "WinEvents.h"
+#include "cores/VideoPlayer/VideoRenderers/DebugInfo.h"
 #include "guilib/DispResource.h"
+#include "utils/HDRCapabilities.h"
 
 #include <memory>
 #include <vector>
@@ -49,6 +52,8 @@ public:
   // Access render system interface
   virtual CRenderSystemBase *GetRenderSystem() { return nullptr; }
 
+  virtual const std::string GetName() { return "platform default"; }
+
   // windowing interfaces
   virtual bool InitWindowSystem();
   virtual bool DestroyWindowSystem();
@@ -56,6 +61,8 @@ public:
   virtual bool DestroyWindow(){ return false; }
   virtual bool ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop) = 0;
   virtual bool SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays) = 0;
+  virtual bool DisplayHardwareScalingEnabled() { return false; }
+  virtual void UpdateDisplayHardwareScaling(const RESOLUTION_INFO& resInfo) { }
   virtual bool MoveWindow(int topLeft, int topRight){return false;}
   virtual void FinishModeChange(RESOLUTION res){}
   virtual void FinishWindowResize(int newWidth, int newHeight) {ResizeWindow(newWidth, newHeight, -1, -1);}
@@ -63,7 +70,7 @@ public:
   virtual bool IsCreated(){ return m_bWindowCreated; }
   virtual void NotifyAppFocusChange(bool bGaining) {}
   virtual void NotifyAppActiveChange(bool bActivated) {}
-  virtual void ShowOSMouse(bool show) {};
+  virtual void ShowOSMouse(bool show) {}
   virtual bool HasCursor(){ return true; }
   //some platforms have api for gesture inertial scrolling - default to false and use the InertialScrollingHandler
   virtual bool HasInertialGestures(){ return false; }
@@ -123,7 +130,7 @@ public:
   std::vector<RESOLUTION_WHR> ScreenResolutions(float refreshrate);
   std::vector<REFRESHRATE> RefreshRates(int width, int height, uint32_t dwFlags);
   REFRESHRATE DefaultRefreshRate(std::vector<REFRESHRATE> rates);
-  virtual bool HasCalibration(const RESOLUTION_INFO &resInfo) { return true; };
+  virtual bool HasCalibration(const RESOLUTION_INFO& resInfo) { return true; }
 
   // text input interface
   virtual std::string GetClipboardText(void);
@@ -155,10 +162,24 @@ public:
   virtual void* GetHWContext() { return nullptr; }
 
   std::shared_ptr<CDPMSSupport> GetDPMSManager();
-  virtual bool SetHDR(const VideoPicture* videoPicture) { return false; };
-  virtual bool IsHDRDisplay() { return false; };
+
+  /**
+   * @brief Set the HDR metadata. Passing nullptr as the parameter should
+   * disable HDR.
+   *
+   */
+  virtual bool SetHDR(const VideoPicture* videoPicture) { return false; }
+  virtual bool IsHDRDisplay() { return false; }
+  virtual HDR_STATUS ToggleHDR() { return HDR_STATUS::HDR_UNSUPPORTED; }
+  virtual HDR_STATUS GetOSHDRStatus() { return HDR_STATUS::HDR_UNSUPPORTED; }
+  virtual CHDRCapabilities GetDisplayHDRCapabilities() const { return {}; }
 
   static const char* SETTING_WINSYSTEM_IS_HDR_DISPLAY;
+
+  // Gets debug info from video renderer
+  virtual DEBUG_INFO_RENDER GetDebugInfo() { return {}; }
+
+  virtual std::vector<std::string> GetConnectedOutputs() { return {}; }
 
 protected:
   void UpdateDesktopResolution(RESOLUTION_INFO& newRes, const std::string &output, int width, int height, float refreshRate, uint32_t dwFlags);

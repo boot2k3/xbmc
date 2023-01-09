@@ -6,50 +6,39 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include <signal.h>
-#include <sys/resource.h>
-
-#include <cstring>
-
-#if defined(TARGET_DARWIN_OSX) || defined(TARGET_FREEBSD)
-  #include "Util.h"
-  // SDL redefines main as SDL_main
-  #ifdef HAS_SDL
-    #include <SDL/SDL.h>
-  #endif
+#if defined(TARGET_DARWIN_OSX)
+// SDL redefines main as SDL_main
+#ifdef HAS_SDL
+#include <SDL/SDL.h>
+#endif
 #endif
 
-#include "AppParamParser.h"
-#include "FileItem.h"
-#include "messaging/ApplicationMessenger.h"
-#include "PlayListPlayer.h"
-#include "platform/MessagePrinter.h"
-#include "platform/xbmc.h"
 #include "PlatformPosix.h"
-#include "utils/log.h"
+#include "application/AppEnvironment.h"
+#include "application/AppParamParser.h"
+#include "platform/xbmc.h"
 
-#ifdef HAS_LIRC
-#include "platform/linux/input/LIRC.h"
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+#include "platform/linux/AppParamParserLinux.h"
 #endif
 
+#include <cstdio>
+#include <cstring>
+#include <errno.h>
 #include <locale.h>
+#include <signal.h>
+
+#include <sys/resource.h>
 
 namespace
 {
-
-extern "C"
-{
-
-void XBMC_POSIX_HandleSignal(int sig)
+extern "C" void XBMC_POSIX_HandleSignal(int sig)
 {
   // Setting an atomic flag is one of the only useful things that is permitted by POSIX
   // in signal handlers
   CPlatformPosix::RequestQuit();
 }
-
-}
-
-}
+} // namespace
 
 
 int main(int argc, char* argv[])
@@ -58,7 +47,7 @@ int main(int argc, char* argv[])
   struct rlimit rlim;
   rlim.rlim_cur = rlim.rlim_max = RLIM_INFINITY;
   if (setrlimit(RLIMIT_CORE, &rlim) == -1)
-    CLog::Log(LOGDEBUG, "Failed to set core size limit (%s)", strerror(errno));
+    fprintf(stderr, "Failed to set core size limit (%s).\n", strerror(errno));
 #endif
 
   // Set up global SIGINT/SIGTERM handler
@@ -71,8 +60,16 @@ int main(int argc, char* argv[])
 
   setlocale(LC_NUMERIC, "C");
 
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+  CAppParamParserLinux appParamParser;
+#else
   CAppParamParser appParamParser;
+#endif
   appParamParser.Parse(argv, argc);
 
-  return XBMC_Run(true, appParamParser);
+  CAppEnvironment::SetUp(appParamParser.GetAppParams());
+  int status = XBMC_Run(true);
+  CAppEnvironment::TearDown();
+
+  return status;
 }

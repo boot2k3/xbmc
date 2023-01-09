@@ -11,18 +11,16 @@
 #include "ModuleXbmc.h"
 
 #include "AddonUtils.h"
-#include "Application.h"
 #include "FileItem.h"
 #include "GUIInfoManager.h"
 #include "LangInfo.h"
 #include "LanguageHook.h"
-#include "PlayListPlayer.h"
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "aojsonrpc.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
-#include "filesystem/File.h"
-#include "filesystem/SpecialProtocol.h"
 #include "guilib/GUIAudioManager.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
@@ -30,12 +28,17 @@
 #include "input/WindowTranslator.h"
 #include "messaging/ApplicationMessenger.h"
 #include "network/Network.h"
+#include "network/NetworkServices.h"
+#include "playlists/PlayListTypes.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
+#include "storage/discs/IDiscDriveHandler.h"
 #include "threads/SystemClock.h"
 #include "utils/Crc32.h"
+#include "utils/ExecString.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/FileUtils.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/MemUtils.h"
 #include "utils/StringUtils.h"
@@ -46,7 +49,6 @@
 #include <vector>
 
 using namespace KODI;
-using namespace KODI::MESSAGING;
 
 namespace XBMCAddon
 {
@@ -61,19 +63,19 @@ namespace XBMCAddon
       // check for a valid loglevel
       if (level < LOGDEBUG || level > LOGNONE)
         level = LOGDEBUG;
-      CLog::Log(level, "%s", msg);
+      CLog::Log(level, "{}", msg);
     }
 
     void shutdown()
     {
       XBMC_TRACE;
-      CApplicationMessenger::GetInstance().PostMsg(TMSG_SHUTDOWN);
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_SHUTDOWN);
     }
 
     void restart()
     {
       XBMC_TRACE;
-      CApplicationMessenger::GetInstance().PostMsg(TMSG_RESTART);
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_RESTART);
     }
 
     void executescript(const char* script)
@@ -82,7 +84,7 @@ namespace XBMCAddon
       if (! script)
         return;
 
-      CApplicationMessenger::GetInstance().PostMsg(TMSG_EXECUTE_SCRIPT, -1, -1, nullptr, script);
+      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_EXECUTE_SCRIPT, -1, -1, nullptr, script);
     }
 
     void executebuiltin(const char* function, bool wait /* = false*/)
@@ -94,10 +96,13 @@ namespace XBMCAddon
       // builtins is no anarchy
       // enforce some rules here
       // DialogBusy must not be activated, it is modal dialog
-      std::string execute;
-      std::vector<std::string> params;
-      CUtil::SplitExecFunction(function, execute, params);
-      StringUtils::ToLower(execute);
+      const CExecString exec(function);
+      if (!exec.IsValid())
+        return;
+
+      const std::string execute = exec.GetFunction();
+      const std::vector<std::string> params = exec.GetParams();
+
       if (StringUtils::EqualsNoCase(execute, "activatewindow") ||
           StringUtils::EqualsNoCase(execute, "closedialog"))
       {
@@ -110,9 +115,11 @@ namespace XBMCAddon
       }
 
       if (wait)
-        CApplicationMessenger::GetInstance().SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, function);
+        CServiceBroker::GetAppMessenger()->SendMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr,
+                                                   function);
       else
-        CApplicationMessenger::GetInstance().PostMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr, function);
+        CServiceBroker::GetAppMessenger()->PostMsg(TMSG_EXECUTE_BUILT_IN, -1, -1, nullptr,
+                                                   function);
     }
 
     String executeJSONRPC(const char* jsonrpccommand)
@@ -136,17 +143,17 @@ namespace XBMCAddon
     {
       XBMC_TRACE;
 
-      XbmcThreads::EndTime endTime(timemillis);
+      XbmcThreads::EndTime<> endTime{std::chrono::milliseconds(timemillis)};
       while (!endTime.IsTimePast())
       {
         LanguageHook* lh = NULL;
         {
           DelayedCallGuard dcguard;
           lh = dcguard.getLanguageHook(); // borrow this
-          long nextSleep = endTime.MillisLeft();
+          long nextSleep = endTime.GetTimeLeft().count();
           if (nextSleep > 100)
             nextSleep = 100; // only sleep for 100 millis
-          KODI::TIME::Sleep(nextSleep);
+          KODI::TIME::Sleep(std::chrono::milliseconds(nextSleep));
         }
         if (lh != NULL)
           lh->MakePendingCalls();
@@ -238,7 +245,7 @@ namespace XBMCAddon
     long getDVDState()
     {
       XBMC_TRACE;
-      return CServiceBroker::GetMediaManager().GetDriveStatus();
+      return static_cast<long>(CServiceBroker::GetMediaManager().GetDriveStatus());
     }
 
     long getFreeMem()
@@ -296,9 +303,9 @@ namespace XBMCAddon
       //doesn't seem to be a single InfoTag?
       //try full blown GuiInfoLabel then
       if (ret == 0)
-        return GUILIB::GUIINFO::CGUIInfoLabel::GetLabel(cLine);
+        return GUILIB::GUIINFO::CGUIInfoLabel::GetLabel(cLine, INFO::DEFAULT_CONTEXT);
       else
-        return infoMgr.GetLabel(ret);
+        return infoMgr.GetLabel(ret, INFO::DEFAULT_CONTEXT);
     }
 
     String getInfoImage(const char * infotag)
@@ -322,7 +329,7 @@ namespace XBMCAddon
         return;
 
       CGUIComponent* gui = CServiceBroker::GetGUI();
-      if (XFILE::CFile::Exists(filename) && gui)
+      if (CFileUtils::Exists(filename) && gui)
       {
         gui->GetAudioManager().PlayPythonSound(filename,useCached);
       }
@@ -367,26 +374,16 @@ namespace XBMCAddon
     int getGlobalIdleTime()
     {
       XBMC_TRACE;
-      return g_application.GlobalIdleTime();
+      auto& components = CServiceBroker::GetAppComponents();
+      const auto appPower = components.GetComponent<CApplicationPowerHandling>();
+      return appPower->GlobalIdleTime();
     }
 
     String getCacheThumbName(const String& path)
     {
       XBMC_TRACE;
       auto crc = Crc32::ComputeFromLowerCase(path);
-      return StringUtils::Format("%08x.tbn", crc);
-    }
-
-    String makeLegalFilename(const String& filename, bool fatX)
-    {
-      XBMC_TRACE;
-      return CUtil::MakeLegalPath(filename);
-    }
-
-    String translatePath(const String& path)
-    {
-      XBMC_TRACE;
-      return CSpecialProtocol::TranslatePath(path);
+      return StringUtils::Format("{:08x}.tbn", crc);
     }
 
     Tuple<String,String> getCleanMovieTitle(const String& path, bool usefoldername)
@@ -402,26 +399,20 @@ namespace XBMCAddon
       return Tuple<String,String>(strTitle,strYear);
     }
 
-    String validatePath(const String& path)
-    {
-      XBMC_TRACE;
-      return CUtil::ValidatePath(path, true);
-    }
-
     String getRegion(const char* id)
     {
       XBMC_TRACE;
       std::string result;
 
-      if (strcmpi(id, "datelong") == 0)
-        {
-          result = g_langInfo.GetDateFormat(true);
-          StringUtils::Replace(result, "DDDD", "%A");
-          StringUtils::Replace(result, "MMMM", "%B");
-          StringUtils::Replace(result, "D", "%d");
-          StringUtils::Replace(result, "YYYY", "%Y");
+      if (StringUtils::CompareNoCase(id, "datelong") == 0)
+      {
+        result = g_langInfo.GetDateFormat(true);
+        StringUtils::Replace(result, "DDDD", "%A");
+        StringUtils::Replace(result, "MMMM", "%B");
+        StringUtils::Replace(result, "D", "%d");
+        StringUtils::Replace(result, "YYYY", "%Y");
         }
-      else if (strcmpi(id, "dateshort") == 0)
+        else if (StringUtils::CompareNoCase(id, "dateshort") == 0)
         {
           result = g_langInfo.GetDateFormat(false);
           StringUtils::Replace(result, "MM", "%m");
@@ -435,11 +426,11 @@ namespace XBMCAddon
 #endif
           StringUtils::Replace(result, "YYYY", "%Y");
         }
-      else if (strcmpi(id, "tempunit") == 0)
-        result = g_langInfo.GetTemperatureUnitString();
-      else if (strcmpi(id, "speedunit") == 0)
-        result = g_langInfo.GetSpeedUnitString();
-      else if (strcmpi(id, "time") == 0)
+        else if (StringUtils::CompareNoCase(id, "tempunit") == 0)
+          result = g_langInfo.GetTemperatureUnitString();
+        else if (StringUtils::CompareNoCase(id, "speedunit") == 0)
+          result = g_langInfo.GetSpeedUnitString();
+        else if (StringUtils::CompareNoCase(id, "time") == 0)
         {
           result = g_langInfo.GetTimeFormat();
           if (StringUtils::StartsWith(result, "HH"))
@@ -451,12 +442,11 @@ namespace XBMCAddon
           StringUtils::Replace(result, "ss", "%S");
           StringUtils::Replace(result, "xx", "%p");
         }
-      else if (strcmpi(id, "meridiem") == 0)
-        result = StringUtils::Format("%s/%s",
-                                     g_langInfo.GetMeridiemSymbol(MeridiemSymbolAM).c_str(),
-                                     g_langInfo.GetMeridiemSymbol(MeridiemSymbolPM).c_str());
+        else if (StringUtils::CompareNoCase(id, "meridiem") == 0)
+          result = StringUtils::Format("{}/{}", g_langInfo.GetMeridiemSymbol(MeridiemSymbolAM),
+                                       g_langInfo.GetMeridiemSymbol(MeridiemSymbolPM));
 
-      return result;
+        return result;
     }
 
     //! @todo Add a mediaType enum
@@ -464,11 +454,11 @@ namespace XBMCAddon
     {
       XBMC_TRACE;
       String result;
-      if (strcmpi(mediaType, "video") == 0)
+      if (StringUtils::CompareNoCase(mediaType, "video") == 0)
         result = CServiceBroker::GetFileExtensionProvider().GetVideoExtensions();
-      else if (strcmpi(mediaType, "music") == 0)
+      else if (StringUtils::CompareNoCase(mediaType, "music") == 0)
         result = CServiceBroker::GetFileExtensionProvider().GetMusicExtensions();
-      else if (strcmpi(mediaType, "picture") == 0)
+      else if (StringUtils::CompareNoCase(mediaType, "picture") == 0)
         result = CServiceBroker::GetFileExtensionProvider().GetPictureExtensions();
 
       //! @todo implement
@@ -485,11 +475,12 @@ namespace XBMCAddon
     }
 
 
-    bool startServer(int iTyp, bool bStart, bool bWait)
+    bool startServer(int iTyp, bool bStart)
     {
       XBMC_TRACE;
       DelayedCallGuard dg;
-      return g_application.StartServer((CApplication::ESERVERS)iTyp, bStart != 0, bWait != 0);
+      return CServiceBroker::GetNetwork().GetServices().StartServer(
+          static_cast<CNetworkServices::ESERVERS>(iTyp), bStart != 0);
     }
 
     void audioSuspend()
@@ -539,26 +530,63 @@ namespace XBMCAddon
       return CSysInfo::GetUserAgent();
     }
 
-    int getSERVER_WEBSERVER() { return CApplication::ES_WEBSERVER; }
-    int getSERVER_AIRPLAYSERVER() { return CApplication::ES_AIRPLAYSERVER; }
-    int getSERVER_UPNPSERVER() { return CApplication::ES_UPNPSERVER; }
-    int getSERVER_UPNPRENDERER() { return CApplication::ES_UPNPRENDERER; }
-    int getSERVER_EVENTSERVER() { return CApplication::ES_EVENTSERVER; }
-    int getSERVER_JSONRPCSERVER() { return CApplication::ES_JSONRPCSERVER; }
-    int getSERVER_ZEROCONF() { return CApplication::ES_ZEROCONF; }
+    int getSERVER_WEBSERVER()
+    {
+      return CNetworkServices::ES_WEBSERVER;
+    }
+    int getSERVER_AIRPLAYSERVER()
+    {
+      return CNetworkServices::ES_AIRPLAYSERVER;
+    }
+    int getSERVER_UPNPSERVER()
+    {
+      return CNetworkServices::ES_UPNPSERVER;
+    }
+    int getSERVER_UPNPRENDERER()
+    {
+      return CNetworkServices::ES_UPNPRENDERER;
+    }
+    int getSERVER_EVENTSERVER()
+    {
+      return CNetworkServices::ES_EVENTSERVER;
+    }
+    int getSERVER_JSONRPCSERVER()
+    {
+      return CNetworkServices::ES_JSONRPCSERVER;
+    }
+    int getSERVER_ZEROCONF()
+    {
+      return CNetworkServices::ES_ZEROCONF;
+    }
 
-    int getPLAYLIST_MUSIC() { return PLAYLIST_MUSIC; }
-    int getPLAYLIST_VIDEO() { return PLAYLIST_VIDEO; }
-    int getTRAY_OPEN() { return TRAY_OPEN; }
-    int getDRIVE_NOT_READY() { return DRIVE_NOT_READY; }
-    int getTRAY_CLOSED_NO_MEDIA() { return TRAY_CLOSED_NO_MEDIA; }
-    int getTRAY_CLOSED_MEDIA_PRESENT() { return TRAY_CLOSED_MEDIA_PRESENT; }
+    int getPLAYLIST_MUSIC()
+    {
+      return PLAYLIST::TYPE_MUSIC;
+    }
+    int getPLAYLIST_VIDEO()
+    {
+      return PLAYLIST::TYPE_VIDEO;
+    }
+    int getTRAY_OPEN()
+    {
+      return static_cast<int>(TrayState::OPEN);
+    }
+    int getDRIVE_NOT_READY()
+    {
+      return static_cast<int>(DriveState::NOT_READY);
+    }
+    int getTRAY_CLOSED_NO_MEDIA()
+    {
+      return static_cast<int>(TrayState::CLOSED_NO_MEDIA);
+    }
+    int getTRAY_CLOSED_MEDIA_PRESENT()
+    {
+      return static_cast<int>(TrayState::CLOSED_MEDIA_PRESENT);
+    }
     int getLOGDEBUG() { return LOGDEBUG; }
     int getLOGINFO() { return LOGINFO; }
-    int getLOGNOTICE() { return LOGNOTICE; }
     int getLOGWARNING() { return LOGWARNING; }
     int getLOGERROR() { return LOGERROR; }
-    int getLOGSEVERE() { return LOGSEVERE; }
     int getLOGFATAL() { return LOGFATAL; }
     int getLOGNONE() { return LOGNONE; }
 

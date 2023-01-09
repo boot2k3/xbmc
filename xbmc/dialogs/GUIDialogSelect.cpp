@@ -19,20 +19,20 @@
 #define CONTROL_SIMPLE_LIST     3
 #define CONTROL_DETAILED_LIST   6
 #define CONTROL_EXTRA_BUTTON    5
+#define CONTROL_EXTRA_BUTTON2 8
 #define CONTROL_CANCEL_BUTTON   7
 
 CGUIDialogSelect::CGUIDialogSelect() : CGUIDialogSelect(WINDOW_DIALOG_SELECT) {}
 
 CGUIDialogSelect::CGUIDialogSelect(int windowId)
-    : CGUIDialogBoxBase(windowId, "DialogSelect.xml"),
+  : CGUIDialogBoxBase(windowId, "DialogSelect.xml"),
+    m_vecList(std::make_unique<CFileItemList>()),
     m_bButtonEnabled(false),
+    m_bButton2Enabled(false),
     m_bButtonPressed(false),
-    m_buttonLabel(-1),
-    m_selectedItem(nullptr),
+    m_bButton2Pressed(false),
     m_useDetails(false),
-    m_multiSelection(false),
-    m_selectedItems(),
-    m_vecList(new CFileItemList())
+    m_multiSelection(false)
 {
   m_bConfirmed = false;
   m_loadType = KEEP_IN_MEMORY;
@@ -49,6 +49,7 @@ bool CGUIDialogSelect::OnMessage(CGUIMessage& message)
       CGUIDialogBoxBase::OnMessage(message);
 
       m_bButtonEnabled = false;
+      m_bButton2Enabled = false;
       m_useDetails = false;
       m_multiSelection = false;
 
@@ -73,6 +74,7 @@ bool CGUIDialogSelect::OnMessage(CGUIMessage& message)
   case GUI_MSG_WINDOW_INIT:
     {
       m_bButtonPressed = false;
+      m_bButton2Pressed = false;
       m_bConfirmed = false;
       CGUIDialogBoxBase::OnMessage(message);
       return true;
@@ -103,6 +105,13 @@ bool CGUIDialogSelect::OnMessage(CGUIMessage& message)
             }
           }
         }
+      }
+      if (iControl == CONTROL_EXTRA_BUTTON2)
+      {
+        m_bButton2Pressed = true;
+        if (m_multiSelection)
+          m_bConfirmed = true;
+        Close();
       }
       if (iControl == CONTROL_EXTRA_BUTTON)
       {
@@ -166,6 +175,9 @@ void CGUIDialogSelect::Reset()
 {
   m_bButtonEnabled = false;
   m_bButtonPressed = false;
+  m_bButton2Enabled = false;
+  m_bButton2Pressed = false;
+
   m_useDetails = false;
   m_multiSelection = false;
   m_focusToButton = false;
@@ -216,12 +228,35 @@ const std::vector<int>& CGUIDialogSelect::GetSelectedItems() const
 void CGUIDialogSelect::EnableButton(bool enable, int label)
 {
   m_bButtonEnabled = enable;
+  m_buttonLabel = g_localizeStrings.Get(label);
+}
+
+void CGUIDialogSelect::EnableButton(bool enable, const std::string& label)
+{
+  m_bButtonEnabled = enable;
   m_buttonLabel = label;
+}
+
+void CGUIDialogSelect::EnableButton2(bool enable, int label)
+{
+  m_bButton2Enabled = enable;
+  m_button2Label = g_localizeStrings.Get(label);
+}
+
+void CGUIDialogSelect::EnableButton2(bool enable, const std::string& label)
+{
+  m_bButton2Enabled = enable;
+  m_button2Label = label;
 }
 
 bool CGUIDialogSelect::IsButtonPressed()
 {
   return m_bButtonPressed;
+}
+
+bool CGUIDialogSelect::IsButton2Pressed()
+{
+  return m_bButton2Pressed;
 }
 
 void CGUIDialogSelect::Sort(bool bSortOrder /*=true*/)
@@ -258,7 +293,7 @@ void CGUIDialogSelect::SetSelected(const std::string &strSelectedLabel)
   }
 }
 
-void CGUIDialogSelect::SetSelected(std::vector<int> selectedIndexes)
+void CGUIDialogSelect::SetSelected(const std::vector<int>& selectedIndexes)
 {
   for (auto i : selectedIndexes)
     SetSelected(i);
@@ -317,19 +352,27 @@ void CGUIDialogSelect::OnInitWindow()
   }
   m_viewControl.SetCurrentView(m_useDetails ? CONTROL_DETAILED_LIST : CONTROL_SIMPLE_LIST);
 
-  SET_CONTROL_LABEL(CONTROL_NUMBER_OF_ITEMS, StringUtils::Format("%i %s",
-      m_vecList->Size(), g_localizeStrings.Get(127).c_str()));
+  SET_CONTROL_LABEL(CONTROL_NUMBER_OF_ITEMS,
+                    StringUtils::Format("{} {}", m_vecList->Size(), g_localizeStrings.Get(127)));
 
   if (m_multiSelection)
     EnableButton(true, 186);
 
   if (m_bButtonEnabled)
   {
-    SET_CONTROL_LABEL(CONTROL_EXTRA_BUTTON, g_localizeStrings.Get(m_buttonLabel));
+    SET_CONTROL_LABEL(CONTROL_EXTRA_BUTTON, m_buttonLabel);
     SET_CONTROL_VISIBLE(CONTROL_EXTRA_BUTTON);
   }
   else
     SET_CONTROL_HIDDEN(CONTROL_EXTRA_BUTTON);
+
+  if (m_bButton2Enabled)
+  {
+    SET_CONTROL_LABEL(CONTROL_EXTRA_BUTTON2, m_button2Label);
+    SET_CONTROL_VISIBLE(CONTROL_EXTRA_BUTTON2);
+  }
+  else
+    SET_CONTROL_HIDDEN(CONTROL_EXTRA_BUTTON2);
 
   SET_CONTROL_LABEL(CONTROL_CANCEL_BUTTON, g_localizeStrings.Get(222));
 

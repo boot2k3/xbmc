@@ -8,8 +8,9 @@
 
 #include "JoystickMonitor.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
 #include "games/controllers/ControllerIDs.h"
 #include "input/InputManager.h"
 
@@ -18,7 +19,7 @@
 using namespace KODI;
 using namespace JOYSTICK;
 
-#define AXIS_DEADZONE  0.05f
+#define AXIS_DEADZONE 0.05f
 
 std::string CJoystickMonitor::ControllerID() const
 {
@@ -28,7 +29,9 @@ std::string CJoystickMonitor::ControllerID() const
 bool CJoystickMonitor::AcceptsInput(const FeatureName& feature) const
 {
   // Only accept input when screen saver is active
-  return g_application.IsInScreenSaver();
+  auto& components = CServiceBroker::GetAppComponents();
+  const auto appPower = components.GetComponent<CApplicationPowerHandling>();
+  return appPower->IsInScreenSaver();
 }
 
 bool CJoystickMonitor::OnButtonPress(const FeatureName& feature, bool bPressed)
@@ -42,7 +45,9 @@ bool CJoystickMonitor::OnButtonPress(const FeatureName& feature, bool bPressed)
   return false;
 }
 
-bool CJoystickMonitor::OnButtonMotion(const FeatureName& feature, float magnitude, unsigned int motionTimeMs)
+bool CJoystickMonitor::OnButtonMotion(const FeatureName& feature,
+                                      float magnitude,
+                                      unsigned int motionTimeMs)
 {
   if (std::fabs(magnitude) > AXIS_DEADZONE)
   {
@@ -53,7 +58,10 @@ bool CJoystickMonitor::OnButtonMotion(const FeatureName& feature, float magnitud
   return false;
 }
 
-bool CJoystickMonitor::OnAnalogStickMotion(const FeatureName& feature, float x, float y, unsigned int motionTimeMs)
+bool CJoystickMonitor::OnAnalogStickMotion(const FeatureName& feature,
+                                           float x,
+                                           float y,
+                                           unsigned int motionTimeMs)
 {
   // Analog stick deadzone already processed
   if (x != 0.0f || y != 0.0f)
@@ -65,7 +73,9 @@ bool CJoystickMonitor::OnAnalogStickMotion(const FeatureName& feature, float x, 
   return false;
 }
 
-bool CJoystickMonitor::OnWheelMotion(const FeatureName& feature, float position, unsigned int motionTimeMs)
+bool CJoystickMonitor::OnWheelMotion(const FeatureName& feature,
+                                     float position,
+                                     unsigned int motionTimeMs)
 {
   if (std::fabs(position) > AXIS_DEADZONE)
   {
@@ -76,7 +86,9 @@ bool CJoystickMonitor::OnWheelMotion(const FeatureName& feature, float position,
   return false;
 }
 
-bool CJoystickMonitor::OnThrottleMotion(const FeatureName& feature, float position, unsigned int motionTimeMs)
+bool CJoystickMonitor::OnThrottleMotion(const FeatureName& feature,
+                                        float position,
+                                        unsigned int motionTimeMs)
 {
   if (std::fabs(position) > AXIS_DEADZONE)
   {
@@ -89,7 +101,11 @@ bool CJoystickMonitor::OnThrottleMotion(const FeatureName& feature, float positi
 
 bool CJoystickMonitor::ResetTimers(void)
 {
-  g_application.ResetSystemIdleTimer();
-  g_application.ResetScreenSaver();
-  return g_application.WakeUpScreenSaverAndDPMS();
+  auto& components = CServiceBroker::GetAppComponents();
+  const auto appPower = components.GetComponent<CApplicationPowerHandling>();
+  appPower->ResetSystemIdleTimer();
+  appPower->ResetScreenSaver();
+  return appPower->WakeUpScreenSaverAndDPMS();
+
+  return true;
 }

@@ -20,10 +20,13 @@ namespace PVR
 {
   class CPVREpg;
   class CPVREpgInfoTag;
+  class CPVREpgSearchFilter;
 
   struct PVREpgSearchData;
 
   /** The EPG database */
+
+  static constexpr int EPG_COMMIT_QUERY_COUNT_LIMIT = 10000;
 
   class CPVREpgDatabase : public CDatabase, public std::enable_shared_from_this<CPVREpgDatabase>
   {
@@ -63,7 +66,7 @@ namespace PVR
      * @brief Get the minimal database version that is required to operate correctly.
      * @return The minimal database version.
      */
-    int GetSchemaVersion() const override { return 12; }
+    int GetSchemaVersion() const override { return 16; }
 
     /*!
      * @brief Get the default sqlite database filename.
@@ -81,18 +84,18 @@ namespace PVR
     bool DeleteEpg();
 
     /*!
-     * @brief Delete an EPG table.
-     * @param table The table to remove.
-     * @return True if the table was removed successfully, false otherwise.
+     * @brief Queue deletionof an EPG table.
+     * @param tag The table to queue for deletion.
+     * @return True on success, false otherwise.
      */
-    bool Delete(const CPVREpg& table);
+    bool QueueDeleteEpgQuery(const CPVREpg& table);
 
     /*!
-     * @brief Remove a single EPG entry.
-     * @param tag The entry to remove.
-     * @return True if it was removed successfully, false otherwise.
+     * @brief Write the query to delete the given EPG tag to db query queue.
+     * @param tag The EPG tag to remove.
+     * @return True on success, false otherwise.
      */
-    bool Delete(const CPVREpgInfoTag& tag);
+    bool QueueDeleteTagQuery(const CPVREpgInfoTag& tag);
 
     /*!
      * @brief Get all EPG tables from the database. Does not get the EPG tables' entries.
@@ -108,11 +111,18 @@ namespace PVR
     std::vector<std::shared_ptr<CPVREpgInfoTag>> GetAllEpgTags(int iEpgID);
 
     /*!
-     * @brief Get the start time of the first tag in this EPG.
+     * @brief Get all icon paths for a given EPG id.
      * @param iEpgID The ID of the EPG.
-     * @return The time.
+     * @return The entries.
      */
-    CDateTime GetFirstStartTime(int iEpgID);
+    std::vector<std::string> GetAllIconPaths(int iEpgID);
+
+    /*!
+     * @brief Check whether this EPG has any tags.
+     * @param iEpgID The ID of the EPG.
+     * @return True in case there are tags, false otherwise.
+     */
+    bool HasTags(int iEpgID);
 
     /*!
      * @brief Get the end time of the last tag in this EPG.
@@ -120,6 +130,12 @@ namespace PVR
      * @return The time.
      */
     CDateTime GetLastEndTime(int iEpgID);
+
+    /*!
+     * @brief Get the start and end time across all EPGs.
+     * @return The times; first: start time, second: end time.
+     */
+    std::pair<CDateTime, CDateTime> GetFirstAndLastEPGDate();
 
     /*!
      * @brief Get the start time of the first tag with a start time greater than the given min time.
@@ -152,6 +168,14 @@ namespace PVR
      */
     std::shared_ptr<CPVREpgInfoTag> GetEpgTagByUniqueBroadcastID(int iEpgID,
                                                                  unsigned int iUniqueBroadcastId);
+
+    /*!
+     * @brief Get an EPG tag given its EPG id and database ID.
+     * @param iEpgID The ID of the EPG for the tag to get.
+     * @param iDatabaseId The database ID for the tag to get.
+     * @return The tag or nullptr, if not found.
+     */
+    std::shared_ptr<CPVREpgInfoTag> GetEpgTagByDatabaseID(int iEpgID, int iDatabaseId);
 
     /*!
      * @brief Get an EPG tag given its EPG ID and start time.
@@ -199,15 +223,16 @@ namespace PVR
         int iEpgID, const CDateTime& minEndTime, const CDateTime& maxStartTime);
 
     /*!
-     * @brief Delete all EPG tags in range of given EPG id, min end time and max start time.
+     * @brief Write the query to delete all EPG tags in range of given EPG id, min end time and max
+     * start time to db query queue. .
      * @param iEpgID The ID of the EPG for the tags to delete.
      * @param minEndTime The min end time for the tags to delete.
      * @param maxStartTime The max start time for the tags to delete.
-     * @return True on success, false otherwise.
+     * @return True if it was removed or queued successfully, false otherwise.
      */
-    bool DeleteEpgTagsByMinEndMaxStartTime(int iEpgID,
-                                           const CDateTime& minEndTime,
-                                           const CDateTime& maxStartTime);
+    bool QueueDeleteEpgTagsByMinEndMaxStartTimeQuery(int iEpgID,
+                                                     const CDateTime& minEndTime,
+                                                     const CDateTime& maxStartTime);
 
     /*!
      * @brief Get the last stored EPG scan time.
@@ -218,25 +243,31 @@ namespace PVR
     bool GetLastEpgScanTime(int iEpgId, CDateTime* lastScan);
 
     /*!
-     * @brief Update the last scan time.
+     * @brief Write the query to update the last scan time for the given EPG to db query queue.
      * @param iEpgId The table to update the time for.
      * @param lastScanTime The time to write to the database.
-     * @param bQueueWrite Don't execute the query immediately but queue it if true.
-     * @return True if it was updated successfully, false otherwise.
+     * @return True on success, false otherwise.
      */
-    bool PersistLastEpgScanTime(int iEpgId, const CDateTime& lastScanTime, bool bQueueWrite = false);
+    bool QueuePersistLastEpgScanTimeQuery(int iEpgId, const CDateTime& lastScanTime);
+
+    /*!
+     * @brief Write the query to delete the last scan time for the given EPG to db query queue.
+     * @param iEpgId The table to delete the time for.
+     * @return True on success, false otherwise.
+     */
+    bool QueueDeleteLastEpgScanTimeQuery(const CPVREpg& table);
 
     /*!
      * @brief Persist an EPG table. It's entries are not persisted.
      * @param epg The table to persist.
-     * @param bQueueWrite Don't execute the query immediately but queue it if true.
-     * @return The database ID of this entry or 0 if bSingleUpdate is false and the query was queued.
+     * @param bQueueWrite If true, don't execute the query immediately but queue it.
+     * @return The database ID of this entry or 0 if bQueueWrite is false and the query was queued.
      */
-    int Persist(const CPVREpg& epg, bool bQueueWrite = false);
+    int Persist(const CPVREpg& epg, bool bQueueWrite);
 
     /*!
      * @brief Erase all EPG tags with the given epg ID and an end time less than the given time.
-     * @param iEpgID The ID of the EPG.
+     * @param iEpgId The ID of the EPG.
      * @param maxEndTime The maximum allowed end time.
      * @return True if the entries were removed successfully, false otherwise.
      */
@@ -244,23 +275,76 @@ namespace PVR
 
     /*!
      * @brief Erase all EPG tags with the given epg ID.
-     * @param iEpgID The ID of the EPG.
+     * @param iEpgId The ID of the EPG.
      * @return True if the entries were removed successfully, false otherwise.
      */
     bool DeleteEpgTags(int iEpgId);
 
     /*!
-     * @brief Persist an infotag.
-     * @param tag The tag to persist.
-     * @param bSingleUpdate If true, this is a single update and the query will be executed immediately.
-     * @return The database ID of this entry or 0 if bSingleUpdate is false and the query was queued.
+     * @brief Queue the erase all EPG tags with the given epg ID.
+     * @param iEpgId The ID of the EPG.
+     * @return True if the entries were queued successfully, false otherwise.
      */
-    int Persist(const CPVREpgInfoTag& tag, bool bSingleUpdate = true);
+    bool QueueDeleteEpgTags(int iEpgId);
+
+    /*!
+     * @brief Write the query to persist the given EPG tag to db query queue.
+     * @param tag The tag to persist.
+     * @return True on success, false otherwise.
+     */
+    bool QueuePersistQuery(const CPVREpgInfoTag& tag);
 
     /*!
      * @return Last EPG id in the database
      */
     int GetLastEPGId();
+
+    //@}
+
+    /*! @name EPG searches methods */
+    //@{
+
+    /*!
+     * @brief Get all saved searches from the database.
+     * @param bRadio Whether to fetch saved searches for radio or TV.
+     * @return The searches.
+     */
+    std::vector<std::shared_ptr<CPVREpgSearchFilter>> GetSavedSearches(bool bRadio);
+
+    /*!
+     * @brief Get the saved search matching the given id.
+     * @param bRadio Whether to fetch a TV or radio saved search.
+     * @param iId The id.
+     * @return The saved search or nullptr if not found.
+     */
+    std::shared_ptr<CPVREpgSearchFilter> GetSavedSearchById(bool bRadio, int iId);
+
+    /*!
+     * @brief Persist a search.
+     * @param epgSearch The search.
+     * @return True on success, false otherwise.
+     */
+    bool Persist(CPVREpgSearchFilter& epgSearch);
+
+    /*!
+     * @brief Update time last executed for the given search.
+     * @param epgSearch The search.
+     * @return True on success, false otherwise.
+     */
+    bool UpdateSavedSearchLastExecuted(const CPVREpgSearchFilter& epgSearch);
+
+    /*!
+     * @brief Delete a saved search.
+     * @param epgSearch The search.
+     * @return True on success, false otherwise.
+     */
+    bool Delete(const CPVREpgSearchFilter& epgSearch);
+
+    /*!
+     * @brief Delete all saved searches.
+     * @return True on success, false otherwise.
+     */
+    bool DeleteSavedSearches();
 
     //@}
 
@@ -284,6 +368,9 @@ namespace PVR
     int GetMinSchemaVersion() const override { return 4; }
 
     std::shared_ptr<CPVREpgInfoTag> CreateEpgTag(const std::unique_ptr<dbiplus::Dataset>& pDS);
+
+    std::shared_ptr<CPVREpgSearchFilter> CreateEpgSearchFilter(
+        bool bRadio, const std::unique_ptr<dbiplus::Dataset>& pDS);
 
     CCriticalSection m_critSection;
   };

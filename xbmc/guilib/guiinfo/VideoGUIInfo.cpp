@@ -8,10 +8,14 @@
 
 #include "guilib/guiinfo/VideoGUIInfo.h"
 
-#include "Application.h"
 #include "FileItem.h"
+#include "PlayListPlayer.h"
 #include "ServiceBroker.h"
 #include "URL.h"
+#include "Util.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "cores/DataCacheCore.h"
 #include "cores/VideoPlayer/VideoRenderers/BaseRenderer.h"
 #include "guilib/GUIComponent.h"
@@ -22,7 +26,9 @@
 #include "guilib/guiinfo/GUIInfo.h"
 #include "guilib/guiinfo/GUIInfoHelper.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
+#include "playlists/PlayList.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/SettingUtils.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
@@ -37,11 +43,17 @@
 using namespace KODI::GUILIB;
 using namespace KODI::GUILIB::GUIINFO;
 
+CVideoGUIInfo::CVideoGUIInfo()
+  : m_appPlayer(CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>())
+{
+}
+
 int CVideoGUIInfo::GetPercentPlayed(const CVideoInfoTag* tag) const
 {
   CBookmark bookmark = tag->GetResumePoint();
   if (bookmark.IsPartWay())
-    return std::lrintf(static_cast<float>(bookmark.timeInSeconds) / bookmark.totalTimeInSeconds * 100.0f);
+    return std::lrintf(static_cast<float>(bookmark.timeInSeconds) /
+                       static_cast<float>(bookmark.totalTimeInSeconds) * 100.0f);
   else
     return 0;
 }
@@ -51,10 +63,10 @@ bool CVideoGUIInfo::InitCurrentItem(CFileItem *item)
   if (item && item->IsVideo())
   {
     // special case where .strm is used to start an audio stream
-    if (item->IsInternetStream() && g_application.GetAppPlayer().IsPlayingAudio())
+    if (item->IsInternetStream() && m_appPlayer->IsPlayingAudio())
       return false;
 
-    CLog::Log(LOGDEBUG,"CVideoGUIInfo::InitCurrentItem(%s)", CURL::GetRedacted(item->GetPath()).c_str());
+    CLog::Log(LOGDEBUG, "CVideoGUIInfo::InitCurrentItem({})", CURL::GetRedacted(item->GetPath()));
 
     // Find a thumb for this file.
     if (!item->HasArt("thumb"))
@@ -68,7 +80,8 @@ bool CVideoGUIInfo::InitCurrentItem(CFileItem *item)
     {
       if (!g_application.m_strPlayListFile.empty())
       {
-        CLog::Log(LOGDEBUG,"Streaming media detected... using %s to find a thumb", g_application.m_strPlayListFile.c_str());
+        CLog::Log(LOGDEBUG, "Streaming media detected... using {} to find a thumb",
+                  g_application.m_strPlayListFile);
         CFileItem thumbItem(g_application.m_strPlayListFile,false);
 
         CVideoThumbLoader loader;
@@ -83,6 +96,12 @@ bool CVideoGUIInfo::InitCurrentItem(CFileItem *item)
 
 bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int contextWindow, const CGUIInfo &info, std::string *fallback) const
 {
+  // For videoplayer "offset" and "position" info labels check playlist
+  if (info.GetData1() && ((info.m_info >= VIDEOPLAYER_OFFSET_POSITION_FIRST &&
+      info.m_info <= VIDEOPLAYER_OFFSET_POSITION_LAST) ||
+      (info.m_info >= PLAYER_OFFSET_POSITION_FIRST && info.m_info <= PLAYER_OFFSET_POSITION_LAST)))
+    return GetPlaylistInfo(value, info);
+
   const CVideoInfoTag* tag = item->GetVideoInfoTag();
   if (tag)
   {
@@ -91,6 +110,9 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       /////////////////////////////////////////////////////////////////////////////////////////////
       // PLAYER_* / VIDEOPLAYER_* / LISTITEM_*
       /////////////////////////////////////////////////////////////////////////////////////////////
+      case VIDEOPLAYER_ART:
+        value = item->GetArt(info.GetData3());
+        return true;
       case PLAYER_PATH:
       case PLAYER_FILENAME:
       case PLAYER_FILEPATH:
@@ -107,11 +129,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
         return !value.empty();
       case VIDEOPLAYER_TITLE:
         value = tag->m_strTitle;
-        if (value.empty())
-          value = item->GetLabel();
-        if (value.empty())
-          value = CUtil::GetTitleFromPath(item->GetPath());
-        return true;
+        return !value.empty();
       case LISTITEM_TITLE:
         value = tag->m_strTitle;
         return true;
@@ -135,10 +153,23 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_DBID:
         if (tag->m_iDbId > -1)
         {
-          value = StringUtils::Format("%i", tag->m_iDbId);
+          value = std::to_string(tag->m_iDbId);
           return true;
         }
         break;
+      case VIDEOPLAYER_TVSHOWDBID:
+      case LISTITEM_TVSHOWDBID:
+        if (tag->m_iIdShow > -1)
+        {
+          value = std::to_string(tag->m_iIdShow);
+          return true;
+        }
+        break;
+      case VIDEOPLAYER_UNIQUEID:
+      case LISTITEM_UNIQUEID:
+        if (!info.GetData3().empty())
+          value = tag->GetUniqueID(info.GetData3());
+        return true;
       case VIDEOPLAYER_RATING:
       case LISTITEM_RATING:
       {
@@ -159,9 +190,9 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
           if (rating.rating > 0.f && rating.votes == 0)
             value = StringUtils::FormatNumber(rating.rating);
           else if (rating.votes > 0)
-            value = StringUtils::Format(g_localizeStrings.Get(20350).c_str(),
-                                        StringUtils::FormatNumber(rating.rating).c_str(),
-                                        StringUtils::FormatNumber(rating.votes).c_str());
+            value = StringUtils::Format(g_localizeStrings.Get(20350),
+                                        StringUtils::FormatNumber(rating.rating),
+                                        StringUtils::FormatNumber(rating.votes));
           else
             break;
           return true;
@@ -172,7 +203,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_USER_RATING:
         if (tag->m_iUserRating > 0)
         {
-          value = StringUtils::Format("%i", tag->m_iUserRating);
+          value = std::to_string(tag->m_iUserRating);
           return true;
         }
         break;
@@ -184,7 +215,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_YEAR:
         if (tag->HasYear())
         {
-          value = StringUtils::Format("%i", tag->GetYear());
+          value = std::to_string(tag->GetYear());
           return true;
         }
         break;
@@ -218,28 +249,24 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case VIDEOPLAYER_EPISODE:
       case LISTITEM_EPISODE:
       {
-        int iSeason = -1, iEpisode = -1;
+        int iEpisode = -1;
         if (tag->m_iEpisode > 0)
         {
-          iSeason = tag->m_iSeason;
           iEpisode = tag->m_iEpisode;
         }
 
         if (iEpisode >= 0)
         {
-          if (iSeason == 0) // prefix episode with 'S'
-            value = StringUtils::Format("S%d", iEpisode);
-          else
-            value = StringUtils::Format("%d", iEpisode);
+          value = std::to_string(iEpisode);
           return true;
         }
         break;
       }
       case VIDEOPLAYER_SEASON:
       case LISTITEM_SEASON:
-        if (tag->m_iSeason > 0)
+        if (tag->m_iSeason >= 0)
         {
-          value = StringUtils::Format("%d", tag->m_iSeason);
+          value = std::to_string(tag->m_iSeason);
           return true;
         }
         break;
@@ -263,7 +290,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_TOP250:
         if (tag->m_iTop250 > 0)
         {
-          value = StringUtils::Format("%i", tag->m_iTop250);
+          value = std::to_string(tag->m_iTop250);
           return true;
         }
         break;
@@ -306,7 +333,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_PLAYCOUNT:
         if (tag->GetPlayCount() > 0)
         {
-          value = StringUtils::Format("%i", tag->GetPlayCount());
+          value = std::to_string(tag->GetPlayCount());
           return true;
         }
         break;
@@ -327,23 +354,23 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_TRACKNUMBER:
         if (tag->m_iTrack > -1 )
         {
-          value = StringUtils::Format("%i", tag->m_iTrack);
+          value = std::to_string(tag->m_iTrack);
           return true;
         }
         break;
       case LISTITEM_PLOT:
         {
-          std::shared_ptr<CSettingList> setting(std::dynamic_pointer_cast<CSettingList>( 
-            CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)));
-          if (tag->m_type != MediaTypeTvShow &&
-              tag->m_type != MediaTypeVideoCollection &&
-              tag->GetPlayCount() == 0 &&
-              setting &&
-              (
-               (tag->m_type == MediaTypeMovie && (!setting->FindIntInList(CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_MOVIES))) ||  
-               (tag->m_type == MediaTypeEpisode && (!setting->FindIntInList(CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_TVSHOWEPISODES)))
-              )
-             ) 
+          std::shared_ptr<CSettingList> setting(std::dynamic_pointer_cast<CSettingList>(
+              CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(
+                  CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)));
+          if (tag->m_type != MediaTypeTvShow && tag->m_type != MediaTypeVideoCollection &&
+              tag->GetPlayCount() == 0 && setting &&
+              ((tag->m_type == MediaTypeMovie &&
+                !CSettingUtils::FindIntInList(
+                    setting, CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_MOVIES)) ||
+               (tag->m_type == MediaTypeEpisode &&
+                !CSettingUtils::FindIntInList(
+                    setting, CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_TVSHOWEPISODES))))
           {
             value = g_localizeStrings.Get(20370);
           }
@@ -365,7 +392,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_SETID:
         if (tag->m_set.id > 0)
         {
-          value = StringUtils::Format("%d", tag->m_set.id);
+          value = std::to_string(tag->m_set.id);
           return true;
         }
         break;
@@ -394,12 +421,12 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_APPEARANCES:
         if (tag->m_relevance > -1)
         {
-          value = StringUtils::Format("%i", tag->m_relevance);
+          value = std::to_string(tag->m_relevance);
           return true;
         }
         break;
       case LISTITEM_PERCENT_PLAYED:
-        value = StringUtils::Format("%d", GetPercentPlayed(tag));
+        value = std::to_string(GetPercentPlayed(tag));
         return true;
       case LISTITEM_VIDEO_CODEC:
         value = tag->m_streamDetails.GetVideoCodec();
@@ -418,7 +445,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
         int iChannels = tag->m_streamDetails.GetAudioChannels();
         if (iChannels > 0)
         {
-          value = StringUtils::Format("%i", iChannels);
+          value = std::to_string(iChannels);
           return true;
         }
         break;
@@ -476,6 +503,9 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
 
         value = CURL(value).GetWithoutUserDetails();
         return true;
+      case LISTITEM_VIDEO_HDR_TYPE:
+        value = tag->m_streamDetails.GetVideoHdrType();
+        return true;
     }
   }
 
@@ -485,14 +515,14 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
     // VIDEOPLAYER_*
     ///////////////////////////////////////////////////////////////////////////////////////////////
     case VIDEOPLAYER_PLAYLISTLEN:
-      if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() == PLAYLIST_VIDEO)
+      if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() == PLAYLIST::TYPE_VIDEO)
       {
         value = GUIINFO::GetPlaylistLabel(PLAYLIST_LENGTH);
         return true;
       }
       break;
     case VIDEOPLAYER_PLAYLISTPOS:
-      if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() == PLAYLIST_VIDEO)
+      if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() == PLAYLIST::TYPE_VIDEO)
       {
         value = GUIINFO::GetPlaylistLabel(PLAYLIST_POSITION);
         return true;
@@ -509,7 +539,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       return true;
       break;
     case VIDEOPLAYER_COVER:
-      if (g_application.GetAppPlayer().IsPlayingVideo())
+      if (m_appPlayer->IsPlayingVideo())
       {
         if (fallback)
           *fallback = "DefaultVideoCover.png";
@@ -537,6 +567,9 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
     case VIDEOPLAYER_VIDEO_RESOLUTION:
       value = CStreamDetails::VideoDimsToResolutionDescription(m_videoInfo.width, m_videoInfo.height);
       return true;
+    case VIDEOPLAYER_HDR_TYPE:
+      value = CStreamDetails::HdrTypeToString(m_videoInfo.hdrType);
+      return true;
     case VIDEOPLAYER_AUDIO_CODEC:
       value = m_audioInfo.codecName;
       return true;
@@ -545,7 +578,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       int iChannels = m_audioInfo.channels;
       if (iChannels > 0)
       {
-        value = StringUtils::Format("%i", iChannels);
+        value = std::to_string(iChannels);
         return true;
       }
       break;
@@ -555,7 +588,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       int iBitrate = m_audioInfo.bitrate;
       if (iBitrate > 0)
       {
-        value = StringUtils::Format("%li", std::lrint(static_cast<double>(iBitrate) / 1000.0));
+        value = std::to_string(std::lrint(static_cast<double>(iBitrate) / 1000.0));
         return true;
       }
       break;
@@ -565,7 +598,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       int iBitrate = m_videoInfo.bitrate;
       if (iBitrate > 0)
       {
-        value = StringUtils::Format("%li", std::lrint(static_cast<double>(iBitrate) / 1000.0));
+        value = std::to_string(std::lrint(static_cast<double>(iBitrate) / 1000.0));
         return true;
       }
       break;
@@ -575,6 +608,86 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       return true;
   }
 
+  return false;
+}
+
+bool CVideoGUIInfo::GetPlaylistInfo(std::string& value, const CGUIInfo& info) const
+{
+  const PLAYLIST::CPlayList& playlist =
+      CServiceBroker::GetPlaylistPlayer().GetPlaylist(PLAYLIST::TYPE_VIDEO);
+  if (playlist.size() < 1)
+    return false;
+
+  int index = info.GetData2();
+  if (info.GetData1() == 1)
+  { // relative index (requires current playlist is TYPE_VIDEO)
+    if (CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist() != PLAYLIST::TYPE_VIDEO)
+      return false;
+
+    index = CServiceBroker::GetPlaylistPlayer().GetNextSong(index);
+  }
+
+  if (index < 0 || index >= playlist.size())
+    return false;
+
+  const CFileItemPtr playlistItem = playlist[index];
+  // try to set a thumbnail
+  if (!playlistItem->HasArt("thumb"))
+  {
+    CVideoThumbLoader loader;
+    loader.LoadItem(playlistItem.get());
+    // still no thumb? then just the set the default cover
+    if (!playlistItem->HasArt("thumb"))
+      playlistItem->SetArt("thumb", "DefaultVideoCover.png");
+  }
+  if (info.m_info == VIDEOPLAYER_PLAYLISTPOS)
+  {
+    value = std::to_string(index + 1);
+    return true;
+  }
+  else if (info.m_info == VIDEOPLAYER_COVER)
+  {
+    value = playlistItem->GetArt("thumb");
+    return true;
+  }
+  else if (info.m_info == VIDEOPLAYER_ART)
+  {
+    value = playlistItem->GetArt(info.GetData3());
+    return true;
+  }
+
+  return GetLabel(value, playlistItem.get(), 0, CGUIInfo(info.m_info), nullptr);
+}
+
+bool CVideoGUIInfo::GetFallbackLabel(std::string& value,
+                                     const CFileItem* item,
+                                     int contextWindow,
+                                     const CGUIInfo& info,
+                                     std::string* fallback)
+{
+  // No fallback for videoplayer "offset" and "position" info labels
+  if (info.GetData1() && ((info.m_info >= VIDEOPLAYER_OFFSET_POSITION_FIRST &&
+      info.m_info <= VIDEOPLAYER_OFFSET_POSITION_LAST) ||
+      (info.m_info >= PLAYER_OFFSET_POSITION_FIRST && info.m_info <= PLAYER_OFFSET_POSITION_LAST)))
+    return false;
+
+  const CVideoInfoTag* tag = item->GetVideoInfoTag();
+  if (tag)
+  {
+    switch (info.m_info)
+    {
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      // VIDEOPLAYER_*
+      /////////////////////////////////////////////////////////////////////////////////////////////
+      case VIDEOPLAYER_TITLE:
+        value = item->GetLabel();
+        if (value.empty())
+          value = CUtil::GetTitleFromPath(item->GetPath());
+        return true;
+      default:
+        break;
+    }
+  }
   return false;
 }
 
@@ -596,6 +709,19 @@ bool CVideoGUIInfo::GetInt(int& value, const CGUIListItem *gitem, int contextWin
         value = GetPercentPlayed(tag);
         return true;
     }
+  }
+
+  switch (info.m_info)
+  {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // VIDEOPLAYER_*
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    case VIDEOPLAYER_AUDIOSTREAMCOUNT:
+      value = m_appPlayer->GetAudioStreamCount();
+      return true;
+
+    default:
+      break;
   }
 
   return false;
@@ -659,20 +785,16 @@ bool CVideoGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int contextW
               CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_FULLSCREEN_GAME;
       return true;
     case VIDEOPLAYER_HASMENU:
-      value = g_application.GetAppPlayer().HasMenu();
+      value = m_appPlayer->GetSupportedMenuType() != MenuType::NONE;
       return true;
     case VIDEOPLAYER_HASTELETEXT:
-      if (g_application.GetAppPlayer().GetTeletextCache())
-      {
-        value = true;
-        return true;
-      }
-      break;
+      value = m_appPlayer->HasTeletextCache();
+      return true;
     case VIDEOPLAYER_HASSUBTITLES:
-      value = g_application.GetAppPlayer().GetSubtitleCount() > 0;
+      value = m_appPlayer->GetSubtitleCount() > 0;
       return true;
     case VIDEOPLAYER_SUBTITLESENABLED:
-      value = g_application.GetAppPlayer().GetSubtitleVisible();
+      value = m_appPlayer->GetSubtitleVisible();
       return true;
     case VIDEOPLAYER_IS_STEREOSCOPIC:
       value = !CServiceBroker::GetDataCacheCore().GetVideoStereoMode().empty();

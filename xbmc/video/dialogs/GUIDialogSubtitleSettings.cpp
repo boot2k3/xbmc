@@ -8,7 +8,6 @@
 
 #include "GUIDialogSubtitleSettings.h"
 
-#include "Application.h"
 #include "FileItem.h"
 #include "GUIDialogSubtitles.h"
 #include "GUIPassword.h"
@@ -16,10 +15,12 @@
 #include "URL.h"
 #include "addons/Skin.h"
 #include "addons/VFSEntry.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "cores/IPlayer.h"
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "dialogs/GUIDialogYesNo.h"
-#include "filesystem/File.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
@@ -32,6 +33,7 @@
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingDefinitions.h"
 #include "settings/lib/SettingsManager.h"
+#include "utils/FileUtils.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -57,14 +59,17 @@ CGUIDialogSubtitleSettings::~CGUIDialogSubtitleSettings() = default;
 
 void CGUIDialogSubtitleSettings::FrameMove()
 {
-  if (g_application.GetAppPlayer().HasPlayer())
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (appPlayer->HasPlayer())
   {
-    const CVideoSettings videoSettings = g_application.GetAppPlayer().GetVideoSettings();
+    const CVideoSettings videoSettings = appPlayer->GetVideoSettings();
 
     // these settings can change on the fly
     //! @todo m_settingsManager->SetBool(SETTING_SUBTITLE_ENABLE, g_application.GetAppPlayer().GetSubtitleVisible());
     //   \-> Unless subtitle visibility can change on the fly, while Dialog is up, this code should be removed.
-    GetSettingsManager()->SetNumber(SETTING_SUBTITLE_DELAY, videoSettings.m_SubtitleDelay);
+    GetSettingsManager()->SetNumber(SETTING_SUBTITLE_DELAY,
+                                    static_cast<double>(videoSettings.m_SubtitleDelay));
     //! @todo (needs special handling): m_settingsManager->SetInt(SETTING_SUBTITLE_STREAM, g_application.GetAppPlayer().GetSubtitle());
   }
 
@@ -80,10 +85,13 @@ bool CGUIDialogSubtitleSettings::OnMessage(CGUIMessage& message)
   return CGUIDialogSettingsManualBase::OnMessage(message);
 }
 
-void CGUIDialogSubtitleSettings::OnSettingChanged(std::shared_ptr<const CSetting> setting)
+void CGUIDialogSubtitleSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
+
+  auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
 
   CGUIDialogSettingsManualBase::OnSettingChanged(setting);
 
@@ -91,17 +99,17 @@ void CGUIDialogSubtitleSettings::OnSettingChanged(std::shared_ptr<const CSetting
   if (settingId == SETTING_SUBTITLE_ENABLE)
   {
     bool value = std::static_pointer_cast<const CSettingBool>(setting)->GetValue();
-    g_application.GetAppPlayer().SetSubtitleVisible(value);
+    appPlayer->SetSubtitleVisible(value);
   }
   else if (settingId == SETTING_SUBTITLE_DELAY)
   {
     float value = static_cast<float>(std::static_pointer_cast<const CSettingNumber>(setting)->GetValue());
-    g_application.GetAppPlayer().SetSubTitleDelay(value);
+    appPlayer->SetSubTitleDelay(value);
   }
   else if (settingId == SETTING_SUBTITLE_STREAM)
   {
     m_subtitleStream = std::static_pointer_cast<const CSettingInt>(setting)->GetValue();
-    g_application.GetAppPlayer().SetSubtitle(m_subtitleStream);
+    appPlayer->SetSubtitle(m_subtitleStream);
   }
 }
 
@@ -116,14 +124,19 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
 
   std::string strPath;
   if (URIUtils::IsInRAR(g_application.CurrentFileItem().GetPath()) || URIUtils::IsInZIP(g_application.CurrentFileItem().GetPath()))
+  {
     strPath = CURL(g_application.CurrentFileItem().GetPath()).GetHostName();
-  else
+  }
+  else if (!URIUtils::IsPlugin(g_application.CurrentFileItem().GetPath()))
+  {
     strPath = g_application.CurrentFileItem().GetPath();
+  }
 
-  std::string strMask = ".utf|.utf8|.utf-8|.sub|.srt|.smi|.rt|.txt|.ssa|.aqt|.jss|.ass|.idx|.zip";
+  std::string strMask =
+      ".utf|.utf8|.utf-8|.sub|.srt|.smi|.rt|.txt|.ssa|.aqt|.jss|.ass|.vtt|.idx|.zip|.sup";
 
   if (g_application.GetCurrentPlayer() == "VideoPlayer")
-    strMask = ".srt|.zip|.ifo|.smi|.sub|.idx|.ass|.ssa|.txt";
+    strMask = ".srt|.zip|.ifo|.smi|.sub|.idx|.ass|.ssa|.vtt|.txt|.sup";
 
   strMask += extras;
 
@@ -132,7 +145,10 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
   {
     CMediaSource share;
     std::vector<std::string> paths;
-    paths.push_back(URIUtils::GetDirectory(strPath));
+    if (!strPath.empty())
+    {
+      paths.push_back(URIUtils::GetDirectory(strPath));
+    }
     paths.push_back(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_SUBTITLES_CUSTOMPATH));
     share.FromNameAndPaths("video",g_localizeStrings.Get(21367),paths);
     shares.push_back(share);
@@ -144,7 +160,7 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
   {
     if (URIUtils::HasExtension(strPath, ".sub"))
     {
-      if (XFILE::CFile::Exists(URIUtils::ReplaceExtension(strPath, ".idx")))
+      if (CFileUtils::Exists(URIUtils::ReplaceExtension(strPath, ".idx")))
         strPath = URIUtils::ReplaceExtension(strPath, ".idx");
     }
 
@@ -154,7 +170,7 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
   return "";
 }
 
-void CGUIDialogSubtitleSettings::OnSettingAction(std::shared_ptr<const CSetting> setting)
+void CGUIDialogSubtitleSettings::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -167,7 +183,9 @@ void CGUIDialogSubtitleSettings::OnSettingAction(std::shared_ptr<const CSetting>
     std::string strPath = BrowseForSubtitle();
     if (!strPath.empty())
     {
-      g_application.GetAppPlayer().AddSubtitle(strPath);
+      auto& components = CServiceBroker::GetAppComponents();
+      const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+      appPlayer->AddSubtitle(strPath);
       Close();
     }
   }
@@ -184,29 +202,33 @@ void CGUIDialogSubtitleSettings::OnSettingAction(std::shared_ptr<const CSetting>
     Save();
 }
 
-void CGUIDialogSubtitleSettings::Save()
+bool CGUIDialogSubtitleSettings::Save()
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
   if (!g_passwordManager.CheckSettingLevelLock(SettingLevel::Expert) &&
       profileManager->GetMasterProfile().getLockMode() != LOCK_MODE_EVERYONE)
-    return;
+    return true;
 
   // prompt user if they are sure
   if (!CGUIDialogYesNo::ShowAndGetInput(CVariant{12376}, CVariant{12377}))
-    return;
+    return true;
 
   // reset the settings
   CVideoDatabase db;
   if (!db.Open())
-    return;
+    return true;
 
   db.EraseAllVideoSettings();
   db.Close();
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
 
-  CMediaSettings::GetInstance().GetDefaultVideoSettings() = g_application.GetAppPlayer().GetVideoSettings();
+  CMediaSettings::GetInstance().GetDefaultVideoSettings() = appPlayer->GetVideoSettings();
   CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleStream = -1;
   CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
+
+  return true;
 }
 
 void CGUIDialogSubtitleSettings::SetupView()
@@ -222,6 +244,9 @@ void CGUIDialogSubtitleSettings::SetupView()
 void CGUIDialogSubtitleSettings::InitializeSettings()
 {
   CGUIDialogSettingsManualBase::InitializeSettings();
+
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
 
   const std::shared_ptr<CSettingCategory> category = AddCategory("audiosubtitlesettings", -1);
   if (category == NULL)
@@ -252,15 +277,15 @@ void CGUIDialogSubtitleSettings::InitializeSettings()
 
   bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
 
-  const CVideoSettings videoSettings = g_application.GetAppPlayer().GetVideoSettings();
+  const CVideoSettings videoSettings = appPlayer->GetVideoSettings();
 
-  if (g_application.GetAppPlayer().HasPlayer())
+  if (appPlayer->HasPlayer())
   {
-    g_application.GetAppPlayer().GetSubtitleCapabilities(m_subtitleCapabilities);
+    appPlayer->GetSubtitleCapabilities(m_subtitleCapabilities);
   }
 
   // subtitle settings
-  m_subtitleVisible = g_application.GetAppPlayer().GetSubtitleVisible();
+  m_subtitleVisible = appPlayer->GetSubtitleVisible();
 
   // subtitle enabled setting
   AddToggle(groupSubtitles, SETTING_SUBTITLE_ENABLE, 13397, SettingLevel::Basic, m_subtitleVisible);
@@ -296,27 +321,38 @@ bool CGUIDialogSubtitleSettings::SupportsSubtitleFeature(int feature)
   return false;
 }
 
-void CGUIDialogSubtitleSettings::AddSubtitleStreams(std::shared_ptr<CSettingGroup> group, const std::string &settingId)
+void CGUIDialogSubtitleSettings::AddSubtitleStreams(const std::shared_ptr<CSettingGroup>& group,
+                                                    const std::string& settingId)
 {
   if (group == NULL || settingId.empty())
     return;
 
-  m_subtitleStream = g_application.GetAppPlayer().GetSubtitle();
+  auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+
+  m_subtitleStream = appPlayer->GetSubtitle();
   if (m_subtitleStream < 0)
     m_subtitleStream = 0;
 
   m_subtitleStreamSetting = AddList(group, settingId, 462, SettingLevel::Basic, m_subtitleStream, SubtitleStreamsOptionFiller, 462);
 }
 
-void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(SettingConstPtr setting, std::vector<IntegerSettingOption> &list, int &current, void *data)
+void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(
+    const SettingConstPtr& setting,
+    std::vector<IntegerSettingOption>& list,
+    int& current,
+    void* data)
 {
-  int subtitleStreamCount = g_application.GetAppPlayer().GetSubtitleCount();
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+
+  int subtitleStreamCount = appPlayer->GetSubtitleCount();
 
   // cycle through each subtitle and add it to our entry list
   for (int i = 0; i < subtitleStreamCount; ++i)
   {
     SubtitleStreamInfo info;
-    g_application.GetAppPlayer().GetSubtitleStreamInfo(i, info);
+    appPlayer->GetSubtitleStreamInfo(i, info);
 
     std::string strItem;
     std::string strLanguage;
@@ -327,10 +363,10 @@ void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(SettingConstPtr set
     if (info.name.length() == 0)
       strItem = strLanguage;
     else
-      strItem = StringUtils::Format("%s - %s", strLanguage.c_str(), info.name.c_str());
+      strItem = StringUtils::Format("{} - {}", strLanguage, info.name);
 
     strItem += FormatFlags(info.flags);
-    strItem += StringUtils::Format(" (%i/%i)", i + 1, subtitleStreamCount);
+    strItem += StringUtils::Format(" ({}/{})", i + 1, subtitleStreamCount);
 
     list.emplace_back(strItem, i);
   }
@@ -343,7 +379,12 @@ void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(SettingConstPtr set
   }
 }
 
-std::string CGUIDialogSubtitleSettings::SettingFormatterDelay(std::shared_ptr<const CSettingControlSlider> control, const CVariant &value, const CVariant &minimum, const CVariant &step, const CVariant &maximum)
+std::string CGUIDialogSubtitleSettings::SettingFormatterDelay(
+    const std::shared_ptr<const CSettingControlSlider>& control,
+    const CVariant& value,
+    const CVariant& minimum,
+    const CVariant& step,
+    const CVariant& maximum)
 {
   if (!value.isDouble())
     return "";
@@ -352,11 +393,11 @@ std::string CGUIDialogSubtitleSettings::SettingFormatterDelay(std::shared_ptr<co
   float fStep = step.asFloat();
 
   if (fabs(fValue) < 0.5f * fStep)
-    return StringUtils::Format(g_localizeStrings.Get(22003).c_str(), 0.0);
+    return StringUtils::Format(g_localizeStrings.Get(22003), 0.0);
   if (fValue < 0)
-    return StringUtils::Format(g_localizeStrings.Get(22004).c_str(), fabs(fValue));
+    return StringUtils::Format(g_localizeStrings.Get(22004), fabs(fValue));
 
-  return StringUtils::Format(g_localizeStrings.Get(22005).c_str(), fValue);
+  return StringUtils::Format(g_localizeStrings.Get(22005), fValue);
 }
 
 std::string CGUIDialogSubtitleSettings::FormatFlags(StreamFlags flags)
@@ -374,7 +415,7 @@ std::string CGUIDialogSubtitleSettings::FormatFlags(StreamFlags flags)
   std::string formated = StringUtils::Join(localizedFlags, ", ");
 
   if (!formated.empty())
-    formated = StringUtils::Format(" [%s]", formated);
+    formated = StringUtils::Format(" [{}]", formated);
 
   return formated;
 }

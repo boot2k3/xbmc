@@ -8,16 +8,20 @@
 
 #include "IRServerSuite.h"
 
-#include "AppInboundProtocol.h"
 #include "IrssMessage.h"
 #include "ServiceBroker.h"
+#include "application/AppInboundProtocol.h"
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
 #include "utils/log.h"
 
 #include "platform/win32/CharsetConverter.h"
 
+#include <mutex>
+
 #include <WS2tcpip.h>
+
+using namespace std::chrono_literals;
 
 #define IRSS_PORT 24000
 #define IRSS_MAP_FILENAME "IRSSmap.xml"
@@ -34,7 +38,7 @@ CIRServerSuite::~CIRServerSuite()
 {
   m_event.Set();
   {
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     Close();
   }
   StopThread();
@@ -60,7 +64,7 @@ void CIRServerSuite::Close()
 void CIRServerSuite::Initialize()
 {
   Create();
-  SetPriority(GetMinPriority());
+  SetPriority(ThreadPriority::LOWEST);
 }
 
 void CIRServerSuite::Process()
@@ -81,7 +85,7 @@ void CIRServerSuite::Process()
       if (logging)
         CLog::LogF(LOGINFO, "failed to connect to irss, will keep retrying every 5 seconds");
 
-      if (AbortableWait(m_event, 5000) == WAIT_SIGNALED)
+      if (AbortableWait(m_event, 5000ms) == WAIT_SIGNALED)
         break;
 
       logging = false;
@@ -117,8 +121,8 @@ bool CIRServerSuite::Connect(bool logMessages)
   if(res)
   {
     if (logMessages)
-      CLog::LogF(LOGDEBUG, "getaddrinfo failed: %s",
-                KODI::PLATFORM::WINDOWS::FromW(gai_strerror(res)));
+      CLog::LogF(LOGDEBUG, "getaddrinfo failed: {}",
+                 KODI::PLATFORM::WINDOWS::FromW(gai_strerror(res)));
     return false;
   }
 
@@ -131,7 +135,7 @@ bool CIRServerSuite::Connect(bool logMessages)
     }
 
     if (logMessages)
-      CLog::LogF(LOGDEBUG, "connecting to: %s:%s ...", namebuf, portbuf);
+      CLog::LogF(LOGDEBUG, "connecting to: {}:{} ...", namebuf, portbuf);
 
     m_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
     if(m_socket == INVALID_SOCKET)
@@ -274,7 +278,7 @@ bool CIRServerSuite::ReadNext()
         char* availablereceivers = new char[size + 1];
         memcpy(availablereceivers, data, size);
         availablereceivers[size] = '\0';
-        CLog::LogF(LOGINFO, "available receivers: %s", availablereceivers);
+        CLog::LogF(LOGINFO, "available receivers: {}", availablereceivers);
         delete[] availablereceivers;
       }
     }
@@ -288,7 +292,7 @@ bool CIRServerSuite::ReadNext()
         char* detectedreceivers = new char[size + 1];
         memcpy(detectedreceivers, data, size);
         detectedreceivers[size] = '\0';
-        CLog::LogF(LOGINFO, "detected receivers: %s", detectedreceivers);
+        CLog::LogF(LOGINFO, "detected receivers: {}", detectedreceivers);
         delete[] detectedreceivers;
       }
     }
@@ -302,7 +306,7 @@ bool CIRServerSuite::ReadNext()
         char* activereceivers = new char[size + 1];
         memcpy(activereceivers, data, size);
         activereceivers[size] = '\0';
-        CLog::LogF(LOGINFO, "active receivers: %s", activereceivers);
+        CLog::LogF(LOGINFO, "active receivers: {}", activereceivers);
         delete[] activereceivers;
       }
     }
@@ -344,14 +348,14 @@ bool CIRServerSuite::HandleRemoteEvent(CIrssMessage& message)
       //devicename itself
       if (datalen < 4 + devicenamelength)
       {
-        CLog::LogF(LOGERROR, "invalid data in remote message (size: %u).", datalen);
+        CLog::LogF(LOGERROR, "invalid data in remote message (size: {}).", datalen);
         return false;
       }
       deviceName = new char[devicenamelength + 1];
       memcpy(deviceName, data + 4, devicenamelength);
       if (datalen < 8 + devicenamelength)
       {
-        CLog::LogF(LOGERROR, "invalid data in remote message (size: %u).", datalen);
+        CLog::LogF(LOGERROR, "invalid data in remote message (size: {}).", datalen);
         delete[] deviceName;
         return false;
       }
@@ -360,7 +364,7 @@ bool CIRServerSuite::HandleRemoteEvent(CIrssMessage& message)
       //keycode itself
       if (datalen < 8 + devicenamelength + keycodelength)
       {
-        CLog::LogF(LOGERROR, "invalid data in remote message (size: %u).", datalen);
+        CLog::LogF(LOGERROR, "invalid data in remote message (size: {}).", datalen);
         delete[] deviceName;
         return false;
       }
@@ -378,10 +382,10 @@ bool CIRServerSuite::HandleRemoteEvent(CIrssMessage& message)
     }
 
     //translate to a buttoncode xbmc understands
-    CLog::LogF(LOGDEBUG, "remoteEvent: %s %s", deviceName, keycode);
+    CLog::LogF(LOGDEBUG, "remoteEvent: {} {}", deviceName, keycode);
     unsigned button = m_irTranslator.TranslateButton(deviceName, keycode);
 
-    XBMC_Event newEvent;
+    XBMC_Event newEvent = {};
     newEvent.type = XBMC_BUTTON;
     newEvent.keybutton.button = button;
     newEvent.keybutton.holdtime = 0;
@@ -409,7 +413,7 @@ int CIRServerSuite::ReadN(char *buffer, int n)
   {
     int nBytes = 0;
     {
-      CSingleLock lock(m_critSection);
+      std::unique_lock<CCriticalSection> lock(m_critSection);
       nBytes = recv(m_socket, ptr, n, 0);
     }
 
@@ -421,7 +425,7 @@ int CIRServerSuite::ReadN(char *buffer, int n)
     {
       if (!m_isConnecting)
       {
-        CLog::LogF(LOGERROR, "recv error %d", WSAGetLastError());
+        CLog::LogF(LOGERROR, "recv error {}", WSAGetLastError());
       }
       Close();
       return -1;
@@ -448,13 +452,13 @@ bool CIRServerSuite::WriteN(const char *buffer, int n)
   {
     int nBytes;
     {
-      CSingleLock lock(m_critSection);
+      std::unique_lock<CCriticalSection> lock(m_critSection);
       nBytes = send(m_socket, ptr, n, 0);
     }
 
     if (nBytes < 0)
     {
-      CLog::LogF(LOGERROR, "send error %d (%d bytes)", WSAGetLastError(), n);
+      CLog::LogF(LOGERROR, "send error {} ({} bytes)", WSAGetLastError(), n);
       Close();
       return false;
     }
@@ -498,7 +502,7 @@ int CIRServerSuite::ReadPacket(CIrssMessage &message)
 
     if (!CIrssMessage::FromBytes(messagebytes, size, message))
     {
-      CLog::LogF(LOGERROR, "invalid packet received (size: %u).", size);
+      CLog::LogF(LOGERROR, "invalid packet received (size: {}).", size);
       delete[] messagebytes;
       return -1;
     }

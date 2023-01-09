@@ -15,6 +15,8 @@
 #include "utils/Variant.h"
 #include "utils/XBMCTinyXML.h"
 
+#include <mutex>
+
 #define SETTINGS_XML_ROOT   "settings"
 
 CSettingsBase::CSettingsBase()
@@ -30,7 +32,7 @@ CSettingsBase::~CSettingsBase()
 
 bool CSettingsBase::Initialize()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   if (m_initialized)
     return false;
 
@@ -133,7 +135,7 @@ void CSettingsBase::Unload()
 
 void CSettingsBase::Uninitialize()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   if (!m_initialized)
     return;
 
@@ -165,14 +167,6 @@ void CSettingsBase::RegisterCallback(ISettingCallback* callback, const std::set<
 void CSettingsBase::UnregisterCallback(ISettingCallback* callback)
 {
   m_settingsManager->UnregisterCallback(callback);
-}
-
-bool CSettingsBase::FindIntInList(const std::string &id, int value) const
-{
-  if (id.empty())
-    return false;
-
-  return m_settingsManager->FindIntInList(id, value);
 }
 
 SettingPtr CSettingsBase::GetSetting(const std::string& id) const

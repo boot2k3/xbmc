@@ -28,14 +28,14 @@
 #include "utils/log.h"
 #include "utils/GLUtils.h"
 
+#include <cmath>
+
 #if HAS_GLES >= 2
 // GLES2.0 cant do CLAMP, but can do CLAMP_TO_EDGE.
 #define GL_CLAMP	GL_CLAMP_TO_EDGE
 #endif
 
 #define USE_PREMULTIPLIED_ALPHA 1
-
-#define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 using namespace OVERLAY;
 
@@ -57,7 +57,7 @@ static void LoadTexture(GLenum target
   GLenum externalFormat = alpha ? GL_RED : GL_BGRA;
 #endif
 
-  int bytesPerPixel = glFormatElementByteCount(externalFormat);
+  int bytesPerPixel = KODI::UTILS::GL::glFormatElementByteCount(externalFormat);
 
 #ifdef HAS_GLES
   bool bgraSupported = false;
@@ -159,31 +159,8 @@ static void LoadTexture(GLenum target
   *v = (GLfloat)height / height2;
 }
 
-COverlayTextureGL::COverlayTextureGL(CDVDOverlayImage* o)
+COverlayTextureGL::COverlayTextureGL(CDVDOverlayImage* o, CRect& rSource)
 {
-  m_texture = 0;
-
-  uint32_t* rgba;
-  int stride;
-  if(o->palette)
-  {
-    m_pma  = !!USE_PREMULTIPLIED_ALPHA;
-    rgba   = convert_rgba(o, m_pma);
-    stride = o->width * 4;
-  }
-  else
-  {
-    m_pma  = false;
-    rgba   = (uint32_t*)o->data;
-    stride = o->linesize;
-  }
-
-  if(!rgba)
-  {
-    CLog::Log(LOGERROR, "COverlayTextureGL::COverlayTextureGL - failed to convert overlay to rgb");
-    return;
-  }
-
   glGenTextures(1, &m_texture);
   glBindTexture(GL_TEXTURE_2D, m_texture);
 
@@ -192,58 +169,69 @@ COverlayTextureGL::COverlayTextureGL(CDVDOverlayImage* o)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-  LoadTexture(GL_TEXTURE_2D
-            , o->width
-            , o->height
-            , stride
-            , &m_u, &m_v
-            , false
-            , rgba);
-  if(reinterpret_cast<uint8_t*>(rgba) != o->data)
-    free(rgba);
+  if (o->palette.empty())
+  {
+    m_pma = false;
+    uint32_t* rgba = reinterpret_cast<uint32_t*>(o->pixels.data());
+    LoadTexture(GL_TEXTURE_2D, o->width, o->height, o->linesize, &m_u, &m_v, false, rgba);
+  }
+  else
+  {
+    std::vector<uint32_t> rgba(o->width * o->height);
+    m_pma = !!USE_PREMULTIPLIED_ALPHA;
+    convert_rgba(o, m_pma, rgba);
+    LoadTexture(GL_TEXTURE_2D, o->width, o->height, o->width * 4, &m_u, &m_v, false, rgba.data());
+  }
 
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  if(o->source_width && o->source_height)
+  if (o->source_width > 0 && o->source_height > 0)
   {
-    float center_x = (0.5f * o->width  + o->x) / o->source_width;
-    float center_y = (0.5f * o->height + o->y) / o->source_height;
+    m_pos = POSITION_RELATIVE;
+    m_x = (0.5f * o->width + o->x) / o->source_width;
+    m_y = (0.5f * o->height + o->y) / o->source_height;
 
-    m_width  = (float)o->width  / o->source_width;
-    m_height = (float)o->height / o->source_height;
-    m_pos    = POSITION_RELATIVE;
+    const float subRatio{static_cast<float>(o->source_width) / o->source_height};
+    const float vidRatio{rSource.Width() / rSource.Height()};
 
+    // We always consider aligning 4/3 subtitles to the video,
+    // for example SD DVB subtitles (4/3) must be stretched on fullhd video
+
+    if (std::fabs(subRatio - vidRatio) < 0.001f || IsSquareResolution(subRatio))
     {
-      /* render aligned to screen to avoid cropping problems */
-      m_align  = ALIGN_SCREEN;
-      m_x      = center_x;
-      m_y      = center_y;
+      m_align = ALIGN_VIDEO;
+      m_width = static_cast<float>(o->width) / o->source_width;
+      m_height = static_cast<float>(o->height) / o->source_height;
+    }
+    else
+    {
+      // We should have a re-encoded/cropped (removed black bars) video source.
+      // Then we cannot align to video otherwise the subtitles will be deformed
+      // better align to screen by keeping the aspect-ratio.
+      m_align = ALIGN_SCREEN_AR;
+      m_width = static_cast<float>(o->width);
+      m_height = static_cast<float>(o->height);
+      m_source_width = static_cast<float>(o->source_width);
+      m_source_height = static_cast<float>(o->source_height);
     }
   }
   else
   {
-    m_align  = ALIGN_VIDEO;
-    m_pos    = POSITION_ABSOLUTE;
-    m_x      = (float)o->x;
-    m_y      = (float)o->y;
-    m_width  = (float)o->width;
-    m_height = (float)o->height;
+    m_align = ALIGN_VIDEO;
+    m_pos = POSITION_ABSOLUTE;
+    m_x = static_cast<float>(o->x);
+    m_y = static_cast<float>(o->y);
+    m_width = static_cast<float>(o->width);
+    m_height = static_cast<float>(o->height);
   }
 }
 
 COverlayTextureGL::COverlayTextureGL(CDVDOverlaySpu* o)
 {
-  m_texture = 0;
-
   int min_x, max_x, min_y, max_y;
-  uint32_t* rgba = convert_rgba(o, USE_PREMULTIPLIED_ALPHA
-                              , min_x, max_x, min_y, max_y);
+  std::vector<uint32_t> rgba(o->width * o->height);
 
-  if (!rgba)
-  {
-    CLog::Log(LOGERROR, "COverlayTextureGL::COverlayTextureGL - failed to convert overlay to rgb");
-    return;
-  }
+  convert_rgba(o, USE_PREMULTIPLIED_ALPHA, min_x, max_x, min_y, max_y, rgba);
 
   glGenTextures(1, &m_texture);
   glBindTexture(GL_TEXTURE_2D, m_texture);
@@ -253,52 +241,38 @@ COverlayTextureGL::COverlayTextureGL(CDVDOverlaySpu* o)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-  LoadTexture(GL_TEXTURE_2D
-            , max_x - min_x
-            , max_y - min_y
-            , o->width * 4
-            , &m_u, &m_v
-            , false
-            , rgba + min_x + min_y * o->width);
-
-  free(rgba);
+  LoadTexture(GL_TEXTURE_2D, max_x - min_x, max_y - min_y, o->width * 4, &m_u, &m_v, false,
+              rgba.data() + min_x + min_y * o->width);
 
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  m_align  = ALIGN_VIDEO;
-  m_pos    = POSITION_ABSOLUTE;
-  m_x      = (float)(min_x + o->x);
-  m_y      = (float)(min_y + o->y);
-  m_width  = (float)(max_x - min_x);
-  m_height = (float)(max_y - min_y);
-  m_pma    = !!USE_PREMULTIPLIED_ALPHA;
+  m_align = ALIGN_VIDEO;
+  m_pos = POSITION_ABSOLUTE;
+  m_x = static_cast<float>(min_x + o->x);
+  m_y = static_cast<float>(min_y + o->y);
+  m_width = static_cast<float>(max_x - min_x);
+  m_height = static_cast<float>(max_y - min_y);
+  m_pma = !!USE_PREMULTIPLIED_ALPHA;
 }
 
-COverlayGlyphGL::COverlayGlyphGL(ASS_Image* images, int width, int height)
+COverlayGlyphGL::COverlayGlyphGL(ASS_Image* images, float width, float height)
 {
-  m_vertex = NULL;
   m_width  = 1.0;
   m_height = 1.0;
-  m_align  = ALIGN_VIDEO;
+  m_align = ALIGN_SCREEN;
   m_pos    = POSITION_RELATIVE;
   m_x      = 0.0f;
   m_y      = 0.0f;
-  m_texture = 0;
 
   SQuads quads;
-  if(!convert_quad(images, quads, width))
+  if (!convert_quad(images, quads, static_cast<int>(width)))
     return;
 
   glGenTextures(1, &m_texture);
   glBindTexture(GL_TEXTURE_2D, m_texture);
 
-  LoadTexture(GL_TEXTURE_2D
-            , quads.size_x
-            , quads.size_y
-            , quads.size_x
-            , &m_u, &m_v
-            , true
-            , quads.data);
+  LoadTexture(GL_TEXTURE_2D, quads.size_x, quads.size_y, quads.size_x, &m_u, &m_v, true,
+              quads.texture.data());
 
 
   float scale_u = m_u / quads.size_x;
@@ -307,13 +281,12 @@ COverlayGlyphGL::COverlayGlyphGL(ASS_Image* images, int width, int height)
   float scale_x = 1.0f / width;
   float scale_y = 1.0f / height;
 
-  m_count  = quads.count;
-  m_vertex = (VERTEX*)calloc(m_count * 4, sizeof(VERTEX));
+  m_vertex.resize(quads.quad.size() * 4);
 
-  VERTEX* vt = m_vertex;
-  SQuad*  vs = quads.quad;
+  VERTEX* vt = m_vertex.data();
+  SQuad* vs = quads.quad.data();
 
-  for(int i=0; i < quads.count; i++)
+  for (size_t i = 0; i < quads.quad.size(); i++)
   {
     for(int s = 0; s < 4; s++)
     {
@@ -359,18 +332,17 @@ COverlayGlyphGL::COverlayGlyphGL(ASS_Image* images, int width, int height)
 COverlayGlyphGL::~COverlayGlyphGL()
 {
   glDeleteTextures(1, &m_texture);
-  free(m_vertex);
 }
 
 void COverlayGlyphGL::Render(SRenderState& state)
 {
-  if ((m_texture == 0) || (m_count == 0))
+  if ((m_texture == 0) || (m_vertex.size() == 0))
     return;
 
   glEnable(GL_BLEND);
 
   glBindTexture(GL_TEXTURE_2D, m_texture);
-  glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -384,15 +356,15 @@ void COverlayGlyphGL::Render(SRenderState& state)
 
 #ifdef HAS_GL
   CRenderSystemGL* renderSystem = dynamic_cast<CRenderSystemGL*>(CServiceBroker::GetRenderSystem());
-  renderSystem->EnableShader(SM_FONTS);
+  renderSystem->EnableShader(ShaderMethodGL::SM_FONTS);
   GLint posLoc  = renderSystem->ShaderGetPos();
   GLint colLoc  = renderSystem->ShaderGetCol();
   GLint tex0Loc = renderSystem->ShaderGetCoord0();
 
-  std::vector<VERTEX> vecVertices( 6 * m_count);
-  VERTEX *vertices = &vecVertices[0];
+  std::vector<VERTEX> vecVertices(6 * m_vertex.size() / 4);
+  VERTEX* vertices = vecVertices.data();
 
-  for (int i=0; i<m_count*4; i+=4)
+  for (size_t i = 0; i < m_vertex.size(); i += 4)
   {
     *vertices++ = m_vertex[i];
     *vertices++ = m_vertex[i+1];
@@ -406,11 +378,15 @@ void COverlayGlyphGL::Render(SRenderState& state)
 
   glGenBuffers(1, &VertexVBO);
   glBindBuffer(GL_ARRAY_BUFFER, VertexVBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(VERTEX)*vecVertices.size(), &vecVertices[0], GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(VERTEX) * vecVertices.size(), vecVertices.data(),
+               GL_STATIC_DRAW);
 
-  glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, sizeof(VERTEX), BUFFER_OFFSET(offsetof(VERTEX, x)));
-  glVertexAttribPointer(colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VERTEX), BUFFER_OFFSET(offsetof(VERTEX, r)));
-  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, GL_FALSE, sizeof(VERTEX), BUFFER_OFFSET(offsetof(VERTEX, u)));
+  glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
+                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, x)));
+  glVertexAttribPointer(colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VERTEX),
+                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, r)));
+  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
+                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, u)));
 
   glEnableVertexAttribArray(posLoc);
   glEnableVertexAttribArray(colLoc);
@@ -429,16 +405,16 @@ void COverlayGlyphGL::Render(SRenderState& state)
 
 #else
   CRenderSystemGLES* renderSystem = dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
-  renderSystem->EnableGUIShader(SM_FONTS);
+  renderSystem->EnableGUIShader(ShaderMethodGLES::SM_FONTS);
   GLint posLoc  = renderSystem->GUIShaderGetPos();
   GLint colLoc  = renderSystem->GUIShaderGetCol();
   GLint tex0Loc = renderSystem->GUIShaderGetCoord0();
 
   // stack object until VBOs will be used
-  std::vector<VERTEX> vecVertices( 6 * m_count);
-  VERTEX *vertices = &vecVertices[0];
+  std::vector<VERTEX> vecVertices(6 * m_vertex.size() / 4);
+  VERTEX* vertices = vecVertices.data();
 
-  for (int i=0; i<m_count*4; i+=4)
+  for (size_t i = 0; i < m_vertex.size(); i += 4)
   {
     *vertices++ = m_vertex[i];
     *vertices++ = m_vertex[i+1];
@@ -449,7 +425,7 @@ void COverlayGlyphGL::Render(SRenderState& state)
     *vertices++ = m_vertex[i+2];
   }
 
-  vertices = &vecVertices[0];
+  vertices = vecVertices.data();
 
   glVertexAttribPointer(posLoc,  3, GL_FLOAT,         GL_FALSE, sizeof(VERTEX), (char*)vertices + offsetof(VERTEX, x));
   glVertexAttribPointer(colLoc,  4, GL_UNSIGNED_BYTE, GL_TRUE,  sizeof(VERTEX), (char*)vertices + offsetof(VERTEX, r));
@@ -487,29 +463,33 @@ void COverlayTextureGL::Render(SRenderState& state)
 
   glBindTexture(GL_TEXTURE_2D, m_texture);
   if(m_pma)
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
   else
-    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-  DRAWRECT rd;
+  CRect rd;
   if (m_pos == POSITION_RELATIVE)
   {
-    rd.top     = state.y - state.height * 0.5;
-    rd.bottom  = state.y + state.height * 0.5;
-    rd.left    = state.x - state.width  * 0.5;
-    rd.right   = state.x + state.width  * 0.5;
+    float top = state.y - state.height * 0.5f;
+    float bottom = state.y + state.height * 0.5f;
+    float left = state.x - state.width * 0.5f;
+    float right = state.x + state.width * 0.5f;
+
+    rd.SetRect(left, top, right, bottom);
   }
   else
   {
-    rd.top     = state.y;
-    rd.bottom  = state.y + state.height;
-    rd.left    = state.x;
-    rd.right   = state.x + state.width;
+    float top = state.y;
+    float bottom = state.y + state.height;
+    float left = state.x;
+    float right   = state.x + state.width;
+
+    rd.SetRect(left, top, right, bottom);
   }
 
 #if defined(HAS_GL)
@@ -518,9 +498,9 @@ void COverlayTextureGL::Render(SRenderState& state)
   int glslMajor, glslMinor;
   renderSystem->GetGLSLVersion(glslMajor, glslMinor);
   if (glslMajor >= 2 || (glslMajor == 1 && glslMinor >= 50))
-    renderSystem->EnableShader(SM_TEXTURE_LIM);
+    renderSystem->EnableShader(ShaderMethodGL::SM_TEXTURE_LIM);
   else
-    renderSystem->EnableShader(SM_TEXTURE);
+    renderSystem->EnableShader(ShaderMethodGL::SM_TEXTURE);
 
   GLint posLoc = renderSystem->ShaderGetPos();
   GLint tex0Loc = renderSystem->ShaderGetCoord0();
@@ -540,26 +520,26 @@ void COverlayTextureGL::Render(SRenderState& state)
   glUniform4f(uniColLoc,(col[0]), (col[1]), (col[2]), (col[3]));
 
   // Setup vertex position values
-  vertex[0].x = rd.left;
-  vertex[0].y = rd.top;
+  vertex[0].x = rd.x1;
+  vertex[0].y = rd.y1;
   vertex[0].z = 0;
   vertex[0].u1 = 0.0f;
   vertex[0].v1 = 0.0;
 
-  vertex[1].x = rd.right;
-  vertex[1].y = rd.top;
+  vertex[1].x = rd.x2;
+  vertex[1].y = rd.y1;
   vertex[1].z = 0;
   vertex[1].u1 = m_u;
   vertex[1].v1 = 0.0f;
 
-  vertex[2].x = rd.right;
-  vertex[2].y = rd.bottom;
+  vertex[2].x = rd.x2;
+  vertex[2].y = rd.y2;
   vertex[2].z = 0;
   vertex[2].u1 = m_u;
   vertex[2].v1 = m_v;
 
-  vertex[3].x = rd.left;
-  vertex[3].y = rd.bottom;
+  vertex[3].x = rd.x1;
+  vertex[3].y = rd.y2;
   vertex[3].z = 0;
   vertex[3].u1 = 0.0f;
   vertex[3].v1 = m_v;
@@ -568,8 +548,10 @@ void COverlayTextureGL::Render(SRenderState& state)
   glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
   glBufferData(GL_ARRAY_BUFFER, sizeof(PackedVertex)*4, &vertex[0], GL_STATIC_DRAW);
 
-  glVertexAttribPointer(posLoc, 2, GL_FLOAT, 0, sizeof(PackedVertex), BUFFER_OFFSET(offsetof(PackedVertex, x)));
-  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, 0, sizeof(PackedVertex), BUFFER_OFFSET(offsetof(PackedVertex, u1)));
+  glVertexAttribPointer(posLoc, 2, GL_FLOAT, 0, sizeof(PackedVertex),
+                        reinterpret_cast<const GLvoid*>(offsetof(PackedVertex, x)));
+  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, 0, sizeof(PackedVertex),
+                        reinterpret_cast<const GLvoid*>(offsetof(PackedVertex, u1)));
 
   glEnableVertexAttribArray(posLoc);
   glEnableVertexAttribArray(tex0Loc);
@@ -591,7 +573,7 @@ void COverlayTextureGL::Render(SRenderState& state)
 
 #else
   CRenderSystemGLES* renderSystem = dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
-  renderSystem->EnableGUIShader(SM_TEXTURE);
+  renderSystem->EnableGUIShader(ShaderMethodGLES::SM_TEXTURE);
   GLint posLoc = renderSystem->GUIShaderGetPos();
   GLint colLoc = renderSystem->GUIShaderGetCol();
   GLint tex0Loc = renderSystem->GUIShaderGetCoord0();
@@ -612,10 +594,10 @@ void COverlayTextureGL::Render(SRenderState& state)
 
   glUniform4f(uniColLoc,(col[0]), (col[1]), (col[2]), (col[3]));
   // Setup vertex position values
-  ver[0][0] = ver[3][0] = rd.left;
-  ver[0][1] = ver[1][1] = rd.top;
-  ver[1][0] = ver[2][0] = rd.right;
-  ver[2][1] = ver[3][1] = rd.bottom;
+  ver[0][0] = ver[3][0] = rd.x1;
+  ver[0][1] = ver[1][1] = rd.y1;
+  ver[1][0] = ver[2][0] = rd.x2;
+  ver[2][1] = ver[3][1] = rd.y2;
 
   // Setup texture coordinates
   tex[0][0] = tex[0][1] = tex[1][1] = tex[3][0] = 0.0f;

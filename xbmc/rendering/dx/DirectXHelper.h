@@ -13,8 +13,15 @@
 
 #include "platform/win32/CharsetConverter.h"
 
-#include <d3d11_1.h>
+#include <d3d11_4.h>
 #include <ppltasks.h> // For create_task
+
+enum PCI_Vendors
+{
+  PCIV_AMD = 0x1002,
+  PCIV_NVIDIA = 0x10DE,
+  PCIV_Intel = 0x8086,
+};
 
 namespace DX
 {
@@ -83,7 +90,34 @@ namespace DX
     WCHAR buff[2048];
     DXGetErrorDescriptionW(hr, buff, 2048);
 
-    return FromW(StringUtils::Format(L"%X - %s (%s)", hr, DXGetErrorStringW(hr), buff));
+    return FromW(StringUtils::Format(L"{:X} - {} ({})", hr, DXGetErrorStringW(hr), buff));
+  }
+
+  inline std::string GetFeatureLevelDescription(D3D_FEATURE_LEVEL featureLevel)
+  {
+    uint32_t fl_major = (featureLevel & 0xF000u) >> 12;
+    uint32_t fl_minor = (featureLevel & 0x0F00u) >> 8;
+
+    return StringUtils::Format("D3D_FEATURE_LEVEL_{}_{}", fl_major, fl_minor);
+  }
+
+  inline std::string GetGFXProviderName(UINT vendorId)
+  {
+    std::string name;
+    switch (vendorId)
+    {
+      case PCIV_AMD:
+        name = "AMD";
+        break;
+      case PCIV_Intel:
+        name = "Intel";
+        break;
+      case PCIV_NVIDIA:
+        name = "NVIDIA";
+        break;
+    }
+
+    return name;
   }
 
   template <typename T> struct SizeGen

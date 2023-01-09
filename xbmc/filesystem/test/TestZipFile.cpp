@@ -11,6 +11,7 @@
 #include "URL.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
+#include "filesystem/ZipFile.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "test/TestUtils.h"
@@ -35,8 +36,7 @@ protected:
 TEST_F(TestZipFile, Read)
 {
   XFILE::CFile file;
-  char buf[20];
-  memset(&buf, 0, sizeof(buf));
+  char buf[20] = {};
   std::string reffile, strpathinzip;
   CFileItemList itemlist;
 
@@ -124,8 +124,7 @@ TEST_F(TestZipFile, Stat)
 TEST_F(TestZipFile, CorruptedFile)
 {
   XFILE::CFile *file;
-  char buf[16];
-  memset(&buf, 0, sizeof(buf));
+  char buf[16] = {};
   std::string reffilepath, strpathinzip, str;
   CFileItemList itemlist;
   ssize_t size, i;
@@ -168,12 +167,12 @@ TEST_F(TestZipFile, CorruptedFile)
   std::cout << "File contents:" << std::endl;
   while ((size = file->Read(buf, sizeof(buf))) > 0)
   {
-    str = StringUtils::Format("  %08llX", count);
+    str = StringUtils::Format("  {:08X}", count);
     std::cout << str << "  ";
     count += size;
     for (i = 0; i < size; i++)
     {
-      str = StringUtils::Format("%02X ", buf[i]);
+      str = StringUtils::Format("{:02X} ", buf[i]);
       std::cout << str;
     }
     while (i++ < static_cast<ssize_t> (sizeof(buf)))
@@ -190,4 +189,23 @@ TEST_F(TestZipFile, CorruptedFile)
   }
   file->Close();
   XBMC_DELETETEMPFILE(file);
+}
+
+TEST_F(TestZipFile, ExtendedLocalHeader)
+{
+  XFILE::CFile file;
+  ssize_t readlen;
+  char zipdata[20000]; // size of zip file is 15352 Bytes
+
+  ASSERT_TRUE(file.Open(XBMC_REF_FILE_PATH("xbmc/filesystem/test/extendedlocalheader.zip")));
+  readlen = file.Read(zipdata, sizeof(zipdata));
+  EXPECT_TRUE(readlen);
+
+  XFILE::CZipFile zipfile;
+  std::string strBuffer;
+
+  int iSize = zipfile.UnpackFromMemory(strBuffer, std::string(zipdata, readlen), false);
+  EXPECT_EQ(152774, iSize); // sum of uncompressed size of all files in zip
+  EXPECT_TRUE(strBuffer.substr(0, 6) == "<Data>");
+  file.Close();
 }

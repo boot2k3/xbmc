@@ -8,6 +8,7 @@
 
 #include "WinSystemIOS.h"
 
+#include "ServiceBroker.h"
 #include "VideoSyncIos.h"
 #include "WinEventsIOS.h"
 #include "cores/AudioEngine/Sinks/AESinkDARWINIOS.h"
@@ -27,14 +28,15 @@
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WindowSystemFactory.h"
 
 #import "platform/darwin/ios/IOSScreenManager.h"
 #import "platform/darwin/ios/XBMCController.h"
 
+#include <mutex>
 #include <vector>
 
 #import <Foundation/Foundation.h>
@@ -64,10 +66,14 @@ struct CADisplayLinkWrapper
   IOSDisplayLinkCallback *callbackClass;
 };
 
-std::unique_ptr<CWinSystemBase> CWinSystemBase::CreateWinSystem()
+void CWinSystemIOS::Register()
 {
-  std::unique_ptr<CWinSystemBase> winSystem(new CWinSystemIOS());
-  return winSystem;
+  KODI::WINDOWING::CWindowSystemFactory::RegisterWindowSystem(CreateWinSystem);
+}
+
+std::unique_ptr<CWinSystemBase> CWinSystemIOS::CreateWinSystem()
+{
+  return std::make_unique<CWinSystemIOS>();
 }
 
 int CWinSystemIOS::GetDisplayIndexFromSettings()
@@ -137,7 +143,7 @@ bool CWinSystemIOS::CreateNewWindow(const std::string& name, bool fullScreen, RE
 
   m_eglext += " ";
 
-  CLog::Log(LOGDEBUG, "EGL_EXTENSIONS:%s", m_eglext.c_str());
+  CLog::Log(LOGDEBUG, "EGL_EXTENSIONS:{}", m_eglext);
 
   // register platform dependent objects
   CDVDFactoryCodec::ClearHWAccels();
@@ -181,8 +187,8 @@ bool CWinSystemIOS::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
   m_nHeight     = res.iHeight;
   m_bFullScreen = fullScreen;
 
-  CLog::Log(LOGDEBUG, "About to switch to %i x %i",m_nWidth, m_nHeight);
-  SwitchToVideoMode(res.iWidth, res.iHeight, res.fRefreshRate);
+  CLog::Log(LOGDEBUG, "About to switch to {} x {}", m_nWidth, m_nHeight);
+  SwitchToVideoMode(res.iWidth, res.iHeight, static_cast<double>(res.fRefreshRate));
   CRenderSystemGLES::ResetRenderSystem(res.iWidth, res.iHeight);
 
   return true;
@@ -238,7 +244,7 @@ bool CWinSystemIOS::GetScreenResolution(int* w, int* h, double* fps, int screenI
     *w = firstMode.size.width;
     *h = firstMode.size.height;
   }
-  
+
   // for mainscreen use the eagl bounds from xbmcController
   // because mainscreen is might be 90° rotate dependend on
   // the device and eagl gives the correct values in all cases.
@@ -256,11 +262,11 @@ bool CWinSystemIOS::GetScreenResolution(int* w, int* h, double* fps, int screenI
       m_internalTouchscreenResolutionWidth = [g_xbmcController getScreenSize].width;
       m_internalTouchscreenResolutionHeight = [g_xbmcController getScreenSize].height;
     }
-    
+
     *w = m_internalTouchscreenResolutionWidth;
     *h = m_internalTouchscreenResolutionHeight;
   }
-  CLog::Log(LOGDEBUG,"Current resolution Screen: %i with %i x %i",screenIdx, *w, *h);
+  CLog::Log(LOGDEBUG, "Current resolution Screen: {} with {} x {}", screenIdx, *w, *h);
   return true;
 }
 
@@ -303,7 +309,7 @@ void CWinSystemIOS::FillInVideoModes(int screenIdx)
     h = mode.size.height;
 
     UpdateDesktopResolution(res, screenIdx == 0 ? CONST_TOUCHSCREEN : CONST_EXTERNAL, w, h, refreshrate, 0);
-    CLog::Log(LOGNOTICE, "Found possible resolution for display %d with %d x %d\n", screenIdx, w, h);
+    CLog::Log(LOGINFO, "Found possible resolution for display {} with {} x {}", screenIdx, w, h);
 
     CServiceBroker::GetWinSystem()->GetGfxContext().ResetOverscan(res);
     CDisplaySettings::GetInstance().AddResolutionInfo(res);
@@ -344,13 +350,13 @@ bool CWinSystemIOS::EndRender()
 
 void CWinSystemIOS::Register(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemIOS::Unregister(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -358,9 +364,9 @@ void CWinSystemIOS::Unregister(IDispResource* resource)
 
 void CWinSystemIOS::OnAppFocusChange(bool focus)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_bIsBackgrounded = !focus;
-  CLog::Log(LOGDEBUG, "CWinSystemIOS::OnAppFocusChange: %d", focus ? 1 : 0);
+  CLog::Log(LOGDEBUG, "CWinSystemIOS::OnAppFocusChange: {}", focus ? 1 : 0);
   for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); i++)
     (*i)->OnAppFocusChange(focus);
 }
@@ -400,7 +406,7 @@ bool CWinSystemIOS::InitDisplayLink(CVideoSyncIos *syncImpl)
   [m_pDisplayLink->callbackClass SetVideoSyncImpl:syncImpl];
   m_pDisplayLink->impl = [currentScreen displayLinkWithTarget:m_pDisplayLink->callbackClass selector:@selector(runDisplayLink)];
 
-  [m_pDisplayLink->impl setFrameInterval:1];
+  [m_pDisplayLink->impl setPreferredFramesPerSecond:0];
   [m_pDisplayLink->impl addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
   return m_pDisplayLink->impl != nil;
 }
@@ -433,14 +439,14 @@ bool CWinSystemIOS::HasCursor()
 void CWinSystemIOS::NotifyAppActiveChange(bool bActivated)
 {
   if (bActivated && m_bWasFullScreenBeforeMinimize && !CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenRoot())
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
 }
 
 bool CWinSystemIOS::Minimize()
 {
   m_bWasFullScreenBeforeMinimize = CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenRoot();
   if (m_bWasFullScreenBeforeMinimize)
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
 
   return true;
 }
@@ -465,14 +471,17 @@ CVEAGLContext CWinSystemIOS::GetEAGLContextObj()
   return [g_xbmcController getEAGLContextObj];
 }
 
-void CWinSystemIOS::GetConnectedOutputs(std::vector<std::string> *outputs)
+std::vector<std::string> CWinSystemIOS::GetConnectedOutputs()
 {
-  outputs->push_back("Default");
-  outputs->push_back(CONST_TOUCHSCREEN);
+  std::vector<std::string> outputs;
+  outputs.emplace_back("Default");
+  outputs.emplace_back(CONST_TOUCHSCREEN);
   if ([[UIScreen screens] count] > 1)
   {
-    outputs->push_back(CONST_EXTERNAL);
+    outputs.emplace_back(CONST_EXTERNAL);
   }
+
+  return outputs;
 }
 
 void CWinSystemIOS::MoveToTouchscreen()

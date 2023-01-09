@@ -20,10 +20,8 @@
 #include "utils/ActorProtocol.h"
 #include "windowing/WinSystem.h"
 
-#include "platform/freebsd/OptionalsReg.h"
-#include "platform/linux/OptionalsReg.h"
-
 #include <atomic>
+#include <chrono>
 #include <ctime>
 #include <list>
 #include <map>
@@ -51,6 +49,8 @@ class CWinSystemWayland : public CWinSystemBase, IInputHandler, IWindowDecoratio
 public:
   CWinSystemWayland();
   ~CWinSystemWayland() noexcept override;
+
+  const std::string GetName() override { return "wayland"; }
 
   bool InitWindowSystem() override;
   bool DestroyWindowSystem() override;
@@ -87,10 +87,9 @@ public:
   void Unregister(IDispResource* resource) override;
 
   using PresentationFeedbackHandler = std::function<void(timespec /* tv */, std::uint32_t /* refresh */, std::uint32_t /* sync output id */, float /* sync output fps */, std::uint64_t /* msc */)>;
-  CSignalRegistration RegisterOnPresentationFeedback(PresentationFeedbackHandler handler);
+  CSignalRegistration RegisterOnPresentationFeedback(const PresentationFeedbackHandler& handler);
 
-  // Like CWinSystemX11
-  void GetConnectedOutputs(std::vector<std::string>* outputs);
+  std::vector<std::string> GetConnectedOutputs() override;
 
   // winevents override
   bool MessagePump() override;
@@ -243,7 +242,8 @@ private:
   static constexpr int LATENCY_MOVING_AVERAGE_SIZE{30};
   std::atomic<float> m_latencyMovingAverage;
   CSignalHandlerList<PresentationFeedbackHandler> m_presentationFeedbackHandlers;
-  std::int64_t m_frameStartTime{};
+
+  std::chrono::steady_clock::time_point m_frameStartTime{};
 
   // IDispResource
   // -------------
@@ -292,8 +292,6 @@ private:
   std::uint32_t m_lastAckedSerial{0u};
   /// Whether this is the first call to SetFullScreen
   bool m_isInitialSetFullScreen{true};
-
-  std::unique_ptr<OPTIONALS::CLircContainer, OPTIONALS::delete_CLircContainer> m_lirc;
 };
 
 

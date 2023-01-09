@@ -9,7 +9,17 @@
 #include "AddonType.h"
 
 #include "addons/addoninfo/AddonInfo.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+
+namespace ADDON
+{
+static const std::set<AddonType> dependencyTypes = {
+    AddonType::SCRAPER_LIBRARY,
+    AddonType::SCRIPT_LIBRARY,
+    AddonType::SCRIPT_MODULE,
+};
+} /* namespace ADDON */
 
 using namespace ADDON;
 
@@ -24,11 +34,26 @@ void CAddonType::SetProvides(const std::string& content)
 {
   if (!content.empty())
   {
-    for (auto provide : StringUtils::Split(content, ' '))
+    /*
+     * Normally the "provides" becomes added from xml scan, but for add-ons
+     * stored in the database (e.g. repository contents) it might not be
+     * available. Since this information is available in add-on metadata for the
+     * main type (see extrainfo) we take the function contents and insert it if
+     * empty.
+     */
+    if (GetValue("provides").empty())
+      Insert("provides", content);
+
+    for (const auto& provide : StringUtils::Split(content, ' '))
     {
-      TYPE content = CAddonInfo::TranslateSubContent(provide);
-      if (content != ADDON_UNKNOWN)
+      AddonType content = CAddonInfo::TranslateSubContent(provide);
+      if (content != AddonType::UNKNOWN)
         m_providedSubContent.insert(content);
     }
   }
+}
+
+bool CAddonType::IsDependencyType(AddonType type)
+{
+  return dependencyTypes.find(type) != dependencyTypes.end();
 }

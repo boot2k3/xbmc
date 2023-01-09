@@ -92,7 +92,9 @@ public:
     if (size > space || plane >= m_planes)
     {
 #ifdef AE_RING_BUFFER_DEBUG
-    CLog::Log(LOGDEBUG, "AERingBuffer: Not enough space, ignoring data. Requested: %u Available: %u",size, space);
+      CLog::Log(LOGDEBUG,
+                "AERingBuffer: Not enough space, ignoring data. Requested: {} Available: {}", size,
+                space);
 #endif
       return AE_RING_BUFFER_FULL;
     }
@@ -101,7 +103,8 @@ public:
     if ( m_iSize > size + m_iWritePos )
     {
 #ifdef AE_RING_BUFFER_DEBUG
-      CLog::Log(LOGDEBUG, "AERingBuffer: Written to: %u size: %u space before: %u\n", m_iWritePos, size, space);
+      CLog::Log(LOGDEBUG, "AERingBuffer: Written to: {} size: {} space before: {}", m_iWritePos,
+                size, space);
 #endif
       memcpy(m_Buffer[plane] + m_iWritePos, src, size);
     }
@@ -111,7 +114,9 @@ public:
       unsigned int first = m_iSize - m_iWritePos;
       unsigned int second = size - first;
 #ifdef AE_RING_BUFFER_DEBUG
-      CLog::Log(LOGDEBUG, "AERingBuffer: Written to (split) first: %u second: %u size: %u space before: %u\n", first, second, size, space);
+      CLog::Log(LOGDEBUG,
+                "AERingBuffer: Written to (split) first: {} second: {} size: {} space before: {}",
+                first, second, size, space);
 #endif
       memcpy(m_Buffer[plane] + m_iWritePos, src, first);
       memcpy(m_Buffer[plane], src + first, second);
@@ -146,7 +151,7 @@ public:
     if( size > space || plane >= m_planes)
     {
 #ifdef AE_RING_BUFFER_DEBUG
-      CLog::Log(LOGDEBUG, "AERingBuffer: Can't read %u bytes when we only have %u.", size, space);
+      CLog::Log(LOGDEBUG, "AERingBuffer: Can't read {} bytes when we only have {}.", size, space);
 #endif
       return AE_RING_BUFFER_NOTAVAILABLE;
     }
@@ -155,7 +160,8 @@ public:
     if ( size + m_iReadPos < m_iSize )
     {
 #ifdef AE_RING_BUFFER_DEBUG
-      CLog::Log(LOGDEBUG, "AERingBuffer: Reading from: %u size: %u space before: %u\n", m_iWritePos, size, space);
+      CLog::Log(LOGDEBUG, "AERingBuffer: Reading from: {} size: {} space before: {}", m_iWritePos,
+                size, space);
 #endif
       if (dest)
         memcpy(dest, m_Buffer[plane] + m_iReadPos, size);
@@ -166,7 +172,9 @@ public:
       unsigned int first = m_iSize - m_iReadPos;
       unsigned int second = size - first;
 #ifdef AE_RING_BUFFER_DEBUG
-      CLog::Log(LOGDEBUG, "AERingBuffer: Reading from (split) first: %u second: %u size: %u space before: %u\n", first, second, size, space);
+      CLog::Log(LOGDEBUG,
+                "AERingBuffer: Reading from (split) first: {} second: {} size: {} space before: {}",
+                first, second, size, space);
 #endif
       if (dest)
       {
@@ -198,7 +206,7 @@ public:
       }
     }
     bufferContents[m_iSize*m_planes] = '\0';
-    CLog::Log(LOGDEBUG, "AERingBuffer::Dump()\n%s",bufferContents);
+    CLog::LogF(LOGDEBUG, "Buffer Content: {}", reinterpret_cast<const char*>(bufferContents));
     KODI::MEMORY::AlignedFree(bufferContents);
   }
 

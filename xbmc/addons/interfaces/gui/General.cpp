@@ -12,7 +12,7 @@
 #include "ServiceBroker.h"
 #include "Window.h"
 #include "addons/binary-addons/AddonDll.h"
-#include "addons/kodi-addon-dev-kit/include/kodi/gui/General.h"
+#include "addons/kodi-dev-kit/include/kodi/gui/General.h"
 #include "controls/Button.h"
 #include "controls/Edit.h"
 #include "controls/FadeLabel.h"
@@ -37,25 +37,19 @@
 #include "dialogs/YesNo.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 
-using namespace kodi; // addon-dev-kit namespace
-using namespace kodi::gui; // addon-dev-kit namespace
+#include <mutex>
 
 namespace ADDON
 {
 int Interface_GUIGeneral::m_iAddonGUILockRef = 0;
-};
-
-extern "C"
-{
-
-namespace ADDON
-{
 
 void Interface_GUIGeneral::Init(AddonGlobalInterface* addonInterface)
 {
-  addonInterface->toKodi->kodi_gui = static_cast<AddonToKodiFuncTable_kodi_gui*>(malloc(sizeof(AddonToKodiFuncTable_kodi_gui)));
+  addonInterface->toKodi->kodi_gui = new AddonToKodiFuncTable_kodi_gui();
 
   Interface_GUIControlButton::Init(addonInterface);
   Interface_GUIControlEdit::Init(addonInterface);
@@ -82,16 +76,19 @@ void Interface_GUIGeneral::Init(AddonGlobalInterface* addonInterface)
   Interface_GUIListItem::Init(addonInterface);
   Interface_GUIWindow::Init(addonInterface);
 
-  addonInterface->toKodi->kodi_gui->general = static_cast<AddonToKodiFuncTable_kodi_gui_general*>(malloc(sizeof(AddonToKodiFuncTable_kodi_gui_general)));
+  addonInterface->toKodi->kodi_gui->general = new AddonToKodiFuncTable_kodi_gui_general();
 
   addonInterface->toKodi->kodi_gui->general->lock = lock;
   addonInterface->toKodi->kodi_gui->general->unlock = unlock;
   addonInterface->toKodi->kodi_gui->general->get_screen_height = get_screen_height;
   addonInterface->toKodi->kodi_gui->general->get_screen_width = get_screen_width;
   addonInterface->toKodi->kodi_gui->general->get_video_resolution = get_video_resolution;
-  addonInterface->toKodi->kodi_gui->general->get_current_window_dialog_id = get_current_window_dialog_id;
+  addonInterface->toKodi->kodi_gui->general->get_current_window_dialog_id =
+      get_current_window_dialog_id;
   addonInterface->toKodi->kodi_gui->general->get_current_window_id = get_current_window_id;
   addonInterface->toKodi->kodi_gui->general->get_hw_context = get_hw_context;
+  addonInterface->toKodi->kodi_gui->general->get_adjust_refresh_rate_status =
+      get_adjust_refresh_rate_status;
 }
 
 void Interface_GUIGeneral::DeInit(AddonGlobalInterface* addonInterface)
@@ -124,8 +121,8 @@ void Interface_GUIGeneral::DeInit(AddonGlobalInterface* addonInterface)
     Interface_GUIListItem::DeInit(addonInterface);
     Interface_GUIWindow::DeInit(addonInterface);
 
-    free(addonInterface->toKodi->kodi_gui->general);
-    free(addonInterface->toKodi->kodi_gui);
+    delete addonInterface->toKodi->kodi_gui->general;
+    delete addonInterface->toKodi->kodi_gui;
     addonInterface->toKodi->kodi_gui = nullptr;
   }
 }
@@ -150,36 +147,36 @@ void Interface_GUIGeneral::unlock()
 //@}
 
 //@{
-int Interface_GUIGeneral::get_screen_height(void* kodiBase)
+int Interface_GUIGeneral::get_screen_height(KODI_HANDLE kodiBase)
 {
   CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
   if (!addon)
   {
-    CLog::Log(LOGERROR, "kodi::gui::%s - invalid data", __FUNCTION__);
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
     return -1;
   }
 
   return CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight();
 }
 
-int Interface_GUIGeneral::get_screen_width(void* kodiBase)
+int Interface_GUIGeneral::get_screen_width(KODI_HANDLE kodiBase)
 {
   CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
   if (!addon)
   {
-    CLog::Log(LOGERROR, "kodi::gui::%s - invalid data", __FUNCTION__);
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
     return -1;
   }
 
   return CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth();
 }
 
-int Interface_GUIGeneral::get_video_resolution(void* kodiBase)
+int Interface_GUIGeneral::get_video_resolution(KODI_HANDLE kodiBase)
 {
   CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
   if (!addon)
   {
-    CLog::Log(LOGERROR, "kodi::gui::%s - invalid data", __FUNCTION__);
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
     return -1;
   }
 
@@ -188,38 +185,68 @@ int Interface_GUIGeneral::get_video_resolution(void* kodiBase)
 //@}
 
 //@{
-int Interface_GUIGeneral::get_current_window_dialog_id(void* kodiBase)
+int Interface_GUIGeneral::get_current_window_dialog_id(KODI_HANDLE kodiBase)
 {
   CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
   if (!addon)
   {
-    CLog::Log(LOGERROR, "kodi::gui::%s - invalid data", __FUNCTION__);
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
     return -1;
   }
 
-  CSingleLock gl(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> gl(CServiceBroker::GetWinSystem()->GetGfxContext());
   return CServiceBroker::GetGUI()->GetWindowManager().GetTopmostModalDialog();
 }
 
-int Interface_GUIGeneral::get_current_window_id(void* kodiBase)
+int Interface_GUIGeneral::get_current_window_id(KODI_HANDLE kodiBase)
 {
   CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
   if (!addon)
   {
-    CLog::Log(LOGERROR, "kodi::gui::%s - invalid data", __FUNCTION__);
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
     return -1;
   }
 
-  CSingleLock gl(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> gl(CServiceBroker::GetWinSystem()->GetGfxContext());
   return CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow();
 }
 
-void* Interface_GUIGeneral::get_hw_context(void* kodiBase)
+ADDON_HARDWARE_CONTEXT Interface_GUIGeneral::get_hw_context(KODI_HANDLE kodiBase)
 {
   return CServiceBroker::GetWinSystem()->GetHWContext();
+}
+
+AdjustRefreshRateStatus Interface_GUIGeneral::get_adjust_refresh_rate_status(KODI_HANDLE kodiBase)
+{
+  CAddonDll* addon = static_cast<CAddonDll*>(kodiBase);
+  if (!addon)
+  {
+    CLog::Log(LOGERROR, "kodi::gui::{} - invalid data", __func__);
+    return ADJUST_REFRESHRATE_STATUS_OFF;
+  }
+
+  switch (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE))
+  {
+    case AdjustRefreshRate::ADJUST_REFRESHRATE_OFF:
+      return ADJUST_REFRESHRATE_STATUS_OFF;
+      break;
+    case AdjustRefreshRate::ADJUST_REFRESHRATE_ON_START:
+      return ADJUST_REFRESHRATE_STATUS_ON_START;
+      break;
+    case AdjustRefreshRate::ADJUST_REFRESHRATE_ON_STARTSTOP:
+      return ADJUST_REFRESHRATE_STATUS_ON_STARTSTOP;
+      break;
+    case AdjustRefreshRate::ADJUST_REFRESHRATE_ALWAYS:
+      return ADJUST_REFRESHRATE_STATUS_ALWAYS;
+      break;
+    default:
+      CLog::Log(LOGERROR, "kodi::gui::{} - Unhandled Adjust refresh rate setting", __func__);
+      return ADJUST_REFRESHRATE_STATUS_OFF;
+      break;
+  }
 }
 
 //@}
 
 } /* namespace ADDON */
-} /* extern "C" */

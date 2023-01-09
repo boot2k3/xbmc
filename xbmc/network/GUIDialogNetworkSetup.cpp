@@ -10,9 +10,7 @@
 
 #include "ServiceBroker.h"
 #include "URL.h"
-#include "addons/AddonManager.h"
 #include "addons/VFSEntry.h"
-#include "addons/binary-addons/BinaryAddonBase.h"
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIEditControl.h"
@@ -82,7 +80,7 @@ bool CGUIDialogNetworkSetup::OnMessage(CGUIMessage& message)
   return CGUIDialogSettingsManualBase::OnMessage(message);
 }
 
-void CGUIDialogNetworkSetup::OnSettingChanged(std::shared_ptr<const CSetting> setting)
+void CGUIDialogNetworkSetup::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -111,7 +109,7 @@ void CGUIDialogNetworkSetup::OnSettingChanged(std::shared_ptr<const CSetting> se
     m_password = std::static_pointer_cast<const CSettingString>(setting)->GetValue();
 }
 
-void CGUIDialogNetworkSetup::OnSettingAction(std::shared_ptr<const CSetting> setting)
+void CGUIDialogNetworkSetup::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -196,7 +194,8 @@ void CGUIDialogNetworkSetup::InitializeSettings()
   // Add our protocols
   TranslatableIntegerSettingOptions labels;
   for (size_t idx = 0; idx < m_protocols.size(); ++idx)
-    labels.push_back(std::make_pair(m_protocols[idx].label, idx));
+    labels.push_back(
+        TranslatableIntegerSettingOption(m_protocols[idx].label, idx, m_protocols[idx].addonId));
 
   AddSpinner(group, SETTING_PROTOCOL, 1008, SettingLevel::Basic, m_protocol, labels);
   AddEdit(group, SETTING_SERVER_ADDRESS, 1010, SettingLevel::Basic, m_server, true);
@@ -255,7 +254,7 @@ void CGUIDialogNetworkSetup::OnProtocolChange()
       return;
     m_protocol = msg.GetParam1();
     // set defaults for the port
-    m_port = StringUtils::Format("%i", m_protocols[m_protocol].defaultPort);
+    m_port = std::to_string(m_protocols[m_protocol].defaultPort);
 
     UpdateButtons();
   }
@@ -403,7 +402,7 @@ bool CGUIDialogNetworkSetup::SetPath(const std::string &path)
   }
   if (m_protocol == -1)
   {
-    CLog::Log(LOGERROR, "__PRETTY_FUNCTION__: Asked to initialize for unknown path %s", path.c_str());
+    CLog::LogF(LOGERROR, "Asked to initialize for unknown path {}", path);
     Reset();
     return false;
   }
@@ -413,7 +412,7 @@ bool CGUIDialogNetworkSetup::SetPath(const std::string &path)
   else
     m_username = url.GetUserName();
   m_password = url.GetPassWord();
-  m_port = StringUtils::Format("%i", url.GetPort());
+  m_port = std::to_string(url.GetPort());
   m_server = url.GetHostName();
   m_path = url.GetFileName();
   URIUtils::RemoveSlashAtEnd(m_path);
@@ -436,10 +435,10 @@ void CGUIDialogNetworkSetup::UpdateAvailableProtocols()
   m_protocols.clear();
 #ifdef HAS_FILESYSTEM_SMB
   // most popular protocol at the first place
-  m_protocols.emplace_back(Protocol{ true, true, true, false, true, 0, "smb", 20171 });
+  m_protocols.emplace_back(Protocol{true, true, true, false, true, 0, "smb", 20171, ""});
 #endif
   // protocols from vfs addon next
-  if (CServiceBroker::IsBinaryAddonCacheUp())
+  if (CServiceBroker::IsAddonInterfaceUp())
   {
     for (const auto& addon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
     {
@@ -448,27 +447,25 @@ void CGUIDialogNetworkSetup::UpdateAvailableProtocols()
       {
         // only use first protocol
         auto prots = StringUtils::Split(info.type, "|");
-        m_protocols.emplace_back(Protocol{ info.supportPath, info.supportUsername,
-          info.supportPassword, info.supportPort,
-          info.supportBrowsing, info.defaultPort,
-          prots.front(), info.label });
+        m_protocols.emplace_back(Protocol{
+            info.supportPath, info.supportUsername, info.supportPassword, info.supportPort,
+            info.supportBrowsing, info.defaultPort, prots.front(), info.label, addon->ID()});
       }
     }
   }
   // internals
-  const std::vector<Protocol> defaults =
-        {{ true,  true,  true,  true, false, 443, "https", 20301},
-         { true,  true,  true,  true, false,  80,  "http", 20300},
-         { true,  true,  true,  true, false, 443,  "davs", 20254},
-         { true,  true,  true,  true, false,  80,   "dav", 20253},
-         { true,  true,  true,  true, false,  21,   "ftp", 20173},
-         { true,  true,  true,  true, false, 990,  "ftps", 20174},
-         {false, false, false, false,  true,   0,  "upnp", 20175},
-         { true,  true,  true,  true, false,  80,   "rss", 20304},
-         { true,  true,  true,  true, false, 443,  "rsss", 20305}};
+  const std::vector<Protocol> defaults = {{true, true, true, true, false, 443, "https", 20301, ""},
+                                          {true, true, true, true, false, 80, "http", 20300, ""},
+                                          {true, true, true, true, false, 443, "davs", 20254, ""},
+                                          {true, true, true, true, false, 80, "dav", 20253, ""},
+                                          {true, true, true, true, false, 21, "ftp", 20173, ""},
+                                          {true, true, true, true, false, 990, "ftps", 20174, ""},
+                                          {false, false, false, false, true, 0, "upnp", 20175, ""},
+                                          {true, true, true, true, false, 80, "rss", 20304, ""},
+                                          {true, true, true, true, false, 443, "rsss", 20305, ""}};
 
   m_protocols.insert(m_protocols.end(), defaults.begin(), defaults.end());
 #ifdef HAS_FILESYSTEM_NFS
-  m_protocols.emplace_back(Protocol{true, false, false, false, true, 0, "nfs", 20259});
+  m_protocols.emplace_back(Protocol{true, false, false, false, true, 0, "nfs", 20259, ""});
 #endif
 }

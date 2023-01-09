@@ -6,7 +6,6 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include "AppParamParser.h"
 #include "FileItem.h"
 #include "ServiceBroker.h"
 #include "URL.h"
@@ -37,10 +36,10 @@ public:
 AdvancedSettingsResetBase::AdvancedSettingsResetBase()
 {
   // Force all advanced settings to be reset to defaults
-  CSettingsComponent* settings = CServiceBroker::GetSettingsComponent();
+  const auto settings = CServiceBroker::GetSettingsComponent();
   CSettingsManager* settingsMgr = settings->GetSettings()->GetSettingsManager();
   settings->GetAdvancedSettings()->Uninitialize(*settingsMgr);
-  settings->GetAdvancedSettings()->Initialize(CAppParamParser(), *settingsMgr);
+  settings->GetAdvancedSettings()->Initialize(*settingsMgr);
 }
 
 class TestFileItemSpecifiedArtJpg : public AdvancedSettingsResetBase,
@@ -76,7 +75,7 @@ const TestFileData MovieFiles[] = {{ "c:\\dir\\filename.avi", false, "c:\\dir\\f
                                    { "/home/user/movies/movie_name/BDMV/index.bdmv", false, "/home/user/movies/movie_name/art.jpg" },
                                    { "/home/user/movies/movie_name/BDMV/index.bdmv", true, "/home/user/movies/movie_name/art.jpg" }};
 
-INSTANTIATE_TEST_CASE_P(MovieFiles, TestFileItemSpecifiedArtJpg, ValuesIn(MovieFiles));
+INSTANTIATE_TEST_SUITE_P(MovieFiles, TestFileItemSpecifiedArtJpg, ValuesIn(MovieFiles));
 
 class TestFileItemFallbackArt : public AdvancedSettingsResetBase,
                                 public WithParamInterface<TestFileData>
@@ -98,7 +97,7 @@ const TestFileData NoArtFiles[] = {{ "c:\\dir\\filename.avi", false, "c:\\dir\\f
                                    { "/home/user/TV Shows/Dexter/S1/1x01.avi", false, "/home/user/TV Shows/Dexter/S1/1x01.tbn" },
                                    { "zip://g%3a%5cmultimedia%5cmovies%5cSphere%2ezip/Sphere.avi", false, "g:\\multimedia\\movies\\Sphere.tbn" }};
 
-INSTANTIATE_TEST_CASE_P(NoArt, TestFileItemFallbackArt, ValuesIn(NoArtFiles));
+INSTANTIATE_TEST_SUITE_P(NoArt, TestFileItemFallbackArt, ValuesIn(NoArtFiles));
 
 class TestFileItemBasePath : public AdvancedSettingsResetBase,
                              public WithParamInterface<TestFileData>
@@ -130,4 +129,4 @@ const TestFileData BaseMovies[] = {{ "c:\\dir\\filename.avi", false, "c:\\dir\\f
                                    { "/home/user/movies/movie_name/BDMV/index.bdmv", false, "/home/user/movies/movie_name/" },
                                    { "/home/user/movies/movie_name/BDMV/index.bdmv", true, "/home/user/movies/movie_name/" }};
 
-INSTANTIATE_TEST_CASE_P(BaseNameMovies, TestFileItemBasePath, ValuesIn(BaseMovies));
+INSTANTIATE_TEST_SUITE_P(BaseNameMovies, TestFileItemBasePath, ValuesIn(BaseMovies));

@@ -22,6 +22,12 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#if MHD_VERSION >= 0x00097002
+using MHD_RESULT = MHD_Result;
+#else
+using MHD_RESULT = int;
+#endif
+
 class CDateTime;
 class CWebServer;
 
@@ -114,7 +120,7 @@ public:
    *
    * \return MHD_NO if a severe error has occurred otherwise MHD_YES.
    */
-  virtual int HandleRequest() = 0;
+  virtual MHD_RESULT HandleRequest() = 0;
 
   /*!
    * \brief Whether the HTTP response could also be provided in ranges.
@@ -145,7 +151,7 @@ public:
    *
    * \details This is only used if the response type is one of the HTTPMemoryDownload types.
    */
-  virtual HttpResponseRanges GetResponseData() const { return HttpResponseRanges(); };
+  virtual HttpResponseRanges GetResponseData() const { return HttpResponseRanges(); }
 
   /*!
   * \brief Returns the URL to which the request should be redirected.

@@ -8,18 +8,18 @@
 
 #include "RenderSystemGL.h"
 
-#include "filesystem/File.h"
+#include "ServiceBroker.h"
+#include "URL.h"
+#include "guilib/GUITextureGL.h"
 #include "rendering/MatrixGL.h"
-#include "settings/AdvancedSettings.h"
-#include "settings/DisplaySettings.h"
+#include "utils/FileUtils.h"
 #include "utils/GLUtils.h"
 #include "utils/MathUtils.h"
-#include "utils/StringUtils.h"
-#include "utils/SystemInfo.h"
-#include "utils/TimeUtils.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
-#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
+
+using namespace std::chrono_literals;
 
 CRenderSystemGL::CRenderSystemGL() : CRenderSystemBase()
 {
@@ -43,7 +43,8 @@ bool CRenderSystemGL::InitRenderSystem()
     m_RenderVersion = ver;
   }
 
-  CLog::Log(LOGNOTICE, "CRenderSystemGL::%s - Version: %s, Major: %d, Minor: %d", __FUNCTION__, ver, m_RenderVersionMajor, m_RenderVersionMinor);
+  CLog::Log(LOGINFO, "CRenderSystemGL::{} - Version: {}, Major: {}, Minor: {}", __FUNCTION__, ver,
+            m_RenderVersionMajor, m_RenderVersionMinor);
 
   m_RenderExtensions  = " ";
   if (m_RenderVersionMajor > 3 ||
@@ -106,6 +107,8 @@ bool CRenderSystemGL::InitRenderSystem()
 
   InitialiseShaders();
 
+  CGUITextureGL::Register();
+
   return true;
 }
 
@@ -163,12 +166,15 @@ bool CRenderSystemGL::ResetRenderSystem(int width, int height)
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
     {
-      CLog::Log(LOGERROR, "ResetRenderSystem() GL_MAX_TEXTURE_IMAGE_UNITS returned error %i", (int)error);
+      CLog::Log(LOGERROR, "ResetRenderSystem() GL_MAX_TEXTURE_IMAGE_UNITS returned error {}",
+                (int)error);
       maxtex = 3;
     }
     else if (maxtex < 1 || maxtex > 32)
     {
-      CLog::Log(LOGERROR, "ResetRenderSystem() GL_MAX_TEXTURE_IMAGE_UNITS returned invalid value %i", (int)maxtex);
+      CLog::Log(LOGERROR,
+                "ResetRenderSystem() GL_MAX_TEXTURE_IMAGE_UNITS returned invalid value {}",
+                (int)maxtex);
       maxtex = 3;
     }
 
@@ -226,7 +232,7 @@ bool CRenderSystemGL::EndRender()
   return true;
 }
 
-bool CRenderSystemGL::ClearBuffers(UTILS::Color color)
+bool CRenderSystemGL::ClearBuffers(UTILS::COLOR::Color color)
 {
   if (!m_bRenderCreated)
     return false;
@@ -235,10 +241,10 @@ bool CRenderSystemGL::ClearBuffers(UTILS::Color color)
   if(m_stereoMode == RENDER_STEREO_MODE_INTERLACED && m_stereoView == RENDER_STEREO_VIEW_RIGHT)
     return true;
 
-  float r = GET_R(color) / 255.0f;
-  float g = GET_G(color) / 255.0f;
-  float b = GET_B(color) / 255.0f;
-  float a = GET_A(color) / 255.0f;
+  float r = KODI::UTILS::GL::GetChannelFromARGB(KODI::UTILS::GL::ColorChannel::R, color) / 255.0f;
+  float g = KODI::UTILS::GL::GetChannelFromARGB(KODI::UTILS::GL::ColorChannel::G, color) / 255.0f;
+  float b = KODI::UTILS::GL::GetChannelFromARGB(KODI::UTILS::GL::ColorChannel::B, color) / 255.0f;
+  float a = KODI::UTILS::GL::GetChannelFromARGB(KODI::UTILS::GL::ColorChannel::A, color) / 255.0f;
 
   glClearColor(r, g, b, a);
 
@@ -286,7 +292,7 @@ void CRenderSystemGL::PresentRender(bool rendered, bool videoLayer)
   PresentRenderImpl(rendered);
 
   if (!rendered)
-    KODI::TIME::Sleep(40);
+    KODI::TIME::Sleep(40ms);
 }
 
 void CRenderSystemGL::SetVSync(bool enable)
@@ -352,7 +358,7 @@ void CRenderSystemGL::SetCameraPosition(const CPoint &camera, int screenWidth, i
 
   glMatrixModview->LoadIdentity();
   glMatrixModview->Translatef(-(w + offset.x - stereoFactor), +(h + offset.y), 0);
-  glMatrixModview->LookAt(0.0, 0.0, -2.0*h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0);
+  glMatrixModview->LookAt(0.0f, 0.0f, -2.0f * h, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f);
   glMatrixModview.Load();
 
   glMatrixProject->LoadIdentity();
@@ -400,7 +406,7 @@ void CRenderSystemGL::CalculateMaxTexturesize()
     }
   }
 
-  CLog::Log(LOGINFO, "GL: Maximum texture width: %u", m_maxTextureSize);
+  CLog::Log(LOGINFO, "GL: Maximum texture width: {}", m_maxTextureSize);
 }
 
 void CRenderSystemGL::GetViewPort(CRect& viewPort)
@@ -453,10 +459,10 @@ void CRenderSystemGL::SetScissors(const CRect &rect)
 {
   if (!m_bRenderCreated)
     return;
-  GLint x1 = MathUtils::round_int(rect.x1);
-  GLint y1 = MathUtils::round_int(rect.y1);
-  GLint x2 = MathUtils::round_int(rect.x2);
-  GLint y2 = MathUtils::round_int(rect.y2);
+  GLint x1 = MathUtils::round_int(static_cast<double>(rect.x1));
+  GLint y1 = MathUtils::round_int(static_cast<double>(rect.y1));
+  GLint x2 = MathUtils::round_int(static_cast<double>(rect.x2));
+  GLint y2 = MathUtils::round_int(static_cast<double>(rect.y2));
   glScissor(x1, m_height - y2, x2-x1, y2-y1);
 }
 
@@ -479,7 +485,10 @@ void CRenderSystemGL::ResetGLErrors()
     count++;
     if (count >= 100)
     {
-      CLog::Log(LOGWARNING, "CRenderSystemGL::ResetGLErrors glGetError didn't return GL_NO_ERROR after %i iterations", count);
+      CLog::Log(
+          LOGWARNING,
+          "CRenderSystemGL::ResetGLErrors glGetError didn't return GL_NO_ERROR after {} iterations",
+          count);
       break;
     }
   }
@@ -603,95 +612,102 @@ void CRenderSystemGL::InitialiseShaders()
     defines += "#define KODI_LIMITED_RANGE 1\n";
   }
 
-  m_pShader[SM_DEFAULT].reset(new CGLShader("gl_shader_vert_default.glsl", "gl_shader_frag_default.glsl", defines));
-  if (!m_pShader[SM_DEFAULT]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_DEFAULT] = std::make_unique<CGLShader>(
+      "gl_shader_vert_default.glsl", "gl_shader_frag_default.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_DEFAULT]->CompileAndLink())
   {
-    m_pShader[SM_DEFAULT]->Free();
-    m_pShader[SM_DEFAULT].reset();
+    m_pShader[ShaderMethodGL::SM_DEFAULT]->Free();
+    m_pShader[ShaderMethodGL::SM_DEFAULT].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_default.glsl - compile and link failed");
   }
 
-  m_pShader[SM_TEXTURE].reset(new CGLShader("gl_shader_frag_texture.glsl", defines));
-  if (!m_pShader[SM_TEXTURE]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_TEXTURE] =
+      std::make_unique<CGLShader>("gl_shader_frag_texture.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_TEXTURE]->CompileAndLink())
   {
-    m_pShader[SM_TEXTURE]->Free();
-    m_pShader[SM_TEXTURE].reset();
+    m_pShader[ShaderMethodGL::SM_TEXTURE]->Free();
+    m_pShader[ShaderMethodGL::SM_TEXTURE].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_texture.glsl - compile and link failed");
   }
 
-  m_pShader[SM_TEXTURE_LIM].reset(new CGLShader("gl_shader_frag_texture_lim.glsl", defines));
-  if (!m_pShader[SM_TEXTURE_LIM]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_TEXTURE_LIM] =
+      std::make_unique<CGLShader>("gl_shader_frag_texture_lim.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_TEXTURE_LIM]->CompileAndLink())
   {
-    m_pShader[SM_TEXTURE_LIM]->Free();
-    m_pShader[SM_TEXTURE_LIM].reset();
+    m_pShader[ShaderMethodGL::SM_TEXTURE_LIM]->Free();
+    m_pShader[ShaderMethodGL::SM_TEXTURE_LIM].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_texture_lim.glsl - compile and link failed");
   }
 
-  m_pShader[SM_MULTI].reset(new CGLShader("gl_shader_frag_multi.glsl", defines));
-  if (!m_pShader[SM_MULTI]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_MULTI] =
+      std::make_unique<CGLShader>("gl_shader_frag_multi.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_MULTI]->CompileAndLink())
   {
-    m_pShader[SM_MULTI]->Free();
-    m_pShader[SM_MULTI].reset();
+    m_pShader[ShaderMethodGL::SM_MULTI]->Free();
+    m_pShader[ShaderMethodGL::SM_MULTI].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_multi.glsl - compile and link failed");
   }
 
-  m_pShader[SM_FONTS].reset(new CGLShader("gl_shader_frag_fonts.glsl", defines));
-  if (!m_pShader[SM_FONTS]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_FONTS] =
+      std::make_unique<CGLShader>("gl_shader_frag_fonts.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_FONTS]->CompileAndLink())
   {
-    m_pShader[SM_FONTS]->Free();
-    m_pShader[SM_FONTS].reset();
+    m_pShader[ShaderMethodGL::SM_FONTS]->Free();
+    m_pShader[ShaderMethodGL::SM_FONTS].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_fonts.glsl - compile and link failed");
   }
 
-  m_pShader[SM_TEXTURE_NOBLEND].reset(new CGLShader("gl_shader_frag_texture_noblend.glsl", defines));
-  if (!m_pShader[SM_TEXTURE_NOBLEND]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND] =
+      std::make_unique<CGLShader>("gl_shader_frag_texture_noblend.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND]->CompileAndLink())
   {
-    m_pShader[SM_TEXTURE_NOBLEND]->Free();
-    m_pShader[SM_TEXTURE_NOBLEND].reset();
+    m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND]->Free();
+    m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_texture_noblend.glsl - compile and link failed");
   }
 
-  m_pShader[SM_MULTI_BLENDCOLOR].reset(new CGLShader("gl_shader_frag_multi_blendcolor.glsl", defines));
-  if (!m_pShader[SM_MULTI_BLENDCOLOR]->CompileAndLink())
+  m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR] =
+      std::make_unique<CGLShader>("gl_shader_frag_multi_blendcolor.glsl", defines);
+  if (!m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR]->CompileAndLink())
   {
-    m_pShader[SM_MULTI_BLENDCOLOR]->Free();
-    m_pShader[SM_MULTI_BLENDCOLOR].reset();
+    m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR]->Free();
+    m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR].reset();
     CLog::Log(LOGERROR, "GUI Shader gl_shader_frag_multi_blendcolor.glsl - compile and link failed");
   }
 }
 
 void CRenderSystemGL::ReleaseShaders()
 {
-  if (m_pShader[SM_DEFAULT])
-    m_pShader[SM_DEFAULT]->Free();
-  m_pShader[SM_DEFAULT].reset();
+  if (m_pShader[ShaderMethodGL::SM_DEFAULT])
+    m_pShader[ShaderMethodGL::SM_DEFAULT]->Free();
+  m_pShader[ShaderMethodGL::SM_DEFAULT].reset();
 
-  if (m_pShader[SM_TEXTURE])
-    m_pShader[SM_TEXTURE]->Free();
-  m_pShader[SM_TEXTURE].reset();
+  if (m_pShader[ShaderMethodGL::SM_TEXTURE])
+    m_pShader[ShaderMethodGL::SM_TEXTURE]->Free();
+  m_pShader[ShaderMethodGL::SM_TEXTURE].reset();
 
-  if (m_pShader[SM_TEXTURE_LIM])
-    m_pShader[SM_TEXTURE_LIM]->Free();
-  m_pShader[SM_TEXTURE_LIM].reset();
+  if (m_pShader[ShaderMethodGL::SM_TEXTURE_LIM])
+    m_pShader[ShaderMethodGL::SM_TEXTURE_LIM]->Free();
+  m_pShader[ShaderMethodGL::SM_TEXTURE_LIM].reset();
 
-  if (m_pShader[SM_MULTI])
-    m_pShader[SM_MULTI]->Free();
-  m_pShader[SM_MULTI].reset();
+  if (m_pShader[ShaderMethodGL::SM_MULTI])
+    m_pShader[ShaderMethodGL::SM_MULTI]->Free();
+  m_pShader[ShaderMethodGL::SM_MULTI].reset();
 
-  if (m_pShader[SM_FONTS])
-    m_pShader[SM_FONTS]->Free();
-  m_pShader[SM_FONTS].reset();
+  if (m_pShader[ShaderMethodGL::SM_FONTS])
+    m_pShader[ShaderMethodGL::SM_FONTS]->Free();
+  m_pShader[ShaderMethodGL::SM_FONTS].reset();
 
-  if (m_pShader[SM_TEXTURE_NOBLEND])
-    m_pShader[SM_TEXTURE_NOBLEND]->Free();
-  m_pShader[SM_TEXTURE_NOBLEND].reset();
+  if (m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND])
+    m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND]->Free();
+  m_pShader[ShaderMethodGL::SM_TEXTURE_NOBLEND].reset();
 
-  if (m_pShader[SM_MULTI_BLENDCOLOR])
-    m_pShader[SM_MULTI_BLENDCOLOR]->Free();
-  m_pShader[SM_MULTI_BLENDCOLOR].reset();
+  if (m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR])
+    m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR]->Free();
+  m_pShader[ShaderMethodGL::SM_MULTI_BLENDCOLOR].reset();
 }
 
-void CRenderSystemGL::EnableShader(ESHADERMETHOD method)
+void CRenderSystemGL::EnableShader(ShaderMethodGL method)
 {
   m_method = method;
   if (m_pShader[m_method])
@@ -700,7 +716,7 @@ void CRenderSystemGL::EnableShader(ESHADERMETHOD method)
   }
   else
   {
-    CLog::Log(LOGERROR, "Invalid GUI Shader selected %d", method);
+    CLog::Log(LOGERROR, "Invalid GUI Shader selected {}", method);
   }
 }
 
@@ -710,7 +726,7 @@ void CRenderSystemGL::DisableShader()
   {
     m_pShader[m_method]->Disable();
   }
-  m_method = SM_DEFAULT;
+  m_method = ShaderMethodGL::SM_DEFAULT;
 }
 
 GLint CRenderSystemGL::ShaderGetPos()
@@ -769,7 +785,7 @@ std::string CRenderSystemGL::GetShaderPath(const std::string &filename)
   {
     std::string file = "special://xbmc/system/shaders/GL/4.0/" + filename;
     const CURL pathToUrl(file);
-    if (XFILE::CFile::Exists(pathToUrl))
+    if (CFileUtils::Exists(pathToUrl.Get()))
       return "GL/4.0/";
   }
   if (m_glslMajor >= 2 || (m_glslMajor == 1 && m_glslMinor >= 50))

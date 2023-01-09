@@ -21,34 +21,30 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "threads/SingleLock.h"
 #include "utils/StringUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 
-#include "platform/linux/powermanagement/LinuxPowerSyscall.h"
-
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include <X11/Xatom.h>
 #include <X11/extensions/Xrandr.h>
 
-using namespace KODI::MESSAGING;
-using namespace KODI::WINDOWING;
+using namespace KODI::WINDOWING::X11;
+
+using namespace std::chrono_literals;
 
 #define EGL_NO_CONFIG (EGLConfig)0
 
 CWinSystemX11::CWinSystemX11() : CWinSystemBase()
 {
   m_dpy = NULL;
-  m_glWindow = 0;
-  m_mainWindow = 0;
   m_bWasFullScreenBeforeMinimize = false;
   m_minimized = false;
   m_bIgnoreNextFocusMessage = false;
-  m_invisibleCursor = 0;
   m_bIsInternalXrr = false;
   m_delayDispReset = false;
 
@@ -56,16 +52,28 @@ CWinSystemX11::CWinSystemX11() : CWinSystemBase()
 
   m_winEventsX11 = new CWinEventsX11(*this);
   m_winEvents.reset(m_winEventsX11);
-  CLinuxPowerSyscall::Register();
 }
 
 CWinSystemX11::~CWinSystemX11() = default;
 
 bool CWinSystemX11::InitWindowSystem()
 {
+  const char* env = getenv("DISPLAY");
+  if (!env)
+  {
+    CLog::Log(LOGDEBUG, "CWinSystemX11::{} - DISPLAY env not set", __FUNCTION__);
+    return false;
+  }
+
   if ((m_dpy = XOpenDisplay(NULL)))
   {
     bool ret = CWinSystemBase::InitWindowSystem();
+
+    CServiceBroker::GetSettingsComponent()
+        ->GetSettings()
+        ->GetSetting(CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE)
+        ->SetVisible(true);
+
     return ret;
   }
   else
@@ -241,7 +249,7 @@ bool CWinSystemX11::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
       if (currmode.w != mode.w || currmode.h != mode.h ||
           currmode.hz != mode.hz || currmode.id != mode.id)
       {
-        CLog::Log(LOGNOTICE, "CWinSystemX11::SetFullScreen - calling xrandr");
+        CLog::Log(LOGINFO, "CWinSystemX11::SetFullScreen - calling xrandr");
 
         // remember last position of mouse
         Window root_return, child_return;
@@ -267,11 +275,14 @@ bool CWinSystemX11::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
         OnLostDevice();
         m_bIsInternalXrr = true;
         g_xrandr.SetMode(out, mode);
-        int delay = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoscreen.delayrefreshchange");
-        if (delay > 0)
+        auto delay =
+            std::chrono::milliseconds(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+                                          "videoscreen.delayrefreshchange") *
+                                      100);
+        if (delay > 0ms)
         {
           m_delayDispReset = true;
-          m_dispResetTimer.Set(delay * 100);
+          m_dispResetTimer.Set(delay);
         }
         return true;
       }
@@ -369,8 +380,8 @@ void CWinSystemX11::UpdateResolutions()
 
     for (auto mode : out->modes)
     {
-      CLog::Log(LOGINFO, "ID:%s Name:%s Refresh:%f Width:%d Height:%d",
-                mode.id.c_str(), mode.name.c_str(), mode.hz, mode.w, mode.h);
+      CLog::Log(LOGINFO, "ID:{} Name:{} Refresh:{:f} Width:{} Height:{}", mode.id, mode.name,
+                mode.hz, mode.w, mode.h);
       RESOLUTION_INFO res;
       res.dwFlags = 0;
 
@@ -397,12 +408,12 @@ void CWinSystemX11::UpdateResolutions()
       else
         res.fPixelRatio = 1.0f;
 
-      CLog::Log(LOGINFO, "Pixel Ratio: %f", res.fPixelRatio);
+      CLog::Log(LOGINFO, "Pixel Ratio: {:f}", res.fPixelRatio);
 
-      res.strMode      = StringUtils::Format("%s: %s @ %.2fHz", out->name.c_str(), mode.name.c_str(), mode.hz);
+      res.strMode = StringUtils::Format("{}: {} @ {:.2f}Hz", out->name, mode.name, mode.hz);
       res.strOutput    = out->name;
       res.strId        = mode.id;
-      res.iSubtitles   = (int)(0.965*mode.h);
+      res.iSubtitles = mode.h;
       res.fRefreshRate = mode.hz;
       res.bFullScreen  = true;
 
@@ -441,7 +452,7 @@ bool CWinSystemX11::HasCalibration(const RESOLUTION_INFO &resInfo)
     return true;
   if (resInfo.fPixelRatio != fPixRatio)
     return true;
-  if (resInfo.iSubtitles != (int)(0.965*resInfo.iHeight))
+  if (resInfo.iSubtitles != resInfo.iHeight)
     return true;
 
   return false;
@@ -452,19 +463,22 @@ bool CWinSystemX11::UseLimitedColor()
   return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE);
 }
 
-void CWinSystemX11::GetConnectedOutputs(std::vector<std::string> *outputs)
+std::vector<std::string> CWinSystemX11::GetConnectedOutputs()
 {
+  std::vector<std::string> outputs;
   std::vector<XOutput> outs;
   g_xrandr.Query(true);
   outs = g_xrandr.GetModes();
-  outputs->push_back("Default");
+  outputs.emplace_back("Default");
   for(unsigned int i=0; i<outs.size(); ++i)
   {
-    outputs->push_back(outs[i].name);
+    outputs.emplace_back(outs[i].name);
   }
+
+  return outputs;
 }
 
-bool CWinSystemX11::IsCurrentOutput(std::string output)
+bool CWinSystemX11::IsCurrentOutput(const std::string& output)
 {
   return (StringUtils::EqualsNoCase(output, "Default")) || (m_currentOutput.compare(output.c_str()) == 0);
 }
@@ -477,7 +491,7 @@ void CWinSystemX11::ShowOSMouse(bool show)
     XDefineCursor(m_dpy,m_mainWindow, m_invisibleCursor);
 }
 
-std::unique_ptr<IOSScreenSaver> CWinSystemX11::GetOSScreenSaverImpl()
+std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> CWinSystemX11::GetOSScreenSaverImpl()
 {
   std::unique_ptr<IOSScreenSaver> ret;
   if (m_dpy)
@@ -491,7 +505,7 @@ void CWinSystemX11::NotifyAppActiveChange(bool bActivated)
 {
   if (bActivated && m_bWasFullScreenBeforeMinimize && !m_bFullScreen)
   {
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
 
     m_bWasFullScreenBeforeMinimize = false;
   }
@@ -504,7 +518,7 @@ void CWinSystemX11::NotifyAppFocusChange(bool bGaining)
       !m_bFullScreen)
   {
     m_bWasFullScreenBeforeMinimize = false;
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
     m_minimized = false;
   }
   if (!bGaining)
@@ -517,7 +531,7 @@ bool CWinSystemX11::Minimize()
   if (m_bWasFullScreenBeforeMinimize)
   {
     m_bIgnoreNextFocusMessage = true;
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_TOGGLEFULLSCREEN);
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_TOGGLEFULLSCREEN);
   }
 
   XIconifyWindow(m_dpy, m_mainWindow, m_screen);
@@ -545,9 +559,9 @@ bool CWinSystemX11::Show(bool raise)
 
 void CWinSystemX11::NotifyXRREvent()
 {
-  CLog::Log(LOGDEBUG, "%s - notify display reset event", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} - notify display reset event", __FUNCTION__);
 
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if (!g_xrandr.Query(true))
   {
@@ -568,16 +582,16 @@ void CWinSystemX11::RecreateWindow()
 {
   m_windowDirty = true;
 
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   XOutput *out = g_xrandr.GetOutput(m_userOutput);
   XMode   mode = g_xrandr.GetCurrentMode(m_userOutput);
 
   if (out)
-    CLog::Log(LOGDEBUG, "%s - current output: %s, mode: %s, refresh: %.3f", __FUNCTION__
-             , out->name.c_str(), mode.id.c_str(), mode.hz);
+    CLog::Log(LOGDEBUG, "{} - current output: {}, mode: {}, refresh: {:.3f}", __FUNCTION__,
+              out->name, mode.id, mode.hz);
   else
-    CLog::Log(LOGWARNING, "%s - output name not set", __FUNCTION__);
+    CLog::Log(LOGWARNING, "{} - output name not set", __FUNCTION__);
 
   RESOLUTION_INFO res;
   unsigned int i;
@@ -606,25 +620,26 @@ void CWinSystemX11::RecreateWindow()
 
 void CWinSystemX11::OnLostDevice()
 {
-  CLog::Log(LOGDEBUG, "%s - notify display change event", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} - notify display change event", __FUNCTION__);
 
-  { CSingleLock lock(m_resourceSection);
+  {
+    std::unique_lock<CCriticalSection> lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnLostDisplay();
   }
 
-  m_winEventsX11->SetXRRFailSafeTimer(3000);
+  m_winEventsX11->SetXRRFailSafeTimer(3s);
 }
 
 void CWinSystemX11::Register(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemX11::Unregister(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -634,8 +649,11 @@ int CWinSystemX11::XErrorHandler(Display* dpy, XErrorEvent* error)
 {
   char buf[1024];
   XGetErrorText(error->display, error->error_code, buf, sizeof(buf));
-  CLog::Log(LOGERROR, "CWinSystemX11::XErrorHandler: %s, type:%i, serial:%lu, error_code:%i, request_code:%i minor_code:%i",
-            buf, error->type, error->serial, (int)error->error_code, (int)error->request_code, (int)error->minor_code);
+  CLog::Log(LOGERROR,
+            "CWinSystemX11::XErrorHandler: {}, type:{}, serial:{}, error_code:{}, request_code:{} "
+            "minor_code:{}",
+            buf, error->type, error->serial, (int)error->error_code, (int)error->request_code,
+            (int)error->minor_code);
 
   return 0;
 }
@@ -807,7 +825,7 @@ bool CWinSystemX11::SetWindow(int width, int height, bool fullscreen, const std:
       XTextProperty windowName, iconName;
 
       std::string titleString = CCompileInfo::GetAppName();
-      std::string classString = titleString;
+      const std::string& classString = titleString;
       char *title = const_cast<char*>(titleString.c_str());
 
       XStringListToTextProperty(&title, 1, &windowName);
@@ -827,6 +845,8 @@ bool CWinSystemX11::SetWindow(int width, int height, bool fullscreen, const std:
                             class_hints);
       XFree(class_hints);
       XFree(wm_hints);
+      XFree(iconName.value);
+      XFree(windowName.value);
 
       // register interest in the delete window message
       Atom wmDeleteMessage = XInternAtom(m_dpy, "WM_DELETE_WINDOW", False);
@@ -893,7 +913,8 @@ bool CWinSystemX11::CreateIconPixmap()
   gRatio = vis->green_mask / 255.0;
   bRatio = vis->blue_mask / 255.0;
 
-  CBaseTexture *iconTexture = CBaseTexture::LoadFromFile("special://xbmc/media/icon256x256.png");
+  std::unique_ptr<CTexture> iconTexture =
+      CTexture::LoadFromFile("special://xbmc/media/icon256x256.png");
 
   if (!iconTexture)
     return false;
@@ -967,8 +988,6 @@ bool CWinSystemX11::CreateIconPixmap()
   XFreeGC(m_dpy, gc);
   XDestroyImage(img); // this also frees newBuf
 
-  delete iconTexture;
-
   return true;
 }
 
@@ -1028,7 +1047,10 @@ bool CWinSystemX11::HasWindowManager()
 
   if(status == Success && items_read)
   {
-    CLog::Log(LOGDEBUG,"Window Manager Name: %s", data);
+    const char* s;
+
+    s = reinterpret_cast<const char*>(data);
+    CLog::Log(LOGDEBUG, "Window Manager Name: {}", s);
   }
   else
     CLog::Log(LOGDEBUG,"Window Manager Name: ");

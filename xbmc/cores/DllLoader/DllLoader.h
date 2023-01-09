@@ -11,19 +11,25 @@
 #include "coffldr.h"
 #include "LibraryLoader.h"
 
+// clang-format off
 #if defined(__linux__) && \
-    !defined(__powerpc__) && \
-    !defined(__arm__) && \
     !defined(__aarch64__) && \
-    !defined(__mips__) && \
-    !defined(__SH4__) && \
-    !defined(__sparc__) && \
+    !defined(__alpha__) && \
     !defined(__arc__) && \
+    !defined(__arm__) && \
+    !defined(__loongarch__) && \
+    !defined(__mips__) && \
+    !defined(__powerpc__) && \
     !defined(__or1k__) && \
+    !defined(__riscv) && \
+    !defined(__SH4__) && \
+    !defined(__s390x__) && \
+    !defined(__sparc__) && \
     !defined(__xtensa__)
 #define USE_LDT_KEEPER
 #include "ldt_keeper.h"
 #endif
+// clang-format on
 
 #ifndef NULL
 #define NULL 0
@@ -79,7 +85,7 @@ protected:
   void SetExports(Export* exports) { m_pStaticExports = exports; }
 
 protected:
-  // Just pointers; dont' delete...
+  // Just pointers; don't delete...
   ImportDirTable_t *ImportDirTable;
   ExportDirTable_t *ExportDirTable;
   bool m_bTrack;

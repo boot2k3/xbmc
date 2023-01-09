@@ -15,9 +15,20 @@
 #include "PlatformDefs.h"
 
 // VC_ messages, messages can be combined
-#define OC_ERROR    0x00000001  // an error occured, no other messages will be returned
-#define OC_BUFFER   0x00000002  // the decoder needs more data
-#define OC_OVERLAY  0x00000004  // the decoder decoded an overlay, call Decode(NULL, 0) again to parse the rest of the data
+enum class OverlayMessage
+{
+  // an error occurred, no other messages will be returned
+  OC_ERROR = 0x00000001,
+
+  // the decoder needs more data
+  OC_BUFFER = 0x00000002,
+
+  // the decoder decoded an overlay, call Decode(NULL, 0) again to parse the rest of the data
+  OC_OVERLAY = 0x00000004,
+
+  // the decoder has decoded the packet, no overlay will be provided because the previous one is still valid
+  OC_DONE = 0x00000008,
+};
 
 class CDVDOverlay;
 class CDVDStreamInfo;
@@ -46,7 +57,7 @@ public:
    * returns one or a combination of VC_ messages
    * pData and iSize can be NULL, this means we should flush the rest of the data.
    */
-  virtual int Decode(DemuxPacket *pPacket) = 0;
+  virtual OverlayMessage Decode(DemuxPacket* pPacket) = 0;
 
   /*
    * Reset the decoder.
@@ -69,16 +80,27 @@ public:
   /*
    * return codecs name
    */
-  virtual const char* GetName() { return m_codecName.c_str(); }
+  const std::string& GetName() const { return m_codecName; }
 
 protected:
   /*
-   * Adapts startTime, stopTIme from the subtitle stream (which is relative to stream pts)
+   * \brief Adapts startTime, stopTIme from the subtitle stream (which is relative to stream pts)
    * so that it returns the absolute start and stop timestamps.
-   * replace - will be set to true if the overlay should replace the former overlay
-   * offset - optional - offset will be added to start and stoptime
    */
-  static void GetAbsoluteTimes(double &starttime, double &stoptime, DemuxPacket *pkt, bool &replace, double offset = 0.0);
+  static void GetAbsoluteTimes(double& starttime, double& stoptime, DemuxPacket* pkt);
+
+  struct SubtitlePacketExtraData
+  {
+    double m_chapterStartTime;
+  };
+
+  /*!
+   * \brief Get subtitle extra data from packet side data with AV_PKT_DATA_NEW_EXTRADATA type.
+   * \param pPacket The demux packet
+   * \param extraData [OUT] The subtitle extra data
+   * \return True if extra data has been found, otherwise false
+   */
+  static bool GetSubtitlePacketExtraData(DemuxPacket* pPacket, SubtitlePacketExtraData& extraData);
 
 private:
   std::string m_codecName;

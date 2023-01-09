@@ -8,17 +8,22 @@
 
 #include "PeripheralMouse.h"
 
+#include "ServiceBroker.h"
+#include "games/GameServices.h"
+#include "games/controllers/Controller.h"
 #include "input/InputManager.h"
 #include "peripherals/Peripherals.h"
-#include "threads/SingleLock.h"
 
+#include <mutex>
 #include <sstream>
 
 using namespace KODI;
 using namespace PERIPHERALS;
 
-CPeripheralMouse::CPeripheralMouse(CPeripherals& manager, const PeripheralScanResult& scanResult, CPeripheralBus* bus) :
-  CPeripheral(manager, scanResult, bus)
+CPeripheralMouse::CPeripheralMouse(CPeripherals& manager,
+                                   const PeripheralScanResult& scanResult,
+                                   CPeripheralBus* bus)
+  : CPeripheral(manager, scanResult, bus)
 {
   // Initialize CPeripheral
   m_features.push_back(FEATURE_MOUSE);
@@ -46,45 +51,50 @@ bool CPeripheralMouse::InitialiseFeature(const PeripheralFeature feature)
   return bSuccess;
 }
 
-void CPeripheralMouse::RegisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler, bool bPromiscuous)
+void CPeripheralMouse::RegisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler,
+                                                  bool bPromiscuous)
 {
   using namespace KEYBOARD;
 
-  CSingleLock lock(m_mutex);
+  std::unique_lock<CCriticalSection> lock(m_mutex);
 
-  MouseHandle handle{ handler, bPromiscuous };
+  MouseHandle handle{handler, bPromiscuous};
   m_mouseHandlers.insert(m_mouseHandlers.begin(), handle);
 }
 
 void CPeripheralMouse::UnregisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler)
 {
-  CSingleLock lock(m_mutex);
+  std::unique_lock<CCriticalSection> lock(m_mutex);
 
-  auto it = std::find_if(m_mouseHandlers.begin(), m_mouseHandlers.end(),
-    [handler](const MouseHandle &handle)
-    {
-      return handle.handler == handler;
-    });
+  auto it =
+      std::find_if(m_mouseHandlers.begin(), m_mouseHandlers.end(),
+                   [handler](const MouseHandle& handle) { return handle.handler == handler; });
 
   if (it != m_mouseHandlers.end())
     m_mouseHandlers.erase(it);
 }
 
+GAME::ControllerPtr CPeripheralMouse::ControllerProfile() const
+{
+  GAME::CGameServices& gameServices = CServiceBroker::GetGameServices();
+  return gameServices.GetDefaultMouse();
+}
+
 bool CPeripheralMouse::OnPosition(int x, int y)
 {
-  CSingleLock lock(m_mutex);
+  std::unique_lock<CCriticalSection> lock(m_mutex);
 
   bool bHandled = false;
 
   // Process promiscuous handlers
-  for (const MouseHandle &handle : m_mouseHandlers)
+  for (const MouseHandle& handle : m_mouseHandlers)
   {
     if (handle.bPromiscuous)
       handle.handler->OnPosition(x, y);
   }
 
   // Process handlers until one is handled
-  for (const MouseHandle &handle : m_mouseHandlers)
+  for (const MouseHandle& handle : m_mouseHandlers)
   {
     if (!handle.bPromiscuous)
     {
@@ -104,19 +114,19 @@ bool CPeripheralMouse::OnButtonPress(MOUSE::BUTTON_ID button)
 {
   m_lastActive = CDateTime::GetCurrentDateTime();
 
-  CSingleLock lock(m_mutex);
+  std::unique_lock<CCriticalSection> lock(m_mutex);
 
   bool bHandled = false;
 
   // Process promiscuous handlers
-  for (const MouseHandle &handle : m_mouseHandlers)
+  for (const MouseHandle& handle : m_mouseHandlers)
   {
     if (handle.bPromiscuous)
       handle.handler->OnButtonPress(button);
   }
 
   // Process handlers until one is handled
-  for (const MouseHandle &handle : m_mouseHandlers)
+  for (const MouseHandle& handle : m_mouseHandlers)
   {
     if (!handle.bPromiscuous)
     {
@@ -131,8 +141,8 @@ bool CPeripheralMouse::OnButtonPress(MOUSE::BUTTON_ID button)
 
 void CPeripheralMouse::OnButtonRelease(MOUSE::BUTTON_ID button)
 {
-  CSingleLock lock(m_mutex);
+  std::unique_lock<CCriticalSection> lock(m_mutex);
 
-  for (const MouseHandle &handle : m_mouseHandlers)
+  for (const MouseHandle& handle : m_mouseHandlers)
     handle.handler->OnButtonRelease(button);
 }

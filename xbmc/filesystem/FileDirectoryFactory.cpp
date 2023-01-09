@@ -6,30 +6,40 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include "utils/URIUtils.h"
 #include "FileDirectoryFactory.h"
+
+#if defined(HAS_ISO9660PP)
+#include "ISO9660Directory.h"
+#endif
+#if defined(HAS_UDFREAD)
 #include "UDFDirectory.h"
+#endif
 #include "RSSDirectory.h"
+#include "UDFDirectory.h"
+#include "utils/URIUtils.h"
 #if defined(TARGET_ANDROID)
 #include "platform/android/filesystem/APKDirectory.h"
 #endif
-#include "XbtDirectory.h"
-#include "ZipDirectory.h"
-#include "SmartPlaylistDirectory.h"
-#include "playlists/SmartPlayList.h"
-#include "PlaylistFileDirectory.h"
-#include "playlists/PlayListFactory.h"
+#include "AudioBookFileDirectory.h"
 #include "Directory.h"
 #include "FileItem.h"
-#include "utils/StringUtils.h"
-#include "URL.h"
+#include "PlaylistFileDirectory.h"
 #include "ServiceBroker.h"
+#include "SmartPlaylistDirectory.h"
+#include "URL.h"
+#include "XbtDirectory.h"
+#include "ZipDirectory.h"
 #include "addons/AudioDecoder.h"
+#include "addons/ExtsMimeSupportList.h"
 #include "addons/VFSEntry.h"
-#include "addons/binary-addons/BinaryAddonBase.h"
-#include "AudioBookFileDirectory.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "playlists/PlayListFactory.h"
+#include "playlists/SmartPlayList.h"
+#include "utils/StringUtils.h"
+#include "utils/log.h"
 
 using namespace ADDON;
+using namespace KODI::ADDONS;
 using namespace XFILE;
 using namespace PLAYLIST;
 
@@ -43,33 +53,50 @@ IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem,
   if (url.IsProtocol("stack")) // disqualify stack as we need to work with each of the parts instead
     return NULL;
 
+  /**
+   * Check available binary addons which can contain files with underlaid
+   * folders / files.
+   * Currently in vfs and audiodecoder addons.
+   *
+   * @note The file extensions are absolutely necessary for these in order to
+   * identify the associated add-on.
+   */
+  /**@{*/
+
+  // Get file extensions to find addon related to it.
   std::string strExtension = URIUtils::GetExtension(url);
   StringUtils::ToLower(strExtension);
-  if (!strExtension.empty() && CServiceBroker::IsBinaryAddonCacheUp())
+
+  if (!strExtension.empty() && CServiceBroker::IsAddonInterfaceUp())
   {
-    BinaryAddonBaseList addonInfos;
-    CServiceBroker::GetBinaryAddonManager().GetAddonInfos(addonInfos, true, ADDON_AUDIODECODER);
-    for (const auto& addonInfo : addonInfos)
+    /*!
+     * Scan here about audiodecoder addons.
+     *
+     * @note: Do not check audio decoder files that are already open, they cannot
+     * contain any further sub-folders.
+     */
+    if (!StringUtils::EndsWith(strExtension, KODI_ADDON_AUDIODECODER_TRACK_EXT))
     {
-      if (CAudioDecoder::HasTracks(addonInfo))
+      auto addonInfos = CServiceBroker::GetExtsMimeSupportList().GetExtensionSupportedAddonInfos(
+          strExtension, CExtsMimeSupportList::FilterSelect::hasTracks);
+      for (const auto& addonInfo : addonInfos)
       {
-        auto exts = StringUtils::Split(CAudioDecoder::GetExtensions(addonInfo), "|");
-        if (std::find(exts.begin(), exts.end(), strExtension) != exts.end())
+        std::unique_ptr<CAudioDecoder> result = std::make_unique<CAudioDecoder>(addonInfo.second);
+        if (!result->CreateDecoder() || !result->ContainsFiles(url))
         {
-          CAudioDecoder* result = new CAudioDecoder(addonInfo);
-          if (!result->CreateDecoder() || !result->ContainsFiles(url))
-          {
-            delete result;
-            return nullptr;
-          }
-          return result;
+          CLog::Log(LOGINFO,
+                    "CFileDirectoryFactory::{}: Addon '{}' support extension '{}' but creation "
+                    "failed (seems not supported), trying other addons and Kodi",
+                    __func__, addonInfo.second->ID(), strExtension);
+          continue;
         }
+        return result.release();
       }
     }
-  }
 
-  if (!strExtension.empty() && CServiceBroker::IsBinaryAddonCacheUp())
-  {
+    /*!
+     * Scan here about VFS addons.
+     */
     for (const auto& vfsAddon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
     {
       if (vfsAddon->HasFileDirectories())
@@ -88,7 +115,7 @@ IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem,
             else
             {
               // compressed or more than one file -> create a dir
-              *pItem = wrap->m_items;
+              pItem->SetPath(wrap->m_items.GetPath());
             }
 
             // Check for folder, if yes return also wrap.
@@ -108,12 +135,28 @@ IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem,
       }
     }
   }
+  /**@}*/
 
   if (pItem->IsRSS())
     return new CRSSDirectory();
 
+
   if (pItem->IsDiscImage())
+  {
+#if defined(HAS_ISO9660PP)
+    CISO9660Directory* iso = new CISO9660Directory();
+    if (iso->Exists(pItem->GetURL()))
+      return iso;
+
+    delete iso;
+#endif
+
+#if defined(HAS_UDFREAD)
     return new CUDFDirectory();
+#endif
+
+    return nullptr;
+  }
 
 #if defined(TARGET_ANDROID)
   if (url.IsFileType("apk"))
@@ -194,7 +237,7 @@ IFileDirectory* CFileDirectoryFactory::Create(const CURL& url, CFileItem* pItem,
 
   if (pItem->IsAudioBook())
   {
-    if (!pItem->HasMusicInfoTag() || pItem->m_lEndOffset <= 0)
+    if (!pItem->HasMusicInfoTag() || pItem->GetEndOffset() <= 0)
     {
       std::unique_ptr<CAudioBookFileDirectory> pDir(new CAudioBookFileDirectory);
       if (pDir->ContainsFiles(url))

@@ -8,10 +8,11 @@
 
 #include "WinSystemWin32.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
 #include "VideoSyncD3D.h"
+#include "WIN32Util.h"
 #include "WinEventsWin32.h"
+#include "application/Application.h"
 #include "cores/AudioEngine/AESinkFactory.h"
 #include "cores/AudioEngine/Sinks/AESinkDirectSound.h"
 #include "cores/AudioEngine/Sinks/AESinkWASAPI.h"
@@ -25,7 +26,7 @@
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
+#include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
@@ -33,18 +34,19 @@
 
 #include "platform/win32/CharsetConverter.h"
 #include "platform/win32/input/IRServerSuite.h"
-#include "platform/win32/powermanagement/Win32PowerSyscall.h"
 
 #include <algorithm>
+#include <mutex>
 
 #include <tpcshrd.h>
 
+using namespace std::chrono_literals;
+
+const char* CWinSystemWin32::SETTING_WINDOW_TOP = "window.top";
+const char* CWinSystemWin32::SETTING_WINDOW_LEFT = "window.left";
+
 CWinSystemWin32::CWinSystemWin32()
   : CWinSystemBase()
-  , PtrGetGestureInfo(nullptr)
-  , PtrSetGestureConfig(nullptr)
-  , PtrCloseGestureInfoHandle(nullptr)
-  , PtrEnableNonClientDpiScaling(nullptr)
   , m_hWnd(nullptr)
   , m_hMonitor(nullptr)
   , m_hInstance(nullptr)
@@ -72,7 +74,6 @@ CWinSystemWin32::CWinSystemWin32()
   AE::CAESinkFactory::ClearSinks();
   CAESinkDirectSound::Register();
   CAESinkWASAPI::Register();
-  CWin32PowerSyscall::Register();
   CScreenshotSurfaceWindows::Register();
 
   if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bScanIRServer)
@@ -118,18 +119,7 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
 
   m_hInstance = static_cast<HINSTANCE>(GetModuleHandle(nullptr));
   if(m_hInstance == nullptr)
-    CLog::LogF(LOGDEBUG, " GetModuleHandle failed with %d", GetLastError());
-
-  // Load Win32 procs if available
-  HMODULE hUser32 = GetModuleHandle(L"user32");
-  if (hUser32)
-  {
-    PtrGetGestureInfo = reinterpret_cast<pGetGestureInfo>(GetProcAddress(hUser32, "GetGestureInfo"));
-    PtrSetGestureConfig = reinterpret_cast<pSetGestureConfig>(GetProcAddress(hUser32, "SetGestureConfig"));
-    PtrCloseGestureInfoHandle = reinterpret_cast<pCloseGestureInfoHandle>(GetProcAddress(hUser32, "CloseGestureInfoHandle"));
-    // if available, enable automatic DPI scaling of the non-client area portions of the window.
-    PtrEnableNonClientDpiScaling = reinterpret_cast<pEnableNonClientDpiScaling>(GetProcAddress(hUser32, "EnableNonClientDpiScaling"));
-  }
+    CLog::LogF(LOGDEBUG, " GetModuleHandle failed with {}", GetLastError());
 
   UpdateStates(fullScreen);
   // initialize the state
@@ -143,7 +133,7 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
   m_hIcon = LoadIcon(m_hInstance, MAKEINTRESOURCE(IDI_MAIN_ICON));
 
   // Register the windows class
-  WNDCLASSEX wndClass = { 0 };
+  WNDCLASSEX wndClass = {};
   wndClass.cbSize = sizeof(wndClass);
   wndClass.style = CS_HREDRAW | CS_VREDRAW;
   wndClass.lpfnWndProc = CWinEventsWin32::WndProc;
@@ -158,7 +148,7 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
 
   if( !RegisterClassExW( &wndClass ) )
   {
-    CLog::LogF(LOGERROR, " RegisterClassExW failed with %d", GetLastError());
+    CLog::LogF(LOGERROR, " RegisterClassExW failed with {}", GetLastError());
     return false;
   }
 
@@ -169,9 +159,25 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
 
   if (state == WINDOW_STATE_WINDOWED)
   {
-    // centering window at desktop
-    m_nLeft += (screenRect.right - screenRect.left) / 2 - m_nWidth / 2;
-    m_nTop += (screenRect.bottom - screenRect.top) / 2 - m_nHeight / 2;
+    const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+    const int top = settings->GetInt(SETTING_WINDOW_TOP);
+    const int left = settings->GetInt(SETTING_WINDOW_LEFT);
+    const RECT vsRect = GetVirtualScreenRect();
+
+    // we check that window is inside of virtual screen rect (sum of all monitors)
+    if (top != 0 && left != 0 && top > vsRect.top && top + m_nHeight < vsRect.bottom &&
+        left > vsRect.left && left + m_nWidth < vsRect.right)
+    {
+      // restore previous window position
+      m_nLeft = left;
+      m_nTop = top;
+    }
+    else
+    {
+      // centering window at desktop
+      m_nLeft += (screenRect.right - screenRect.left) / 2 - m_nWidth / 2;
+      m_nTop += (screenRect.bottom - screenRect.top) / 2 - m_nHeight / 2;
+    }
     m_ValidWindowedPosition = true;
   }
 
@@ -192,7 +198,7 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
 
   if( hWnd == nullptr )
   {
-    CLog::LogF(LOGERROR, " CreateWindow failed with %d", GetLastError());
+    CLog::LogF(LOGERROR, " CreateWindow failed with {}", GetLastError());
     return false;
   }
 
@@ -215,6 +221,14 @@ bool CWinSystemWin32::CreateNewWindow(const std::string& name, bool fullScreen, 
   // Show the window
   ShowWindow( m_hWnd, SW_SHOWDEFAULT );
   UpdateWindow( m_hWnd );
+
+  // Configure the tray icon.
+  m_trayIcon.cbSize = sizeof(m_trayIcon);
+  m_trayIcon.hWnd = m_hWnd;
+  m_trayIcon.hIcon = m_hIcon;
+  wcsncpy(m_trayIcon.szTip, nameW.c_str(), sizeof(m_trayIcon.szTip) / sizeof(WCHAR));
+  m_trayIcon.uCallbackMessage = TRAY_ICON_NOTIFY;
+  m_trayIcon.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
 
   return true;
 }
@@ -239,7 +253,7 @@ bool CWinSystemWin32::CreateBlankWindows()
   // Now we can go ahead and register our new window class
   if(!RegisterClassEx(&wcex))
   {
-    CLog::LogF(LOGERROR, "RegisterClass failed with %d", GetLastError());
+    CLog::LogF(LOGERROR, "RegisterClass failed with {}", GetLastError());
     return false;
   }
 
@@ -251,7 +265,7 @@ bool CWinSystemWin32::CreateBlankWindows()
 
     if (hBlankWindow == nullptr)
     {
-      CLog::LogF(LOGERROR, "CreateWindowEx failed with %d", GetLastError());
+      CLog::LogF(LOGERROR, "CreateWindowEx failed with {}", GetLastError());
       return false;
     }
 
@@ -353,6 +367,24 @@ void CWinSystemWin32::AdjustWindow(bool forceResize)
   {
     windowAfter = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST;
 
+    if (!m_ValidWindowedPosition)
+    {
+      const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+      const int top = settings->GetInt(SETTING_WINDOW_TOP);
+      const int left = settings->GetInt(SETTING_WINDOW_LEFT);
+      const RECT vsRect = GetVirtualScreenRect();
+
+      // we check that window is inside of virtual screen rect (sum of all monitors)
+      if (top != 0 && left != 0 && top > vsRect.top && top + m_nHeight < vsRect.bottom &&
+          left > vsRect.left && left + m_nWidth < vsRect.right)
+      {
+        // restore previous window position
+        m_nTop = top;
+        m_nLeft = left;
+        m_ValidWindowedPosition = true;
+      }
+    }
+
     rc.left = m_nLeft;
     rc.right = m_nLeft + m_nWidth;
     rc.top = m_nTop;
@@ -363,7 +395,8 @@ void CWinSystemWin32::AdjustWindow(bool forceResize)
 
     if (!m_ValidWindowedPosition || hMon == nullptr || hMon != hMon2)
     {
-      RECT newScreenRect = ScreenRect(m_hMonitor);
+      // centering window at desktop
+      RECT newScreenRect = ScreenRect(hMon2);
       rc.left = m_nLeft = newScreenRect.left + ((newScreenRect.right - newScreenRect.left) / 2) - (m_nWidth / 2);
       rc.top = m_nTop = newScreenRect.top + ((newScreenRect.bottom - newScreenRect.top) / 2) - (m_nHeight / 2);
       rc.right = m_nLeft + m_nWidth;
@@ -377,7 +410,7 @@ void CWinSystemWin32::AdjustWindow(bool forceResize)
   wi.cbSize = sizeof(WINDOWINFO);
   if (!GetWindowInfo(m_hWnd, &wi))
   {
-    CLog::LogF(LOGERROR, "GetWindowInfo failed with %d", GetLastError());
+    CLog::LogF(LOGERROR, "GetWindowInfo failed with {}", GetLastError());
     return;
   }
   RECT wr = wi.rcWindow;
@@ -399,9 +432,9 @@ void CWinSystemWin32::AdjustWindow(bool forceResize)
   SetWindowLongPtr( m_hWnd, GWL_EXSTYLE, m_windowExStyle );
 
   // resize window
-  CLog::LogF(LOGDEBUG, "resizing due to size change (%d,%d,%d,%d%s)->(%d,%d,%d,%d%s)"
-                    , wr.left, wr.top, wr.right, wr.bottom, (wi.dwStyle & WS_CAPTION) ? "" : " fullscreen"
-                    , rc.left, rc.top, rc.right, rc.bottom, (m_windowStyle & WS_CAPTION) ? "" : " fullscreen");
+  CLog::LogF(LOGDEBUG, "resizing due to size change ({},{},{},{}{})->({},{},{},{}{})", wr.left,
+             wr.top, wr.right, wr.bottom, (wi.dwStyle & WS_CAPTION) ? "" : " fullscreen", rc.left,
+             rc.top, rc.right, rc.bottom, (m_windowStyle & WS_CAPTION) ? "" : " fullscreen");
   SetWindowPos(
     m_hWnd,
     windowAfter,
@@ -416,7 +449,7 @@ void CWinSystemWin32::AdjustWindow(bool forceResize)
 void CWinSystemWin32::CenterCursor() const
 {
   RECT rect;
-  POINT point = { 0 };
+  POINT point = {};
 
   //Gets the client rect, then translates it to screen coordinates
   //so that SetCursorPos isn't called with relative x and y values
@@ -439,10 +472,11 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
   CWinSystemWin32::UpdateStates(fullScreen);
   WINDOW_STATE state = GetState(fullScreen);
 
-  CLog::LogF(LOGDEBUG, "(%s) with size %dx%d, refresh %f%s", window_state_names[state],
-              res.iWidth, res.iHeight, res.fRefreshRate,
+  CLog::LogF(LOGDEBUG, "({}) with size {}x{}, refresh {:f}{}", window_state_names[state],
+             res.iWidth, res.iHeight, res.fRefreshRate,
              (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
 
+  // oldMonitor may be NULL if it's powered off or not available due windows settings
   MONITOR_DETAILS* oldMonitor = GetDisplayDetails(m_hMonitor);
   MONITOR_DETAILS* newMonitor = GetDisplayDetails(res.strOutput);
 
@@ -450,10 +484,11 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
   bool changeScreen = false;   // display is changed
   bool stereoChange = IsStereoEnabled() != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_HARDWAREBASED);
 
-  if ( m_nWidth != res.iWidth || m_nHeight != res.iHeight  || m_fRefreshRate != res.fRefreshRate ||
-      oldMonitor->hMonitor != newMonitor->hMonitor || stereoChange || m_bFirstResChange)
+  if (m_nWidth != res.iWidth || m_nHeight != res.iHeight || m_fRefreshRate != res.fRefreshRate ||
+      !oldMonitor || oldMonitor->hMonitor != newMonitor->hMonitor || stereoChange ||
+      m_bFirstResChange)
   {
-    if (oldMonitor->hMonitor != newMonitor->hMonitor)
+    if (!oldMonitor || oldMonitor->hMonitor != newMonitor->hMonitor)
       changeScreen = true;
     forceChange = true;
   }
@@ -474,9 +509,9 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
 
   if (m_state == WINDOW_STATE_WINDOWED)
   {
-    WINDOWINFO wi;
+    WINDOWINFO wi = {};
     wi.cbSize = sizeof(WINDOWINFO);
-    if (GetWindowInfo(m_hWnd, &wi))
+    if (GetWindowInfo(m_hWnd, &wi) && wi.rcClient.top > 0)
     {
       m_nLeft = wi.rcClient.left;
       m_nTop = wi.rcClient.top;
@@ -526,7 +561,7 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
 
     if (state == WINDOW_STATE_WINDOWED) // go to a windowed state
     {
-      // need to restore resoultion if it was changed to not native
+      // need to restore resolution if it was changed to not native
       // because we do not support resolution change in windowed mode
       RestoreDesktopResolution(newMonitor);
     }
@@ -614,12 +649,37 @@ bool CWinSystemWin32::DPIChanged(WORD dpi, RECT windowRect) const
   return true;
 }
 
-void CWinSystemWin32::GetConnectedOutputs(std::vector<std::string>* outputs)
+void CWinSystemWin32::SetMinimized(bool minimized)
 {
+  const auto advancedSettings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
+
+  if (advancedSettings->m_minimizeToTray)
+  {
+    if (minimized)
+    {
+      Shell_NotifyIcon(NIM_ADD, &m_trayIcon);
+      ShowWindow(m_hWnd, SW_HIDE);
+    }
+    else
+    {
+      Shell_NotifyIcon(NIM_DELETE, &m_trayIcon);
+      ShowWindow(m_hWnd, SW_RESTORE);
+    }
+  }
+
+  m_bMinimized = minimized;
+}
+
+std::vector<std::string> CWinSystemWin32::GetConnectedOutputs()
+{
+  std::vector<std::string> outputs;
+
   for (auto& display : m_displays)
   {
-    outputs->push_back(KODI::PLATFORM::WINDOWS::FromW(display.MonitorNameW));
+    outputs.emplace_back(KODI::PLATFORM::WINDOWS::FromW(display.MonitorNameW));
   }
+
+  return outputs;
 }
 
 void CWinSystemWin32::RestoreDesktopResolution(MONITOR_DETAILS* details)
@@ -691,11 +751,10 @@ RECT CWinSystemWin32::ScreenRect(HMONITOR handle)
     return RECT();
   }
 
-  DEVMODEW sDevMode;
-  ZeroMemory(&sDevMode, sizeof(sDevMode));
+  DEVMODEW sDevMode = {};
   sDevMode.dmSize = sizeof(sDevMode);
   if(!EnumDisplaySettingsW(details->DeviceNameW.c_str(), ENUM_CURRENT_SETTINGS, &sDevMode))
-    CLog::LogF(LOGERROR, " EnumDisplaySettings failed with %d", GetLastError());
+    CLog::LogF(LOGERROR, " EnumDisplaySettings failed with {}", GetLastError());
 
   RECT rc;
   rc.left = sDevMode.dmPosition.x;
@@ -713,7 +772,7 @@ void CWinSystemWin32::GetConnectedDisplays(std::vector<MONITOR_DETAILS>& outputs
   const POINT ptZero = { 0, 0 };
   HMONITOR hmPrimary = MonitorFromPoint(ptZero, MONITOR_DEFAULTTOPRIMARY);
 
-  DISPLAY_DEVICEW ddAdapter = { 0 };
+  DISPLAY_DEVICEW ddAdapter = {};
   ddAdapter.cb = sizeof(ddAdapter);
 
   for (DWORD adapter = 0; EnumDisplayDevicesW(nullptr, adapter, &ddAdapter, 0); ++adapter)
@@ -724,7 +783,7 @@ void CWinSystemWin32::GetConnectedDisplays(std::vector<MONITOR_DETAILS>& outputs
       || !(ddAdapter.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP))
       continue;
 
-    DISPLAY_DEVICEW ddMon = { 0 };
+    DISPLAY_DEVICEW ddMon = {};
     ddMon.cb = sizeof(ddMon);
     bool foundScreen = false;
 
@@ -749,8 +808,7 @@ void CWinSystemWin32::GetConnectedDisplays(std::vector<MONITOR_DETAILS>& outputs
     if (foundScreen)
     {
       // get information about the display's current position and display mode
-      DEVMODEW dm;
-      ZeroMemory(&dm, sizeof(dm));
+      DEVMODEW dm = {};
       dm.dmSize = sizeof(dm);
       if (EnumDisplaySettingsExW(ddAdapter.DeviceName, ENUM_CURRENT_SETTINGS, &dm, 0) == FALSE)
         EnumDisplaySettingsExW(ddAdapter.DeviceName, ENUM_REGISTRY_SETTINGS, &dm, 0);
@@ -776,7 +834,7 @@ void CWinSystemWin32::GetConnectedDisplays(std::vector<MONITOR_DETAILS>& outputs
       md.Bpp = dm.dmBitsPerPel;
       md.Interlaced = (dm.dmDisplayFlags & DM_INTERLACED) ? true : false;
 
-      MONITORINFO mi = { 0 };
+      MONITORINFO mi = {};
       mi.cbSize = sizeof(mi);
       if (GetMonitorInfoW(hm, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY))
         md.IsPrimary = true;
@@ -791,7 +849,7 @@ bool CWinSystemWin32::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
   using KODI::PLATFORM::WINDOWS::ToW;
   std::wstring outputW = ToW(res.strOutput);
 
-  DEVMODEW sDevMode = { 0 };
+  DEVMODEW sDevMode = {};
   sDevMode.dmSize = sizeof(sDevMode);
 
   // If we can't read the current resolution or any detail of the resolution is different than res
@@ -815,14 +873,13 @@ bool CWinSystemWin32::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
     bool bResChanged = false;
 
     // Windows 8 refresh rate workaround for 24.0, 48.0 and 60.0 Hz
-    if ( CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin8)
-      && (res.fRefreshRate == 24.0 || res.fRefreshRate == 48.0 || res.fRefreshRate == 60.0))
+    if (res.fRefreshRate == 24.0 || res.fRefreshRate == 48.0 || res.fRefreshRate == 60.0)
     {
-      CLog::LogF(LOGDEBUG, "Using Windows 8+ workaround for refresh rate %d Hz",
+      CLog::LogF(LOGDEBUG, "Using Windows 8+ workaround for refresh rate {} Hz",
                  static_cast<int>(res.fRefreshRate));
 
       // Get current resolution stored in registry
-      DEVMODEW sDevModeRegistry = { 0 };
+      DEVMODEW sDevModeRegistry = {};
       sDevModeRegistry.dmSize = sizeof(sDevModeRegistry);
       if (EnumDisplaySettingsW(outputW.c_str(), ENUM_REGISTRY_SETTINGS, &sDevModeRegistry))
       {
@@ -835,7 +892,10 @@ bool CWinSystemWin32::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
           if (rc == DISP_CHANGE_SUCCESSFUL)
             bResChanged = true;
           else
-            CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx (W8+ change resolution) failed with %d, using fallback", rc);
+            CLog::LogF(
+                LOGERROR,
+                "ChangeDisplaySettingsEx (W8+ change resolution) failed with {}, using fallback",
+                rc);
 
           // Restore registry with original values
           sDevModeRegistry.dmSize = sizeof(sDevModeRegistry);
@@ -843,10 +903,13 @@ bool CWinSystemWin32::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
           sDevModeRegistry.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_DISPLAYFLAGS;
           rc = ChangeDisplaySettingsExW(outputW.c_str(), &sDevModeRegistry, nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
           if (rc != DISP_CHANGE_SUCCESSFUL)
-            CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx (W8+ restore registry) failed with %d", rc);
+            CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx (W8+ restore registry) failed with {}",
+                       rc);
         }
         else
-          CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx (W8+ set registry) failed with %d, using fallback", rc);
+          CLog::LogF(LOGERROR,
+                     "ChangeDisplaySettingsEx (W8+ set registry) failed with {}, using fallback",
+                     rc);
       }
       else
         CLog::LogF(LOGERROR, "Unable to retrieve registry settings for Windows 8+ workaround, using fallback");
@@ -861,7 +924,7 @@ bool CWinSystemWin32::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
       if (rc == DISP_CHANGE_SUCCESSFUL)
         bResChanged = true;
       else
-        CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx failed with %d", rc);
+        CLog::LogF(LOGERROR, "ChangeDisplaySettingsEx failed with {}", rc);
     }
 
     if (bResChanged)
@@ -904,14 +967,14 @@ void CWinSystemWin32::UpdateResolutions()
   UpdateDesktopResolution(info, monitorName, w, h, refreshRate, dwFlags);
   info.strOutput = strOutput;
 
-  CLog::Log(LOGNOTICE, "Primary mode: %s", info.strMode.c_str());
+  CLog::Log(LOGINFO, "Primary mode: {}", info.strMode);
 
   // erase previous stored modes
   CDisplaySettings::GetInstance().ClearCustomResolutions();
 
   for(int mode = 0;; mode++)
   {
-    DEVMODEW devmode = { 0 };
+    DEVMODEW devmode = {};
     devmode.dmSize = sizeof(devmode);
     if(EnumDisplaySettingsW(details->DeviceNameW.c_str(), mode, &devmode) == 0)
       break;
@@ -934,14 +997,14 @@ void CWinSystemWin32::UpdateResolutions()
     res.fPixelRatio = 1.0f;
     res.iScreenWidth = res.iWidth;
     res.iScreenHeight = res.iHeight;
-    res.iSubtitles = (int)(0.965 * res.iHeight);
-    res.strMode = StringUtils::Format("%s: %dx%d @ %.2fHz", monitorName.c_str(), res.iWidth,
-                                      res.iHeight, res.fRefreshRate);
+    res.iSubtitles = res.iHeight;
+    res.strMode = StringUtils::Format("{}: {}x{} @ {:.2f}Hz", monitorName, res.iWidth, res.iHeight,
+                                      res.fRefreshRate);
     GetGfxContext().ResetOverscan(res);
     res.strOutput = strOutput;
 
     if (AddResolution(res))
-      CLog::Log(LOGNOTICE, "Additional mode: %s", res.strMode.c_str());
+      CLog::Log(LOGINFO, "Additional mode: {}", res.strMode);
   }
 
   CDisplaySettings::GetInstance().ApplyCalibrations();
@@ -1011,13 +1074,13 @@ bool CWinSystemWin32::Show(bool raise)
 
 void CWinSystemWin32::Register(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemWin32::Unregister(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -1028,7 +1091,7 @@ void CWinSystemWin32::OnDisplayLost()
   CLog::LogF(LOGDEBUG, "notify display lost event");
 
   {
-    CSingleLock lock(m_resourceSection);
+    std::unique_lock<CCriticalSection> lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnLostDisplay();
   }
@@ -1039,7 +1102,7 @@ void CWinSystemWin32::OnDisplayReset()
   if (!m_delayDispReset)
   {
     CLog::LogF(LOGDEBUG, "notify display reset event");
-    CSingleLock lock(m_resourceSection);
+    std::unique_lock<CCriticalSection> lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnResetDisplay();
   }
@@ -1047,11 +1110,14 @@ void CWinSystemWin32::OnDisplayReset()
 
 void CWinSystemWin32::OnDisplayBack()
 {
-  int delay = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoscreen.delayrefreshchange");
-  if (delay > 0)
+  auto delay =
+      std::chrono::milliseconds(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+                                    "videoscreen.delayrefreshchange") *
+                                100);
+  if (delay > 0ms)
   {
     m_delayDispReset = true;
-    m_dispResetTimer.Set(delay * 100);
+    m_dispResetTimer.Set(delay);
   }
   OnDisplayReset();
 }
@@ -1067,7 +1133,7 @@ void CWinSystemWin32::SetForegroundWindowInternal(HWND hWnd)
   if (!IsWindow(hWnd)) return;
 
   // if the window isn't focused, bring it to front or SetFullScreen will fail
-  BYTE keyState[256] = { 0 };
+  BYTE keyState[256] = {};
   // to unlock SetForegroundWindow we need to imitate Alt pressing
   if (GetKeyboardState(reinterpret_cast<LPBYTE>(&keyState)) && !(keyState[VK_MENU] & 0x80))
     keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY | 0, 0);
@@ -1148,7 +1214,7 @@ void CWinSystemWin32::NotifyAppFocusChange(bool bGaining)
     if (bGaining)
       SetWindowPos(m_hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW);
 
-    RESOLUTION_INFO res = { 0 };
+    RESOLUTION_INFO res = {};
     const RESOLUTION resolution = CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution();
     if (bGaining && resolution > RES_INVALID)
       res = CDisplaySettings::GetInstance().GetResolutionInfo(resolution);
@@ -1192,4 +1258,30 @@ WINDOW_STATE CWinSystemWin32::GetState(bool fullScreen) const
 bool CWinSystemWin32::MessagePump()
 {
   return m_winEvents->MessagePump();
+}
+
+void CWinSystemWin32::SetTogglingHDR(bool toggling)
+{
+  if (toggling)
+    SetTimer(m_hWnd, ID_TIMER_HDR, 6000U, nullptr);
+
+  m_IsTogglingHDR = toggling;
+}
+
+RECT CWinSystemWin32::GetVirtualScreenRect()
+{
+  RECT rect = {};
+  rect.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+  rect.right = GetSystemMetrics(SM_CXVIRTUALSCREEN) + rect.left;
+  rect.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+  rect.bottom = GetSystemMetrics(SM_CYVIRTUALSCREEN) + rect.top;
+
+  return rect;
+}
+
+int CWinSystemWin32::GetGuiSdrPeakLuminance() const
+{
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+
+  return settings->GetInt(CSettings::SETTING_VIDEOSCREEN_GUISDRPEAKLUMINANCE);
 }

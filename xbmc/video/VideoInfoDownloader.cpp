@@ -9,13 +9,14 @@
 #include "VideoInfoDownloader.h"
 
 #include "dialogs/GUIDialogProgress.h"
-#include "messaging/ApplicationMessenger.h"
+#include "filesystem/CurlFile.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 
 using namespace VIDEO;
 using namespace KODI::MESSAGING;
+using namespace std::chrono_literals;
 
 #ifndef __GNUC__
 #pragma warning (disable:4018)
@@ -64,31 +65,36 @@ void CVideoInfoDownloader::Process()
   if (m_state == FIND_MOVIE)
   {
     if (!(m_found=FindMovie(m_movieTitle, m_movieYear, m_movieList)))
-      CLog::Log(LOGERROR, "%s: Error looking up item %s (%d)", __FUNCTION__, m_movieTitle.c_str(), m_movieYear);
+      CLog::Log(LOGERROR, "{}: Error looking up item {} ({})", __FUNCTION__, m_movieTitle,
+                m_movieYear);
     m_state = DO_NOTHING;
     return;
   }
 
-  if (m_url.m_url.empty())
+  if (!m_url.HasUrls())
   {
     // empty url when it's not supposed to be..
     // this might happen if the previously scraped item was removed from the site (see ticket #10537)
-    CLog::Log(LOGERROR, "%s: Error getting details for %s (%d) due to an empty url", __FUNCTION__, m_movieTitle.c_str(), m_movieYear);
+    CLog::Log(LOGERROR, "{}: Error getting details for {} ({}) due to an empty url", __FUNCTION__,
+              m_movieTitle, m_movieYear);
   }
   else if (m_state == GET_DETAILS)
   {
     if (!GetDetails(m_url, m_movieDetails))
-      CLog::Log(LOGERROR, "%s: Error getting details from %s", __FUNCTION__,m_url.m_url[0].m_url.c_str());
+      CLog::Log(LOGERROR, "{}: Error getting details from {}", __FUNCTION__,
+                m_url.GetFirstThumbUrl());
   }
   else if (m_state == GET_EPISODE_DETAILS)
   {
     if (!GetEpisodeDetails(m_url, m_movieDetails))
-      CLog::Log(LOGERROR, "%s: Error getting episode details from %s", __FUNCTION__, m_url.m_url[0].m_url.c_str());
+      CLog::Log(LOGERROR, "{}: Error getting episode details from {}", __FUNCTION__,
+                m_url.GetFirstThumbUrl());
   }
   else if (m_state == GET_EPISODE_LIST)
   {
     if (!GetEpisodeList(m_url, m_episode))
-      CLog::Log(LOGERROR, "%s: Error getting episode list from %s", __FUNCTION__, m_url.m_url[0].m_url.c_str());
+      CLog::Log(LOGERROR, "{}: Error getting episode list from {}", __FUNCTION__,
+                m_url.GetFirstThumbUrl());
   }
   m_found = 1;
   m_state = DO_NOTHING;
@@ -98,7 +104,7 @@ int CVideoInfoDownloader::FindMovie(const std::string &movieTitle, int movieYear
                                     MOVIELIST& movieList,
                                     CGUIDialogProgress *pProgress /* = NULL */)
 {
-  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::FindMovie(%s)", strMovie.c_str());
+  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::FindMovie({})", strMovie);
 
   if (pProgress)
   { // threaded version
@@ -117,7 +123,7 @@ int CVideoInfoDownloader::FindMovie(const std::string &movieTitle, int movieYear
         CloseThread();
         return 0;
       }
-      CThread::Sleep(1);
+      CThread::Sleep(1ms);
     }
     // transfer to our movielist
     m_movieList.swap(movieList);
@@ -145,7 +151,7 @@ bool CVideoInfoDownloader::GetDetails(const CScraperUrl &url,
                                       CVideoInfoTag &movieDetails,
                                       CGUIDialogProgress *pProgress /* = NULL */)
 {
-  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails(%s)", url.m_strURL.c_str());
+  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails({})", url.m_strURL);
   m_url = url;
   m_movieDetails = movieDetails;
 
@@ -166,7 +172,7 @@ bool CVideoInfoDownloader::GetDetails(const CScraperUrl &url,
         CloseThread();
         return false;
       }
-      CThread::Sleep(1);
+      CThread::Sleep(1ms);
     }
     movieDetails = m_movieDetails;
     CloseThread();
@@ -180,7 +186,7 @@ bool CVideoInfoDownloader::GetEpisodeDetails(const CScraperUrl &url,
                                              CVideoInfoTag &movieDetails,
                                              CGUIDialogProgress *pProgress /* = NULL */)
 {
-  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails(%s)", url.m_strURL.c_str());
+  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails({})", url.m_strURL);
   m_url = url;
   m_movieDetails = movieDetails;
 
@@ -201,7 +207,7 @@ bool CVideoInfoDownloader::GetEpisodeDetails(const CScraperUrl &url,
         CloseThread();
         return false;
       }
-      CThread::Sleep(1);
+      CThread::Sleep(1ms);
     }
     movieDetails = m_movieDetails;
     CloseThread();
@@ -215,7 +221,7 @@ bool CVideoInfoDownloader::GetEpisodeList(const CScraperUrl& url,
                                           EPISODELIST& movieDetails,
                                           CGUIDialogProgress *pProgress /* = NULL */)
 {
-  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails(%s)", url.m_strURL.c_str());
+  //CLog::Log(LOGDEBUG,"CVideoInfoDownloader::GetDetails({})", url.m_strURL);
   m_url = url;
   m_episode = movieDetails;
 
@@ -236,7 +242,7 @@ bool CVideoInfoDownloader::GetEpisodeList(const CScraperUrl& url,
         CloseThread();
         return false;
       }
-      CThread::Sleep(1);
+      CThread::Sleep(1ms);
     }
     movieDetails = m_episode;
     CloseThread();

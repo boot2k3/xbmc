@@ -8,6 +8,7 @@
 
 #include "StaticProvider.h"
 
+#include "utils/StringUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/XMLUtils.h"
 
@@ -33,7 +34,7 @@ CStaticListProvider::CStaticListProvider(const TiXmlElement *element, int parent
   if (XMLUtils::GetInt(element, "default", m_defaultItem))
   {
     const char *always = element->FirstChildElement("default")->Attribute("always");
-    if (always && strnicmp(always, "true", 4) == 0)
+    if (always && StringUtils::CompareNoCase(always, "true", 4) == 0)
       m_defaultAlways = true;
   }
 }
@@ -47,7 +48,32 @@ CStaticListProvider::CStaticListProvider(const std::vector<CGUIStaticItemPtr> &i
 {
 }
 
+CStaticListProvider::CStaticListProvider(const CStaticListProvider& other)
+  : IListProvider(other.m_parentID),
+    m_defaultItem(other.m_defaultItem),
+    m_defaultAlways(other.m_defaultAlways),
+    m_updateTime(other.m_updateTime)
+{
+  for (const auto& item : other.m_items)
+  {
+    std::shared_ptr<CGUIListItem> control(item->Clone());
+    if (!control)
+      continue;
+
+    std::shared_ptr<CGUIStaticItem> newItem = std::dynamic_pointer_cast<CGUIStaticItem>(control);
+    if (!newItem)
+      continue;
+
+    m_items.emplace_back(std::move(newItem));
+  }
+}
+
 CStaticListProvider::~CStaticListProvider() = default;
+
+std::unique_ptr<IListProvider> CStaticListProvider::Clone()
+{
+  return std::make_unique<CStaticListProvider>(*this);
+}
 
 bool CStaticListProvider::Update(bool forceRefresh)
 {

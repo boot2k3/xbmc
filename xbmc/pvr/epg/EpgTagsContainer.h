@@ -95,6 +95,13 @@ public:
   std::shared_ptr<CPVREpgInfoTag> GetTag(unsigned int iUniqueBroadcastID) const;
 
   /*!
+   * @brief Get an EPG tag given its database ID.
+   * @param iDatabaseID The ID.
+   * @return The tag or nullptr if no tag was found.
+   */
+  std::shared_ptr<CPVREpgInfoTag> GetTagByDatabaseID(int iDatabaseID) const;
+
+  /*!
    * @brief Get the event that occurs between the given begin and end time.
    * @param start The start of the time interval.
    * @param end The end of the time interval.
@@ -103,11 +110,16 @@ public:
   std::shared_ptr<CPVREpgInfoTag> GetTagBetween(const CDateTime& start, const CDateTime& end) const;
 
   /*!
+   * @brief Update the currently active event.
+   * @return True if the active event was updated, false otherwise.
+   */
+  bool UpdateActiveTag();
+
+  /*!
    * @brief Get the event that is occurring now
-   * @param bUpdateIfNeeded Whether the tag should be obtained if no one was cached before.
    * @return The tag or nullptr if no tag was found.
    */
-  std::shared_ptr<CPVREpgInfoTag> GetActiveTag(bool bUpdateIfNeeded) const;
+  std::shared_ptr<CPVREpgInfoTag> GetActiveTag() const;
 
   /*!
    * @brief Get the event that will occur next
@@ -116,7 +128,7 @@ public:
   std::shared_ptr<CPVREpgInfoTag> GetNextStartingTag() const;
 
   /*!
-   * @brief Get the event that occured previously
+   * @brief Get the event that occurred previously
    * @return The tag or nullptr if no tag was found.
    */
   std::shared_ptr<CPVREpgInfoTag> GetLastEndedTag() const;
@@ -141,16 +153,10 @@ public:
   std::vector<std::shared_ptr<CPVREpgInfoTag>> GetAllTags() const;
 
   /*!
-   * @brief Get the start time of the first tag in this EPG.
-   * @return The time.
+   * @brief Get the start and end time of the last not yet commited entry in this EPG.
+   * @return The times; first: start time, second: end time.
    */
-  CDateTime GetFirstStartTime() const;
-
-  /*!
-   * @brief Get the end time of the last tag in this EPG.
-   * @return The time.
-   */
-  CDateTime GetLastEndTime() const;
+  std::pair<CDateTime, CDateTime> GetFirstAndLastUncommitedEPGDate() const;
 
   /*!
    * @brief Check whether this container has unsaved data.
@@ -159,15 +165,14 @@ public:
   bool NeedsSave() const;
 
   /*!
-   * @brief Persist this container in its database.
-   * @param bCommit Whether to commit the data.
+   * @brief Write the query to persist data into database's queue
    */
-  void Persist(bool bCommit);
+  void QueuePersistQuery();
 
   /*!
-   * @brief Delete this container from its database.
+   * @brief Queue the deletion of this container from its database.
    */
-  void Delete();
+  void QueueDelete();
 
 private:
   /*!
@@ -194,10 +199,21 @@ private:
   std::shared_ptr<CPVREpgInfoTag> CreateGapTag(const CDateTime& start, const CDateTime& end) const;
 
   /*!
+   * @brief Merge m_changedTags tags into given tags, resolving conflicts.
+   * @param minEventEnd The minimum end time of the events to return
+   * @param maxEventStart The maximum start time of the events to return
+   * @param tags The merged tags.
+   */
+  void MergeTags(const CDateTime& minEventEnd,
+                 const CDateTime& maxEventStart,
+                 std::vector<std::shared_ptr<CPVREpgInfoTag>>& tags) const;
+
+  /*!
    * @brief Fix overlapping events.
    * @param tags The events to check/fix.
    */
   void FixOverlappingEvents(std::vector<std::shared_ptr<CPVREpgInfoTag>>& tags) const;
+  void FixOverlappingEvents(std::map<CDateTime, std::shared_ptr<CPVREpgInfoTag>>& tags) const;
 
   int m_iEpgID = 0;
   std::shared_ptr<CPVREpgChannelData> m_channelData;

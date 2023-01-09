@@ -11,11 +11,17 @@
 #include "utils/MemUtils.h"
 #include "utils/log.h"
 
-/************************************************************************/
-/*    CDXTexture                                                       */
-/************************************************************************/
+#include <memory>
+
+std::unique_ptr<CTexture> CTexture::CreateTexture(unsigned int width,
+                                                  unsigned int height,
+                                                  unsigned int format)
+{
+  return std::make_unique<CDXTexture>(width, height, format);
+}
+
 CDXTexture::CDXTexture(unsigned int width, unsigned int height, unsigned int format)
-: CBaseTexture(width, height, format)
+  : CTexture(width, height, format)
 {
 }
 
@@ -90,7 +96,8 @@ void CDXTexture::LoadToGPU()
 
     if (m_texture.Get() == nullptr)
     {
-      CLog::Log(LOGDEBUG, "CDXTexture::CDXTexture: Error creating new texture for size %d x %d.", m_textureWidth, m_textureHeight);
+      CLog::Log(LOGDEBUG, "CDXTexture::CDXTexture: Error creating new texture for size {} x {}.",
+                m_textureWidth, m_textureHeight);
       return;
     }
   }
@@ -110,7 +117,8 @@ void CDXTexture::LoadToGPU()
       m_texture.Create(m_textureWidth, m_textureHeight, IsMipmapped() ? 0 : 1, usage, GetFormat(), m_pixels, GetPitch());
       if (m_texture.Get() == nullptr)
       {
-        CLog::Log(LOGDEBUG, "CDXTexture::CDXTexture: Error creating new texture for size %d x %d.", m_textureWidth, m_textureHeight);
+        CLog::Log(LOGDEBUG, "CDXTexture::CDXTexture: Error creating new texture for size {} x {}.",
+                  m_textureWidth, m_textureHeight);
         return;
       }
 

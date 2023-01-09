@@ -8,17 +8,20 @@
 
 #pragma once
 
-#include "BinaryAddonManager.h"
-#include "DllAddon.h"
 #include "addons/Addon.h"
-#include "addons/interfaces/AddonInterfaces.h"
-#include "utils/XMLUtils.h"
+#include "addons/kodi-dev-kit/include/kodi/c-api/addon_base.h"
 
-// Global addon callback handle classes
-#include "addons/interfaces/AddonBase.h"
+#include <map>
+#include <memory>
+#include <string>
+
+class DllAddon;
 
 namespace ADDON
 {
+
+class CBinaryAddonBase;
+using BinaryAddonBasePtr = std::shared_ptr<CBinaryAddonBase>;
 
 /*!
  * Addon instance handler, used as identify for std::map to find related
@@ -29,25 +32,34 @@ namespace ADDON
  * After game system is changed should by this also changed to
  * "const IAddonInstanceHandler*" or direct in map below.
  */
-using ADDON_INSTANCE_HANDLER = const void*;
+using ADDON_INSTANCE_HANDLER = void*;
+
+/*!
+ * @brief Information class for use on addon type managers.
+ *
+ * This to query via @ref CAddonDll the manager so that work can be performed.
+ * If there are multiple instances it be harder to be informed about any changes.
+ */
+class CAddonDllInformer
+{
+public:
+  virtual ~CAddonDllInformer() = default;
+
+  virtual bool IsInUse(const std::string& id) = 0;
+};
 
 class CAddonDll : public CAddon
 {
 public:
   CAddonDll(const AddonInfoPtr& addonInfo, BinaryAddonBasePtr addonBase);
-  explicit CAddonDll(const AddonInfoPtr& addonInfo, TYPE addonType);
+  CAddonDll(const AddonInfoPtr& addonInfo, AddonType addonType);
   ~CAddonDll() override;
-
-  virtual ADDON_STATUS GetStatus();
 
   // Implementation of IAddon via CAddon
   std::string LibPath() const override;
 
   // addon settings
-  void SaveSettings() override;
-
-  ADDON_STATUS Create(ADDON_TYPE type, void* funcTable, void* info);
-  void Destroy();
+  void SaveSettings(AddonInstanceId id = ADDON_SETTINGS_ID) override;
 
   bool DllLoaded(void) const;
 
@@ -60,7 +72,7 @@ public:
    * @note This should only be called if the associated dll is loaded.
    * Otherwise use @ref CAddonInfo::DependencyVersion(...)
    */
-  AddonVersion GetTypeVersionDll(int type) const;
+  CAddonVersion GetTypeVersionDll(int type) const;
 
   /*!
    * @brief Get api min version of moduleType type
@@ -71,43 +83,37 @@ public:
    * @note This should only be called if the associated dll is loaded.
    * Otherwise use @ref CAddonInfo::DependencyMinVersion(...)
    */
-  AddonVersion GetTypeMinVersionDll(int type) const;
+  CAddonVersion GetTypeMinVersionDll(int type) const;
 
   /*!
    * @brief Function to create a addon instance class
    *
-   * @param[in] instanceType The wanted instance type class to open on addon
-   * @param[in] instanceClass The from Kodi used class for active instance
-   * @param[in] instanceID The from addon used ID string of active instance
-   * @param[in] instance Pointer where the interface functions from addon
-   *                     becomes stored during his instance creation.
-   * @param[in] parentInstance In case the instance class is related to another
-   *                           addon instance class becomes with the pointer
-   *                           given to addon. Is optional and most addon types
-   *                           not use it.
+   * @param[in,out] instance The for addon used data structure for active instance
    * @return The status of addon after the creation.
    */
-  ADDON_STATUS CreateInstance(ADDON_TYPE instanceType,
-                              ADDON_INSTANCE_HANDLER instanceClass,
-                              const std::string& instanceID,
-                              KODI_HANDLE instance,
-                              KODI_HANDLE parentInstance = nullptr);
+  ADDON_STATUS CreateInstance(KODI_ADDON_INSTANCE_STRUCT* instance);
 
   /*!
    * @brief Function to destroy a on addon created instance class
    *
-   * @param[in] instanceClass The from Kodi used class for active instance
+   * @param[in] instance The for addon used data structure for active instance
    */
-  void DestroyInstance(ADDON_INSTANCE_HANDLER instanceClass);
+  void DestroyInstance(KODI_ADDON_INSTANCE_STRUCT* instance);
 
+  bool IsInUse() const override;
+  void RegisterInformer(CAddonDllInformer* informer);
   AddonPtr GetRunningInstance() const override;
+
+  void OnPreInstall() override;
+  void OnPostInstall(bool update, bool modal) override;
+  void OnPreUnInstall() override;
+  void OnPostUnInstall() override;
 
   bool Initialized() const { return m_initialized; }
 
 protected:
   static std::string GetDllPath(const std::string& strFileName);
 
-  CAddonInterfaces* m_pHelpers = nullptr;
   std::string m_parentLib;
 
 private:
@@ -125,7 +131,14 @@ private:
    *                              This is used then to interact on interface.
    * @return The status of addon after the creation.
    */
-  ADDON_STATUS Create(KODI_HANDLE firstKodiInstance);
+  ADDON_STATUS Create(KODI_ADDON_INSTANCE_STRUCT* firstKodiInstance);
+
+  /*!
+   * @brief Main addon destroying call function
+   *
+   * This becomes called only one time after the last addon instance becomes destroyed.
+   */
+  void Destroy();
 
   bool CheckAPIVersion(int type);
 
@@ -133,17 +146,18 @@ private:
   DllAddon* m_pDll = nullptr;
   bool m_initialized = false;
   bool LoadDll();
-  std::map<ADDON_INSTANCE_HANDLER, std::pair<ADDON_TYPE, KODI_HANDLE>> m_usedInstances;
+  std::map<ADDON_INSTANCE_HANDLER, KODI_ADDON_INSTANCE_STRUCT*> m_usedInstances;
+  CAddonDllInformer* m_informer = nullptr;
 
-  virtual ADDON_STATUS TransferSettings();
+  virtual ADDON_STATUS TransferSettings(AddonInstanceId instanceId);
 
   /*!
    * This structure, which is fixed to the addon headers, makes use of the at
    * least supposed parts for the interface.
    * This structure is defined in:
-   * /xbmc/addons/kodi-addon-dev-kit/include/kodi/AddonBase.h
+   * /xbmc/addons/kodi-dev-kit/include/kodi/AddonBase.h
    */
-  AddonGlobalInterface m_interface = {0};
+  AddonGlobalInterface m_interface = {};
 };
 
 } /* namespace ADDON */

@@ -8,12 +8,14 @@
 
 #include "UPnPSettings.h"
 
-#include "filesystem/File.h"
-#include "threads/SingleLock.h"
+#include "ServiceBroker.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 #define XML_UPNP          "upnpserver"
 #define XML_SERVER_UUID   "UUID"
@@ -22,9 +24,7 @@
 #define XML_RENDERER_UUID "UUIDRenderer"
 #define XML_RENDERER_PORT "PortRenderer"
 
-using namespace XFILE;
-
-CUPnPSettings::CUPnPSettings()
+CUPnPSettings::CUPnPSettings() : m_logger(CServiceBroker::GetLogging().GetLogger("CUPnPSettings"))
 {
   Clear();
 }
@@ -47,24 +47,24 @@ void CUPnPSettings::OnSettingsUnloaded()
 
 bool CUPnPSettings::Load(const std::string &file)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   Clear();
 
-  if (!CFile::Exists(file))
+  if (!CFileUtils::Exists(file))
     return false;
 
   CXBMCTinyXML doc;
   if (!doc.LoadFile(file))
   {
-    CLog::Log(LOGERROR, "CUPnPSettings: error loading %s, Line %d\n%s", file.c_str(), doc.ErrorRow(), doc.ErrorDesc());
+    m_logger->error("error loading {}, Line {}\n{}", file, doc.ErrorRow(), doc.ErrorDesc());
     return false;
   }
 
   TiXmlElement *pRootElement = doc.RootElement();
   if (pRootElement == NULL || !StringUtils::EqualsNoCase(pRootElement->Value(), XML_UPNP))
   {
-    CLog::Log(LOGERROR, "CUPnPSettings: error loading %s, no <upnpserver> node", file.c_str());
+    m_logger->error("error loading {}, no <upnpserver> node", file);
     return false;
   }
 
@@ -80,7 +80,7 @@ bool CUPnPSettings::Load(const std::string &file)
 
 bool CUPnPSettings::Save(const std::string &file) const
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   CXBMCTinyXML doc;
   TiXmlElement xmlRootElement(XML_UPNP);
@@ -100,7 +100,7 @@ bool CUPnPSettings::Save(const std::string &file) const
 
 void CUPnPSettings::Clear()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   m_serverUUID.clear();
   m_serverPort = 0;

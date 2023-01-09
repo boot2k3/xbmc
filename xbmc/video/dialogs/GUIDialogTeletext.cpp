@@ -8,23 +8,24 @@
 
 #include "GUIDialogTeletext.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "dialogs/GUIDialogKaiToast.h"
+#include "guilib/GUIMessage.h"
 #include "guilib/GUITexture.h"
 #include "guilib/LocalizeStrings.h"
 #include "guilib/Texture.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/Color.h"
+#include "utils/ColorUtils.h"
 #include "utils/log.h"
 
 static int teletextFadeAmount = 0;
 
 CGUIDialogTeletext::CGUIDialogTeletext()
-    : CGUIDialog(WINDOW_DIALOG_OSD_TELETEXT, "")
+  : CGUIDialog(WINDOW_DIALOG_OSD_TELETEXT, ""), m_pTxtTexture(nullptr)
 {
-  m_pTxtTexture = NULL;
   m_renderOrder = RENDER_ORDER_DIALOG_TELETEXT;
 }
 
@@ -53,7 +54,9 @@ bool CGUIDialogTeletext::OnMessage(CGUIMessage& message)
   if (message.GetMessage() == GUI_MSG_WINDOW_INIT)
   {
     /* Do not open if no teletext is available */
-    if (!g_application.GetAppPlayer().GetTeletextCache())
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (!appPlayer->HasTeletextCache())
     {
       Close();
       CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(23049), "", 1500, false);
@@ -115,8 +118,9 @@ void CGUIDialogTeletext::Render()
     MarkDirtyRegion();
   }
 
-  UTILS::Color color = (static_cast<UTILS::Color>(teletextFadeAmount * 2.55f) & 0xff) << 24 | 0xFFFFFF;
-  CGUITexture::DrawQuad(m_vertCoords, color, m_pTxtTexture);
+  UTILS::COLOR::Color color =
+      (static_cast<UTILS::COLOR::Color>(teletextFadeAmount * 2.55f) & 0xff) << 24 | 0xFFFFFF;
+  CGUITexture::DrawQuad(m_vertCoords, color, m_pTxtTexture.get());
 
   CGUIDialog::Render();
 }
@@ -131,14 +135,15 @@ void CGUIDialogTeletext::OnInitWindow()
 
   if (!m_TextDecoder.InitDecoder())
   {
-    CLog::Log(LOGERROR, "%s: failed to init teletext decoder", __FUNCTION__);
+    CLog::Log(LOGERROR, "{}: failed to init teletext decoder", __FUNCTION__);
     Close();
   }
 
-  m_pTxtTexture = new CTexture(m_TextDecoder.GetWidth(), m_TextDecoder.GetHeight(), XB_FMT_A8R8G8B8);
+  m_pTxtTexture =
+      CTexture::CreateTexture(m_TextDecoder.GetWidth(), m_TextDecoder.GetHeight(), XB_FMT_A8R8G8B8);
   if (!m_pTxtTexture)
   {
-    CLog::Log(LOGERROR, "%s: failed to create texture", __FUNCTION__);
+    CLog::Log(LOGERROR, "{}: failed to create texture", __FUNCTION__);
     Close();
   }
 
@@ -150,8 +155,7 @@ void CGUIDialogTeletext::OnDeinitWindow(int nextWindowID)
   m_windowLoaded = false;
   m_TextDecoder.EndDecoder();
 
-  delete m_pTxtTexture;
-  m_pTxtTexture = NULL;
+  m_pTxtTexture.reset();
 
   CGUIDialog::OnDeinitWindow(nextWindowID);
 }

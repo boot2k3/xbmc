@@ -51,7 +51,7 @@ typedef std::map<std::string, CRating> RatingMap;
 class CVideoInfoTag : public IArchivable, public ISerializable, public ISortable
 {
 public:
-  CVideoInfoTag() { Reset(); };
+  CVideoInfoTag() { Reset(); }
   virtual ~CVideoInfoTag() = default;
   void Reset();
   /* \brief Load information to a videoinfotag from an XML element
@@ -71,6 +71,7 @@ public:
    */
   bool Load(const TiXmlElement *element, bool append = false, bool prioritise = false);
   bool Save(TiXmlNode *node, const std::string &tag, bool savePathInfo = true, const TiXmlElement *additionalNode = NULL);
+  void Merge(CVideoInfoTag& other);
   void Archive(CArchive& ar) override;
   void Serialize(CVariant& value) const override;
   void ToSortable(SortItem& sortable, Field field) const override;
@@ -80,8 +81,8 @@ public:
   const std::map<std::string, std::string>& GetUniqueIDs() const;
   const std::string& GetDefaultUniqueID() const;
   bool HasUniqueID() const;
-  bool HasYear() const;
-  int GetYear() const;
+  virtual bool HasYear() const;
+  virtual int GetYear() const;
   bool HasPremiered() const;
   const CDateTime& GetPremiered() const;
   const CDateTime& GetFirstAired() const;
@@ -134,12 +135,12 @@ public:
   void SetRating(CRating rating, const std::string& type = "", bool def = false);
   void SetRating(float rating, const std::string& type = "", bool def = false);
   void RemoveRating(const std::string& type);
-  void SetRatings(RatingMap ratings);
+  void SetRatings(RatingMap ratings, const std::string& defaultRating = "");
   void SetVotes(int votes, const std::string& type = "");
   void SetUniqueIDs(std::map<std::string, std::string> uniqueIDs);
-  void SetPremiered(CDateTime premiered);
-  void SetPremieredFromDBDate(std::string premieredString);
-  void SetYear(int year);
+  void SetPremiered(const CDateTime& premiered);
+  void SetPremieredFromDBDate(const std::string& premieredString);
+  virtual void SetYear(int year);
   void SetArtist(std::vector<std::string> artist);
   void SetSet(std::string set);
   void SetSetOverview(std::string setOverview);
@@ -255,6 +256,7 @@ public:
   std::vector<std::string> m_showLink;
   std::map<int, std::string> m_namedSeasons;
   int m_iTop250;
+  int m_year;
   int m_iSeason;
   int m_iEpisode;
   int m_iIdUniqueID;

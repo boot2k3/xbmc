@@ -12,15 +12,16 @@
 #include "DllLoaderContainer.h"
 #include "dll.h"
 #include "dll_tracker.h"
-#include "threads/SingleLock.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 extern "C" inline void tracker_library_track(uintptr_t caller, HMODULE hHandle)
 {
   DllTrackInfo* pInfo = tracker_get_dlltrackinfo(caller);
   if (pInfo && hHandle)
   {
-    CSingleLock lock(g_trackerLock);
+    std::unique_lock<CCriticalSection> lock(g_trackerLock);
     pInfo->dllList.push_back(hHandle);
   }
 }
@@ -30,7 +31,7 @@ extern "C" inline void tracker_library_free(uintptr_t caller, HMODULE hHandle)
   DllTrackInfo* pInfo = tracker_get_dlltrackinfo(caller);
   if (pInfo && hHandle)
   {
-    CSingleLock lock(g_trackerLock);
+    std::unique_lock<CCriticalSection> lock(g_trackerLock);
     for (DllListIter it = pInfo->dllList.begin(); it != pInfo->dllList.end(); ++it)
     {
       if (*it == hHandle)
@@ -47,20 +48,21 @@ extern "C" void tracker_library_free_all(DllTrackInfo* pInfo)
   // unloading unloaded dll's
   if (!pInfo->dllList.empty())
   {
-    CSingleLock lock(g_trackerLock);
+    std::unique_lock<CCriticalSection> lock(g_trackerLock);
     CLog::Log(LOGDEBUG,"{0}: Detected {1} unloaded dll's", pInfo->pDll->GetFileName(), pInfo->dllList.size());
     for (DllListIter it = pInfo->dllList.begin(); it != pInfo->dllList.end(); ++it)
     {
       LibraryLoader* pDll = DllLoaderContainer::GetModule((HMODULE)*it);
       if( !pDll)
       {
-        CLog::Log(LOGERROR, "%s - Invalid module in tracker", __FUNCTION__);
+        CLog::Log(LOGERROR, "{} - Invalid module in tracker", __FUNCTION__);
         return;
       }
 
       if (!pDll->IsSystemDll())
       {
-        if (strlen(pDll->GetFileName()) > 0) CLog::Log(LOGDEBUG,"  : %s", pDll->GetFileName());
+        if (strlen(pDll->GetFileName()) > 0)
+          CLog::Log(LOGDEBUG, "  : {}", pDll->GetFileName());
       }
     }
 
@@ -70,7 +72,7 @@ extern "C" void tracker_library_free_all(DllTrackInfo* pInfo)
       LibraryLoader* pDll = DllLoaderContainer::GetModule((HMODULE)*it);
       if( !pDll)
       {
-        CLog::Log(LOGERROR, "%s - Invalid module in tracker", __FUNCTION__);
+        CLog::Log(LOGERROR, "{} - Invalid module in tracker", __FUNCTION__);
         return;
       }
 

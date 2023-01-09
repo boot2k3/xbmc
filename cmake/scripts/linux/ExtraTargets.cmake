@@ -9,12 +9,13 @@ endif()
 # WiiRemote
 if(ENABLE_EVENTCLIENTS AND BLUETOOTH_FOUND)
   find_package(CWiid QUIET)
-  if(CWIID_FOUND)
+  find_package(GLU QUIET)
+  if(CWIID_FOUND AND GLU_FOUND)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tools/EventClients/Clients/WiiRemote build/WiiRemote)
   endif()
 endif()
 
-if(CORE_PLATFORM_NAME_LC STREQUAL "wayland")
+if("wayland" IN_LIST CORE_PLATFORM_NAME_LC)
   # This cannot go into wayland.cmake since it requires the Wayland dependencies
   # to already be resolved
   set(PROTOCOL_XMLS "${WAYLANDPP_PROTOCOLS_DIR}/presentation-time.xml"

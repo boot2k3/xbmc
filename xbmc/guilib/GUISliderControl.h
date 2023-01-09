@@ -16,6 +16,8 @@
 #include "GUIControl.h"
 #include "GUITexture.h"
 
+#include <array>
+
 #define SLIDER_CONTROL_TYPE_INT         1
 #define SLIDER_CONTROL_TYPE_FLOAT       2
 #define SLIDER_CONTROL_TYPE_PERCENTAGE  3
@@ -42,13 +44,13 @@ public:
   } RangeSelector;
 
   CGUISliderControl(int parentID, int controlID, float posX, float posY, float width, float height, const CTextureInfo& backGroundTexture, const CTextureInfo& mibTexture, const CTextureInfo& nibTextureFocus, int iType, ORIENTATION orientation);
-  ~CGUISliderControl(void) override;
-  CGUISliderControl *Clone() const override { return new CGUISliderControl(*this); };
+  ~CGUISliderControl() override = default;
+  CGUISliderControl* Clone() const override { return new CGUISliderControl(*this); }
 
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
   void Render() override;
   bool OnAction(const CAction &action) override;
-  virtual bool IsActive() const { return true; };
+  virtual bool IsActive() const { return true; }
   void AllocResources() override;
   void FreeResources(bool immediately = false) override;
   void DynamicResourceAlloc(bool bOnOff) override;
@@ -56,7 +58,10 @@ public:
   virtual void SetRange(int iStart, int iEnd);
   virtual void SetFloatRange(float fStart, float fEnd);
   bool OnMessage(CGUIMessage& message) override;
-  bool ProcessSelector(CGUITexture &nib, unsigned int currentTime, float fScale, RangeSelector selector);
+  bool ProcessSelector(CGUITexture* nib,
+                       unsigned int currentTime,
+                       float fScale,
+                       RangeSelector selector);
   void SetRangeSelection(bool rangeSelection);
   bool GetRangeSelection() const { return m_rangeSelection; }
   void SetRangeSelector(RangeSelector selector);
@@ -70,15 +75,18 @@ public:
   float GetFloatValue(RangeSelector selector = RangeSelectorLower) const;
   void SetIntInterval(int iInterval);
   void SetFloatInterval(float fInterval);
-  void SetType(int iType) { m_iType = iType; };
+  void SetType(int iType) { m_iType = iType; }
   int GetType() const { return m_iType; }
   std::string GetDescription() const override;
-  void SetTextValue(const std::string &textValue) { m_textValue = textValue; };
+  void SetTextValue(const std::string& textValue) { m_textValue = textValue; }
   void SetAction(const std::string &action);
+
 protected:
+  CGUISliderControl(const CGUISliderControl& control);
+
   bool HitTest(const CPoint &point) const override;
   EVENT_RESULT OnMouseEvent(const CPoint &point, const CMouseEvent &event) override;
-  bool UpdateColors() override;
+  bool UpdateColors(const CGUIListItem* item) override;
   virtual void Move(int iNumSteps);
   virtual void SetFromPosition(const CPoint &point, bool guessSelector = false);
   /*! \brief Get the current position of the slider as a proportion
@@ -90,24 +98,24 @@ protected:
    */
   void SendClick();
 
-  CGUITexture m_guiBackground;
-  CGUITexture m_guiSelectorLower;
-  CGUITexture m_guiSelectorUpper;
-  CGUITexture m_guiSelectorLowerFocus;
-  CGUITexture m_guiSelectorUpperFocus;
+  std::unique_ptr<CGUITexture> m_guiBackground;
+  std::unique_ptr<CGUITexture> m_guiSelectorLower;
+  std::unique_ptr<CGUITexture> m_guiSelectorUpper;
+  std::unique_ptr<CGUITexture> m_guiSelectorLowerFocus;
+  std::unique_ptr<CGUITexture> m_guiSelectorUpperFocus;
   int m_iType;
 
   bool m_rangeSelection;
   RangeSelector m_currentSelector;
 
-  float m_percentValues[2];
+  std::array<float, 2> m_percentValues;
 
-  int m_intValues[2];
+  std::array<int, 2> m_intValues;
   int m_iStart;
   int m_iInterval;
   int m_iEnd;
 
-  float m_floatValues[2];
+  std::array<float, 2> m_floatValues;
   float m_fStart;
   float m_fInterval;
   float m_fEnd;

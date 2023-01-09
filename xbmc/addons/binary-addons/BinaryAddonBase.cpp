@@ -8,12 +8,12 @@
 
 #include "BinaryAddonBase.h"
 
-#include "AddonDll.h"
-#include "filesystem/SpecialProtocol.h"
-#include "threads/SingleLock.h"
-#include "utils/URIUtils.h"
-#include "utils/XMLUtils.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "addons/binary-addons/AddonDll.h"
+#include "addons/binary-addons/AddonInstanceHandler.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 using namespace ADDON;
 
@@ -22,106 +22,16 @@ const std::string& CBinaryAddonBase::ID() const
   return m_addonInfo->ID();
 }
 
-const std::string& CBinaryAddonBase::Path() const
-{
-  return m_addonInfo->Path();
-}
-
-TYPE CBinaryAddonBase::MainType() const
-{
-  return m_addonInfo->MainType();
-}
-
-const std::string& CBinaryAddonBase::MainLibName() const
-{
-  return m_addonInfo->LibName();
-}
-
-bool CBinaryAddonBase::HasType(TYPE type) const
-{
-  return m_addonInfo->HasType(type);
-}
-
-const std::vector<CAddonType>& CBinaryAddonBase::Types() const
-{
-  return m_addonInfo->Types();
-}
-
-const CAddonType* CBinaryAddonBase::Type(TYPE type) const
-{
-  return m_addonInfo->Type(type);
-}
-
-const AddonVersion& CBinaryAddonBase::Version() const
-{
-  return m_addonInfo->Version();
-}
-
-const AddonVersion& CBinaryAddonBase::MinVersion() const
-{
-  return m_addonInfo->MinVersion();
-}
-
-const AddonVersion& CBinaryAddonBase::DependencyVersion(const std::string& dependencyID) const
-{
-  return m_addonInfo->DependencyVersion(dependencyID);
-}
-
-const std::string& CBinaryAddonBase::Name() const
-{
-  return m_addonInfo->Name();
-}
-
-const std::string& CBinaryAddonBase::Summary() const
-{
-  return m_addonInfo->Summary();
-}
-
-const std::string& CBinaryAddonBase::Description() const
-{
-  return m_addonInfo->Description();
-}
-
-const std::string& CBinaryAddonBase::Author() const
-{
-  return m_addonInfo->Author();
-}
-
-const std::string& CBinaryAddonBase::ChangeLog() const
-{
-  return m_addonInfo->ChangeLog();
-}
-
-const std::string& CBinaryAddonBase::Icon() const
-{
-  return m_addonInfo->Icon();
-}
-
-const ArtMap& CBinaryAddonBase::Art() const
-{
-  return m_addonInfo->Art();
-}
-
-const std::string& CBinaryAddonBase::Disclaimer() const
-{
-  return m_addonInfo->Disclaimer();
-}
-
-bool CBinaryAddonBase::MeetsVersion(const AddonVersion& versionMin,
-                                    const AddonVersion& version) const
-{
-  return m_addonInfo->MeetsVersion(versionMin, version);
-}
-
-AddonDllPtr CBinaryAddonBase::GetAddon(const IAddonInstanceHandler* handler)
+AddonDllPtr CBinaryAddonBase::GetAddon(IAddonInstanceHandler* handler)
 {
   if (handler == nullptr)
   {
-    CLog::Log(LOGERROR, "CBinaryAddonBase::%s: for Id '%s' called with empty instance handler", __FUNCTION__, ID().c_str());
+    CLog::Log(LOGERROR, "CBinaryAddonBase::{}: for Id '{}' called with empty instance handler",
+              __FUNCTION__, ID());
     return nullptr;
   }
 
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   // If no 'm_activeAddon' is defined create it new.
   if (m_activeAddon == nullptr)
@@ -133,15 +43,16 @@ AddonDllPtr CBinaryAddonBase::GetAddon(const IAddonInstanceHandler* handler)
   return m_activeAddon;
 }
 
-void CBinaryAddonBase::ReleaseAddon(const IAddonInstanceHandler* handler)
+void CBinaryAddonBase::ReleaseAddon(IAddonInstanceHandler* handler)
 {
   if (handler == nullptr)
   {
-    CLog::Log(LOGERROR, "CBinaryAddonBase::%s: for Id '%s' called with empty instance handler", __FUNCTION__, ID().c_str());
+    CLog::Log(LOGERROR, "CBinaryAddonBase::{}: for Id '{}' called with empty instance handler",
+              __FUNCTION__, ID());
     return;
   }
 
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   auto presentHandler = m_activeAddonHandlers.find(handler);
   if (presentHandler == m_activeAddonHandlers.end())
@@ -149,16 +60,49 @@ void CBinaryAddonBase::ReleaseAddon(const IAddonInstanceHandler* handler)
 
   m_activeAddonHandlers.erase(presentHandler);
 
-  // if no handler is present anymore reset and delete the add-on class on informations
+  // if no handler is present anymore reset and delete the add-on class on information
   if (m_activeAddonHandlers.empty())
   {
     m_activeAddon.reset();
   }
 }
 
+size_t CBinaryAddonBase::UsedInstanceCount() const
+{
+  std::unique_lock<CCriticalSection> lock(m_critSection);
+  return m_activeAddonHandlers.size();
+}
+
 AddonDllPtr CBinaryAddonBase::GetActiveAddon()
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   return m_activeAddon;
 }
 
+void CBinaryAddonBase::OnPreInstall()
+{
+  const std::unordered_set<IAddonInstanceHandler*> activeAddonHandlers = m_activeAddonHandlers;
+  for (const auto& instance : activeAddonHandlers)
+    instance->OnPreInstall();
+}
+
+void CBinaryAddonBase::OnPostInstall(bool update, bool modal)
+{
+  const std::unordered_set<IAddonInstanceHandler*> activeAddonHandlers = m_activeAddonHandlers;
+  for (const auto& instance : activeAddonHandlers)
+    instance->OnPostInstall(update, modal);
+}
+
+void CBinaryAddonBase::OnPreUnInstall()
+{
+  const std::unordered_set<IAddonInstanceHandler*> activeAddonHandlers = m_activeAddonHandlers;
+  for (const auto& instance : activeAddonHandlers)
+    instance->OnPreUnInstall();
+}
+
+void CBinaryAddonBase::OnPostUnInstall()
+{
+  const std::unordered_set<IAddonInstanceHandler*> activeAddonHandlers = m_activeAddonHandlers;
+  for (const auto& instance : activeAddonHandlers)
+    instance->OnPostUnInstall();
+}

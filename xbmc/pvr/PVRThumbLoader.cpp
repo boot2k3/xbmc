@@ -13,6 +13,7 @@
 #include "TextureCache.h"
 #include "TextureCacheJob.h"
 #include "pictures/Picture.h"
+#include "pvr/PVRCachedImages.h"
 #include "pvr/PVRManager.h"
 #include "pvr/filesystem/PVRGUIDirectory.h"
 #include "settings/AdvancedSettings.h"
@@ -57,7 +58,7 @@ void CPVRThumbLoader::ClearCachedImage(CFileItem& item)
   const std::string thumb = item.GetArt("thumb");
   if (!thumb.empty())
   {
-    CTextureCache::GetInstance().ClearCachedImage(thumb);
+    CServiceBroker::GetTextureCache()->ClearCachedImage(thumb);
     if (m_textureDatabase->Open())
     {
       m_textureDatabase->ClearTextureForPath(item.GetPath(), "thumb");
@@ -68,7 +69,7 @@ void CPVRThumbLoader::ClearCachedImage(CFileItem& item)
   }
 }
 
-void CPVRThumbLoader::ClearCachedImages(CFileItemList& items)
+void CPVRThumbLoader::ClearCachedImages(const CFileItemList& items)
 {
   for (auto& item : items)
     ClearCachedImage(*item);
@@ -83,7 +84,7 @@ bool CPVRThumbLoader::FillThumb(CFileItem& item)
     if (item.IsPVRChannelGroup())
       thumb = CreateChannelGroupThumb(item);
     else
-      CLog::LogF(LOGERROR, "Unsupported PVR item '%s'", item.GetPath().c_str());
+      CLog::LogF(LOGERROR, "Unsupported PVR item '{}'", item.GetPath());
 
     if (!thumb.empty())
     {
@@ -110,15 +111,15 @@ std::string CPVRThumbLoader::CreateChannelGroupThumb(const CFileItem& channelGro
     {
       const std::string& icon = channel->GetArt("icon");
       if (!icon.empty())
-        channelIcons.emplace_back(icon);
+        channelIcons.emplace_back(CPVRCachedImages::UnwrapImageURL(icon));
 
       if (channelIcons.size() == 9) // limit number of tiles
         break;
     }
 
-    const std::string thumb = StringUtils::Format("%s?ts=%d", // append timestamp to Thumb URL to enforce texture refresh
-                                                  CTextureUtils::GetWrappedImageURL(channelGroupItem.GetPath(), "pvr"),
-                                                  std::time(nullptr));
+    std::string thumb = StringUtils::Format(
+        "{}?ts={}", // append timestamp to Thumb URL to enforce texture refresh
+        CTextureUtils::GetWrappedImageURL(channelGroupItem.GetPath(), "pvr"), std::time(nullptr));
     const std::string relativeCacheFile = CTextureCache::GetCacheFile(thumb) + ".png";
     if (CPicture::CreateTiledThumb(channelIcons, CTextureCache::GetCachedPath(relativeCacheFile)))
     {
@@ -126,7 +127,7 @@ std::string CPVRThumbLoader::CreateChannelGroupThumb(const CFileItem& channelGro
       details.file = relativeCacheFile;
       details.width = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
       details.height = details.width;
-      CTextureCache::GetInstance().AddCachedTexture(thumb, details);
+      CServiceBroker::GetTextureCache()->AddCachedTexture(thumb, details);
       return thumb;
     }
   }

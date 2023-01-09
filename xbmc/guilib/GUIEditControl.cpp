@@ -8,6 +8,7 @@
 
 #include "GUIEditControl.h"
 
+#include "GUIFont.h"
 #include "GUIKeyboardFactory.h"
 #include "GUIUserMessages.h"
 #include "GUIWindowManager.h"
@@ -18,7 +19,7 @@
 #include "input/Key.h"
 #include "input/XBMC_vkeys.h"
 #include "utils/CharsetConverter.h"
-#include "utils/Color.h"
+#include "utils/ColorUtils.h"
 #include "utils/Digest.h"
 #include "utils/Variant.h"
 #include "windowing/WinSystem.h"
@@ -136,7 +137,7 @@ bool CGUIEditControl::OnAction(const CAction &action)
       OnPasteClipboard();
       return true;
     }
-    else if (action.GetID() >= KEY_VKEY && action.GetID() < KEY_ASCII && m_edit.empty())
+    else if (action.GetID() >= KEY_VKEY && action.GetID() < KEY_UNICODE && m_edit.empty())
     {
       // input from the keyboard (vkey, not ascii)
       unsigned char b = action.GetID() & 0xFF;
@@ -195,7 +196,7 @@ bool CGUIEditControl::OnAction(const CAction &action)
         return CGUIButtonControl::OnAction(action);
       }
     }
-    else if (action.GetID() >= KEY_ASCII)
+    else if (action.GetID() == KEY_UNICODE)
     {
       // input from the keyboard
       int ch = action.GetUnicode();
@@ -261,7 +262,7 @@ bool CGUIEditControl::OnAction(const CAction &action)
     {
       m_edit.clear();
       std::wstring str;
-      g_charsetConverter.utf8ToW(action.GetText(), str);
+      g_charsetConverter.utf8ToW(action.GetText(), str, false);
       m_text2.insert(m_cursorPos, str);
       m_cursorPos += str.size();
       UpdateText();
@@ -337,6 +338,7 @@ void CGUIEditControl::OnClick()
     case INPUT_TYPE_PASSWORD_MD5:
       utf8 = ""; //! @todo Ideally we'd send this to the keyboard and tell the keyboard we have this type of input
       // fallthrough
+      [[fallthrough]];
     case INPUT_TYPE_TEXT:
     default:
       textChanged = CGUIKeyboardFactory::ShowAndGetInput(utf8, m_inputHeading, true, m_inputType == INPUT_TYPE_PASSWORD || m_inputType == INPUT_TYPE_PASSWORD_MD5);
@@ -346,7 +348,7 @@ void CGUIEditControl::OnClick()
   {
     ClearMD5();
     m_edit.clear();
-    g_charsetConverter.utf8ToW(utf8, m_text2);
+    g_charsetConverter.utf8ToW(utf8, m_text2, false);
     m_cursorPos = m_text2.size();
     UpdateText();
     m_cursorPos = m_text2.size();
@@ -367,7 +369,7 @@ void CGUIEditControl::UpdateText(bool sendUpdate)
   SetInvalid();
 }
 
-void CGUIEditControl::SetInputType(CGUIEditControl::INPUT_TYPE type, CVariant heading)
+void CGUIEditControl::SetInputType(CGUIEditControl::INPUT_TYPE type, const CVariant& heading)
 {
   m_inputType = type;
   if (heading.isString())
@@ -538,10 +540,10 @@ bool CGUIEditControl::SetStyledText(const std::wstring &text)
   vecText styled;
   styled.reserve(text.size() + 1);
 
-  std::vector<UTILS::Color> colors;
+  std::vector<UTILS::COLOR::Color> colors;
   colors.push_back(m_label.GetLabelInfo().textColor);
   colors.push_back(m_label.GetLabelInfo().disabledColor);
-  UTILS::Color select = m_label.GetLabelInfo().selectedColor;
+  UTILS::COLOR::Color select = m_label.GetLabelInfo().selectedColor;
   if (!select)
     select = 0xFFFF0000;
   colors.push_back(select);
@@ -552,9 +554,12 @@ bool CGUIEditControl::SetStyledText(const std::wstring &text)
   unsigned int startSelection = m_cursorPos + m_editOffset;
   unsigned int endSelection   = m_cursorPos + m_editOffset + m_editLength;
 
+  CGUIFont* font = m_label2.GetLabelInfo().font;
+  uint32_t style = (font ? font->GetStyle() : (FONT_STYLE_NORMAL & FONT_STYLE_MASK)) << 24;
+
   for (unsigned int i = 0; i < text.size(); i++)
   {
-    unsigned int ch = text[i];
+    uint32_t ch = text[i] | style;
     if (m_editLength > 0 && startSelection <= i && i < endSelection)
       ch |= (2 << 16); // highlight the letters we're playing with
     else if (!m_edit.empty() && (i < startHighlight || i >= endHighlight))
@@ -563,7 +568,7 @@ bool CGUIEditControl::SetStyledText(const std::wstring &text)
   }
 
   // show the cursor
-  unsigned int ch = L'|';
+  uint32_t ch = L'|' | style;
   if ((++m_cursorBlink % 64) > 32)
     ch |= (3 << 16);
   styled.insert(styled.begin() + m_cursorPos, ch);
@@ -587,7 +592,7 @@ void CGUIEditControl::SetLabel2(const std::string &text)
 {
   m_edit.clear();
   std::wstring newText;
-  g_charsetConverter.utf8ToW(text, newText);
+  g_charsetConverter.utf8ToW(text, newText, false);
   if (newText != m_text2)
   {
     m_isMD5 = (m_inputType == INPUT_TYPE_PASSWORD_MD5 || m_inputType == INPUT_TYPE_PASSWORD_NUMBER_VERIFY_NEW);
@@ -667,7 +672,7 @@ void CGUIEditControl::OnPasteClipboard()
 
   // Get text from the clipboard
   utf8_text = CServiceBroker::GetWinSystem()->GetClipboardText();
-  g_charsetConverter.utf8ToW(utf8_text, unicode_text);
+  g_charsetConverter.utf8ToW(utf8_text, unicode_text, false);
 
   // Insert the pasted text at the current cursor position.
   if (unicode_text.length() > 0)

@@ -19,17 +19,25 @@
 //
 //------------------------------------------------------------------------
 
-#include "XBDateTime.h"
-#include "utils/params_check_macros.h"
-
-#include <locale>
-#include <ostream>
-#include <sstream>
 #include <stdarg.h>
 #include <stdint.h>
 #include <string>
-#include <type_traits>
 #include <vector>
+#include <sstream>
+#include <locale>
+
+// workaround for broken [[deprecated]] in coverity
+#if defined(__COVERITY__)
+#undef FMT_DEPRECATED
+#define FMT_DEPRECATED
+#endif
+#include "utils/TimeFormat.h"
+#include "utils/params_check_macros.h"
+
+#include <fmt/format.h>
+#if FMT_VERSION >= 80000
+#include <fmt/xchar.h>
+#endif
 
 /*! \brief  C-processor Token stringification
 
@@ -47,33 +55,16 @@ DEF_TO_STR_VALUE(foo) // outputs "4"
 #define DEF_TO_STR_NAME(x) #x
 #define DEF_TO_STR_VALUE(x) DEF_TO_STR_NAME(x)
 
-// clang-format off
-// This is required to format enum classes with fmt as they're not implicitly
-// convertible to int.
-// This operator has to be declared before including format.h and ostream.h.
-// We keep clang format disabled to avoid reordering and breaking things
-// https://github.com/fmtlib/fmt/issues/391
-template<typename T, typename std::enable_if_t<std::is_enum<T>::value, int> = 0>
-std::ostream& operator<<(std::ostream& os, const T& value)
+template<typename T, std::enable_if_t<!std::is_enum<T>::value, int> = 0>
+constexpr auto&& EnumToInt(T&& arg) noexcept
 {
-  return os << static_cast<int>(value);
+  return arg;
 }
-
-// workaround for broken [[deprecated]] in coverity
-#if defined(__COVERITY__)
-#undef FMT_DEPRECATED
-#define FMT_DEPRECATED
-#endif
-#include <fmt/format.h>
-
-#if FMT_VERSION >= 30000
-#include <fmt/ostream.h>
-#endif
-
-#if FMT_VERSION >= 40000
-#include <fmt/printf.h>
-#endif
-// clang-format on
+template<typename T, std::enable_if_t<std::is_enum<T>::value, int> = 0>
+constexpr auto EnumToInt(T&& arg) noexcept
+{
+  return static_cast<int>(arg);
+}
 
 class StringUtils
 {
@@ -88,27 +79,23 @@ public:
   static std::string Format(const std::string& fmt, Args&&... args)
   {
     // coverity[fun_call_w_exception : FALSE]
-    auto result = ::fmt::format(fmt, std::forward<Args>(args)...);
-    if (result == fmt)
-      result = ::fmt::sprintf(fmt, std::forward<Args>(args)...);
-
-    return result;
+    return ::fmt::format(fmt, EnumToInt(std::forward<Args>(args))...);
   }
   template<typename... Args>
   static std::wstring Format(const std::wstring& fmt, Args&&... args)
   {
     // coverity[fun_call_w_exception : FALSE]
-    auto result = ::fmt::format(fmt, std::forward<Args>(args)...);
-    if (result == fmt)
-      result = ::fmt::sprintf(fmt, std::forward<Args>(args)...);
-
-    return result;
+    return ::fmt::format(fmt, EnumToInt(std::forward<Args>(args))...);
   }
 
   static std::string FormatV(PRINTF_FORMAT_STRING const char *fmt, va_list args);
   static std::wstring FormatV(PRINTF_FORMAT_STRING const wchar_t *fmt, va_list args);
+  static std::string ToUpper(const std::string& str);
+  static std::wstring ToUpper(const std::wstring& str);
   static void ToUpper(std::string &str);
   static void ToUpper(std::wstring &str);
+  static std::string ToLower(const std::string& str);
+  static std::wstring ToLower(const std::wstring& str);
   static void ToLower(std::string &str);
   static void ToLower(std::wstring &str);
   static void ToCapitalize(std::string &str);
@@ -116,8 +103,8 @@ public:
   static bool EqualsNoCase(const std::string &str1, const std::string &str2);
   static bool EqualsNoCase(const std::string &str1, const char *s2);
   static bool EqualsNoCase(const char *s1, const char *s2);
-  static int  CompareNoCase(const std::string &str1, const std::string &str2);
-  static int  CompareNoCase(const char *s1, const char *s2);
+  static int CompareNoCase(const std::string& str1, const std::string& str2, size_t n = 0);
+  static int CompareNoCase(const char* s1, const char* s2, size_t n = 0);
   static int ReturnDigits(const std::string &str);
   static std::string Left(const std::string &str, size_t count);
   static std::string Mid(const std::string &str, size_t first, size_t count = std::string::npos);
@@ -245,9 +232,12 @@ public:
   \param delimiters Delimiter strings to be used to split the input strings
   \param iMaxStrings (optional) Maximum number of resulting split strings
   */
-  static std::vector<std::string> SplitMulti(const std::vector<std::string> &input, const std::vector<std::string> &delimiters, unsigned int iMaxStrings = 0);
+  static std::vector<std::string> SplitMulti(const std::vector<std::string>& input,
+                                             const std::vector<std::string>& delimiters,
+                                             size_t iMaxStrings = 0);
   static int FindNumber(const std::string& strInput, const std::string &strFind);
   static int64_t AlphaNumericCompare(const wchar_t *left, const wchar_t *right);
+  static int AlphaNumericCollation(int nKey1, const void* pKey1, int nKey2, const void* pKey2);
   static long TimeStringToSeconds(const std::string &timeString);
   static void RemoveCRLF(std::string& strLine);
 
@@ -309,6 +299,7 @@ public:
   static size_t FindWords(const char *str, const char *wordLowerCase);
   static int FindEndBracket(const std::string &str, char opener, char closer, int startPos = 0);
   static int DateStringToYYYYMMDD(const std::string &dateString);
+  static std::string ISODateToLocalizedDate (const std::string& strIsoDate);
   static void WordToDigits(std::string &word);
   static std::string CreateUUID();
   static bool ValidateUUID(const std::string &uuid); // NB only validates syntax
@@ -364,6 +355,15 @@ public:
    */
   static std::string Paramify(const std::string &param);
 
+  /*! \brief Unescapes the given string.
+
+   Unescapes backslashes and double-quotes and removes double-quotes around the whole string.
+
+   \param param String to unescape/deparamify
+   \return Unescaped/Deparamified string
+   */
+  static std::string DeParamify(const std::string& param);
+
   /*! \brief Split a string by the specified delimiters.
    Splits a string using one or more delimiting characters, ignoring empty tokens.
    Differs from Split() in two ways:
@@ -375,7 +375,30 @@ public:
   static void Tokenize(const std::string& input, std::vector<std::string>& tokens, const std::string& delimiters);
   static std::vector<std::string> Tokenize(const std::string& input, const char delimiter);
   static void Tokenize(const std::string& input, std::vector<std::string>& tokens, const char delimiter);
-  static uint64_t ToUint64(std::string str, uint64_t fallback) noexcept;
+
+  /*!
+   * \brief Converts a string to a unsigned int number.
+   * \param str The string to convert
+   * \param fallback [OPT] The number to return when the conversion fails
+   * \return The converted number, otherwise fallback if conversion fails
+   */
+  static uint32_t ToUint32(std::string_view str, uint32_t fallback = 0) noexcept;
+
+  /*!
+   * \brief Converts a string to a unsigned long long number.
+   * \param str The string to convert
+   * \param fallback [OPT] The number to return when the conversion fails
+   * \return The converted number, otherwise fallback if conversion fails
+   */
+  static uint64_t ToUint64(std::string_view str, uint64_t fallback = 0) noexcept;
+
+  /*!
+   * \brief Converts a string to a float number.
+   * \param str The string to convert
+   * \param fallback [OPT] The number to return when the conversion fails
+   * \return The converted number, otherwise fallback if conversion fails
+   */
+  static float ToFloat(std::string_view str, float fallback = 0.0f) noexcept;
 
   /*!
    * Returns bytes in a human readable format using the smallest unit that will fit `bytes` in at
@@ -387,6 +410,13 @@ public:
    */
   static std::string FormatFileSize(uint64_t bytes);
 
+  /*! \brief Converts a cstring pointer (const char*) to a std::string.
+             In case nullptr is passed the result is an empty string.
+      \param cstr the const pointer to char
+      \return the resulting std::string or ""
+   */
+  static std::string CreateFromCString(const char* cstr);
+
 private:
   /*!
    * Wrapper for CLangInfo::GetOriginalLocale() which allows us to
@@ -397,7 +427,7 @@ private:
 
 struct sortstringbyname
 {
-  bool operator()(const std::string& strItem1, const std::string& strItem2)
+  bool operator()(const std::string& strItem1, const std::string& strItem2) const
   {
     return StringUtils::CompareNoCase(strItem1, strItem2) < 0;
   }

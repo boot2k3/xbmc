@@ -9,6 +9,7 @@
 #pragma once
 
 #include "settings/lib/ISettingCallback.h"
+#include "utils/HDRCapabilities.h"
 #include "windowing/Resolution.h"
 
 #include <string>
@@ -29,9 +30,27 @@ public:
 
   // Implementation of ISettingCallback
   static const std::string SETTING_LIMITGUI;
-  void OnSettingChanged(std::shared_ptr<const CSetting> setting) override;
+  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
+
+  static bool SupportsMediaCodecMimeType(const std::string& mimeType);
+
+  // Android specific HDR type mapping
+  // https://developer.android.com/reference/android/view/Display.HdrCapabilities#constants_1
+  enum HDRTypes
+  {
+    DOLBY_VISION = 1,
+    HDR10 = 2,
+    HLG = 3,
+    HDR10_PLUS = 4
+  };
+
+  static std::vector<int> GetDisplaySupportedHdrTypes();
+  static CHDRCapabilities GetDisplayHDRCapabilities();
 
 protected:
   mutable int m_width;
   mutable int m_height;
+
+private:
+  static void LogDisplaySupportedHdrTypes();
 };

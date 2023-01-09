@@ -11,6 +11,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string.h>
 #include <vector>
 
@@ -137,7 +138,7 @@ namespace SOCKETS
     // socket functions
     virtual bool Bind(bool localOnly, int port, int range=0) = 0;
     virtual bool Connect() = 0;
-    virtual void Close() {};
+    virtual void Close() {}
 
     // state functions
     bool Ready() { return m_bReady; }
@@ -209,6 +210,8 @@ namespace SOCKETS
     CAddress m_addr;
 
   private:
+    bool CheckIPv6(int port, int range);
+
     bool m_ipv6Socket;
   };
 
@@ -218,7 +221,7 @@ namespace SOCKETS
   class CSocketFactory
   {
   public:
-    static CUDPSocket* CreateUDPSocket();
+    static std::unique_ptr<CUDPSocket> CreateUDPSocket();
   };
 
   /**********************************************************************/

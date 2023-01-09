@@ -9,10 +9,11 @@
 #include "VideoPlayerTeletext.h"
 
 #include "DVDStreamInfo.h"
-#include "cores/VideoPlayer/Interface/Addon/DemuxPacket.h"
-#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h"
-#include "threads/SingleLock.h"
+#include "cores/VideoPlayer/Interface/DemuxPacket.h"
+#include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 const uint8_t rev_lut[32] =
 {
@@ -115,7 +116,7 @@ bool CDVDTeletextData::OpenStream(CDVDStreamInfo hints)
 
   if (hints.codec == AV_CODEC_ID_DVB_TELETEXT)
   {
-    CLog::Log(LOGNOTICE, "Creating teletext data thread");
+    CLog::Log(LOGINFO, "Creating teletext data thread");
     Create();
     return true;
   }
@@ -128,7 +129,7 @@ void CDVDTeletextData::CloseStream(bool bWaitForBuffers)
   m_messageQueue.Abort();
 
   // wait for decode_video thread to end
-  CLog::Log(LOGNOTICE, "waiting for teletext data thread to exit");
+  CLog::Log(LOGINFO, "waiting for teletext data thread to exit");
 
   StopThread(); // will set this->m_bStop to true
 
@@ -139,7 +140,7 @@ void CDVDTeletextData::CloseStream(bool bWaitForBuffers)
 
 void CDVDTeletextData::ResetTeletextCache()
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_TXTCache->m_critSection);
 
   /* Reset Data structures */
   for (auto& pages : m_TXTCache->astCachetable)
@@ -223,13 +224,13 @@ void CDVDTeletextData::Process()
   unsigned char   magazine  = 0xff;
 //  int             doupdate  = 0;
 
-  CLog::Log(LOGNOTICE, "running thread: CDVDTeletextData");
+  CLog::Log(LOGINFO, "running thread: CDVDTeletextData");
 
   while (!m_bStop)
   {
-    CDVDMsg* pMsg;
+    std::shared_ptr<CDVDMsg> pMsg;
     int iPriority = (m_speed == DVD_PLAYSPEED_PAUSE) ? 1 : 0;
-    MsgQueueReturnCode ret = m_messageQueue.Get(&pMsg, 2000, iPriority);
+    MsgQueueReturnCode ret = m_messageQueue.Get(pMsg, 2000, iPriority);
 
     if (ret == MSGQ_TIMEOUT)
     {
@@ -239,15 +240,17 @@ void CDVDTeletextData::Process()
 
     if (MSGQ_IS_ERROR(ret))
     {
-      CLog::Log(LOGERROR, "Got MSGQ_ABORT or MSGO_IS_ERROR return true (%i)", ret);
+      if (!m_messageQueue.ReceivedAbortRequest())
+        CLog::Log(LOGERROR, "MSGQ_IS_ERROR returned true ({})", ret);
+
       break;
     }
 
     if (pMsg->IsType(CDVDMsg::DEMUXER_PACKET))
     {
-      CSingleLock lock(m_critSection);
+      std::unique_lock<CCriticalSection> lock(m_TXTCache->m_critSection);
 
-      DemuxPacket* pPacket = static_cast<CDVDMsgDemuxerPacket*>(pMsg)->GetPacket();
+      DemuxPacket* pPacket = std::static_pointer_cast<CDVDMsgDemuxerPacket>(pMsg)->GetPacket();
       uint8_t *Datai       = pPacket->pData;
       int rows             = (pPacket->iSize - 1) / 46;
 
@@ -625,20 +628,19 @@ void CDVDTeletextData::Process()
     }
     else if (pMsg->IsType(CDVDMsg::PLAYER_SETSPEED))
     {
-      m_speed = static_cast<CDVDMsgInt*>(pMsg)->m_value;
+      m_speed = std::static_pointer_cast<CDVDMsgInt>(pMsg)->m_value;
     }
     else if (pMsg->IsType(CDVDMsg::GENERAL_FLUSH)
           || pMsg->IsType(CDVDMsg::GENERAL_RESET))
     {
       ResetTeletextCache();
     }
-    pMsg->Release();
   }
 }
 
 void CDVDTeletextData::OnExit()
 {
-  CLog::Log(LOGNOTICE, "thread end: data_thread");
+  CLog::Log(LOGINFO, "thread end: data_thread");
 }
 
 void CDVDTeletextData::Flush()
@@ -649,7 +651,7 @@ void CDVDTeletextData::Flush()
   /* and any demux packet that has been taken out of queue need to */
   /* be disposed of before we flush */
   m_messageQueue.Flush();
-  m_messageQueue.Put(new CDVDMsg(CDVDMsg::GENERAL_FLUSH));
+  m_messageQueue.Put(std::make_shared<CDVDMsg>(CDVDMsg::GENERAL_FLUSH));
 }
 
 void CDVDTeletextData::Decode_p2829(unsigned char *vtxt_row, TextExtData_t **ptExtData)
@@ -707,7 +709,7 @@ void CDVDTeletextData::Decode_p2829(unsigned char *vtxt_row, TextExtData_t **ptE
 
 void CDVDTeletextData::SavePage(int p, int sp, unsigned char* buffer)
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_TXTCache->m_critSection);
   TextCachedPage_t* pg = m_TXTCache->astCachetable[p][sp];
   if (!pg)
   {
@@ -720,7 +722,7 @@ void CDVDTeletextData::SavePage(int p, int sp, unsigned char* buffer)
 
 void CDVDTeletextData::LoadPage(int p, int sp, unsigned char* buffer)
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_TXTCache->m_critSection);
   TextCachedPage_t* pg = m_TXTCache->astCachetable[p][sp];
   if (!pg)
   {
@@ -733,7 +735,7 @@ void CDVDTeletextData::LoadPage(int p, int sp, unsigned char* buffer)
 
 void CDVDTeletextData::ErasePage(int magazine)
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_TXTCache->m_critSection);
   TextCachedPage_t* pg = m_TXTCache->astCachetable[m_TXTCache->CurrentPage[magazine]][m_TXTCache->CurrentSubPage[magazine]];
   if (pg)
   {

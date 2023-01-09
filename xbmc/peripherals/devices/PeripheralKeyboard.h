@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Peripheral.h"
+#include "XBDateTime.h"
 #include "input/keyboard/interfaces/IKeyboardDriverHandler.h"
 #include "threads/CriticalSection.h"
 
@@ -16,33 +17,36 @@
 
 namespace PERIPHERALS
 {
-  class CPeripheralKeyboard : public CPeripheral,
-                              public KODI::KEYBOARD::IKeyboardDriverHandler
+class CPeripheralKeyboard : public CPeripheral, public KODI::KEYBOARD::IKeyboardDriverHandler
+{
+public:
+  CPeripheralKeyboard(CPeripherals& manager,
+                      const PeripheralScanResult& scanResult,
+                      CPeripheralBus* bus);
+
+  ~CPeripheralKeyboard(void) override;
+
+  // implementation of CPeripheral
+  bool InitialiseFeature(const PeripheralFeature feature) override;
+  void RegisterKeyboardDriverHandler(KODI::KEYBOARD::IKeyboardDriverHandler* handler,
+                                     bool bPromiscuous) override;
+  void UnregisterKeyboardDriverHandler(KODI::KEYBOARD::IKeyboardDriverHandler* handler) override;
+  CDateTime LastActive() override { return m_lastActive; }
+  KODI::GAME::ControllerPtr ControllerProfile() const override;
+
+  // implementation of IKeyboardDriverHandler
+  bool OnKeyPress(const CKey& key) override;
+  void OnKeyRelease(const CKey& key) override;
+
+private:
+  struct KeyboardHandle
   {
-  public:
-    CPeripheralKeyboard(CPeripherals& manager, const PeripheralScanResult& scanResult, CPeripheralBus* bus);
-
-    ~CPeripheralKeyboard(void) override;
-
-    // implementation of CPeripheral
-    bool InitialiseFeature(const PeripheralFeature feature) override;
-    void RegisterKeyboardDriverHandler(KODI::KEYBOARD::IKeyboardDriverHandler* handler, bool bPromiscuous) override;
-    void UnregisterKeyboardDriverHandler(KODI::KEYBOARD::IKeyboardDriverHandler* handler) override;
-    CDateTime LastActive() override { return m_lastActive; }
-
-    // implementation of IKeyboardDriverHandler
-    bool OnKeyPress(const CKey& key) override;
-    void OnKeyRelease(const CKey& key) override;
-
-  private:
-    struct KeyboardHandle
-    {
-      KODI::KEYBOARD::IKeyboardDriverHandler* handler;
-      bool bPromiscuous;
-    };
-
-    std::vector<KeyboardHandle> m_keyboardHandlers;
-    CCriticalSection m_mutex;
-    CDateTime m_lastActive;
+    KODI::KEYBOARD::IKeyboardDriverHandler* handler;
+    bool bPromiscuous;
   };
-}
+
+  std::vector<KeyboardHandle> m_keyboardHandlers;
+  CCriticalSection m_mutex;
+  CDateTime m_lastActive;
+};
+} // namespace PERIPHERALS

@@ -15,11 +15,11 @@
 #include "GUIPassword.h"
 #include "GUIUserMessages.h"
 #include "ServiceBroker.h"
-#include "TextureCache.h"
+#include "TextureDatabase.h"
 #include "URL.h"
 #include "Util.h"
 #include "addons/Scraper.h"
-#include "filesystem/File.h"
+#include "favourites/FavouritesService.h"
 #include "guilib/GUIButtonControl.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIControlGroupList.h"
@@ -33,6 +33,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -77,6 +78,12 @@ bool CGUIDialogContextMenu::OnMessage(CGUIMessage &message)
   { // someone has been clicked - deinit...
     if (message.GetSenderId() >= BUTTON_START && message.GetSenderId() <= BUTTON_END)
       m_clickedButton = message.GetSenderId() - BUTTON_START;
+    Close();
+    return true;
+  }
+  else if (message.GetMessage() == GUI_MSG_PLAYBACK_AVSTARTED)
+  {
+    // playback was just started from elsewhere - close the dialog
     Close();
     return true;
   }
@@ -211,16 +218,11 @@ bool CGUIDialogContextMenu::SourcesMenu(const std::string &strType, const CFileI
 void CGUIDialogContextMenu::GetContextButtons(const std::string &type, const CFileItemPtr& item, CContextButtons &buttons)
 {
   // Add buttons to the ContextMenu that should be visible for both sources and autosourced items
-  if (item && item->IsRemovable())
+  // Optical removable drives automatically have the static Eject button added (see CEjectDisk).
+  // Here we only add the eject button to HDD drives
+  if (item && item->IsRemovable() && !item->IsDVD() && !item->IsCDDA())
   {
-    if (item->IsDVD() || item->IsCDDA())
-    {
-      buttons.Add(CONTEXT_BUTTON_EJECT_DISC, 13391); // Eject / Load
-    }
-    else // Must be HDD
-    {
-      buttons.Add(CONTEXT_BUTTON_EJECT_DRIVE, 13420); // Remove safely
-    }
+    buttons.Add(CONTEXT_BUTTON_EJECT_DRIVE, 13420); // Remove safely
   }
 
   // Next, Add buttons to the ContextMenu that should ONLY be visible for sources and not autosourced items
@@ -286,12 +288,6 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
   {
     case CONTEXT_BUTTON_EJECT_DRIVE:
       return CServiceBroker::GetMediaManager().Eject(item->GetPath());
-#ifdef HAS_DVD_DRIVE
-    case CONTEXT_BUTTON_EJECT_DISC:
-      CServiceBroker::GetMediaManager().ToggleTray(
-          CServiceBroker::GetMediaManager().TranslateDevicePath(item->GetPath())[0]);
-#endif
-      return true;
     default:
       break;
   }
@@ -388,7 +384,7 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       }
       // see if there's a local thumb for this item
       std::string folderThumb = item->GetFolderThumb();
-      if (XFILE::CFile::Exists(folderThumb))
+      if (CFileUtils::Exists(folderThumb))
       {
         CFileItemPtr local(new CFileItem("thumb://Local", false));
         local->SetArt("thumb", folderThumb);
@@ -445,10 +441,14 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       // password entry and re-entry succeeded, write out the lock data
       share->m_iHasLock = LOCK_STATE_LOCKED;
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "lockcode", strNewPassword);
-      strNewPassword = StringUtils::Format("%i", share->m_iLockMode);
+      strNewPassword = std::to_string(share->m_iLockMode);
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "lockmode", strNewPassword);
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "badpwdcount", "0");
       CMediaSourceSettings::GetInstance().Save();
+
+      // lock of a mediasource has been added
+      // => refresh favourites due to possible visibility changes
+      CServiceBroker::GetFavouritesService().RefreshFavourites();
 
       CGUIMessage msg(GUI_MSG_NOTIFY_ALL,0,0,GUI_MSG_UPDATE_SOURCES);
       CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
@@ -480,6 +480,11 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "lockcode", "0");
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "badpwdcount", "0");
       CMediaSourceSettings::GetInstance().Save();
+
+      // lock of a mediasource has been removed
+      // => refresh favourites due to possible visibility changes
+      CServiceBroker::GetFavouritesService().RefreshFavourites();
+
       CGUIMessage msg(GUI_MSG_NOTIFY_ALL,0,0,GUI_MSG_UPDATE_SOURCES);
       CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
       return true;
@@ -493,6 +498,10 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       {
         // don't prompt user for mastercode when reactivating a lock
         g_passwordManager.LockSource(type, share->strName, true);
+
+        // lock of a mediasource has been reactivated
+        // => refresh favourites due to possible visibility changes
+        CServiceBroker::GetFavouritesService().RefreshFavourites();
         return true;
       }
       return false;
@@ -505,7 +514,7 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       std::string strNewPW;
       std::string strNewLockMode;
       if (CGUIDialogLockSettings::ShowAndGetLock(share->m_iLockMode,strNewPW))
-        strNewLockMode = StringUtils::Format("%i",share->m_iLockMode);
+        strNewLockMode = std::to_string(share->m_iLockMode);
       else
         return false;
       // password ReSet and re-entry succeeded, write out the lock data
@@ -513,6 +522,11 @@ bool CGUIDialogContextMenu::OnContextButton(const std::string &type, const CFile
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "lockmode", strNewLockMode);
       CMediaSourceSettings::GetInstance().UpdateSource(type, share->strName, "badpwdcount", "0");
       CMediaSourceSettings::GetInstance().Save();
+
+      // lock of a mediasource has been changed
+      // => refresh favourites due to possible visibility changes
+      CServiceBroker::GetFavouritesService().RefreshFavourites();
+
       CGUIMessage msg(GUI_MSG_NOTIFY_ALL,0,0,GUI_MSG_UPDATE_SOURCES);
       CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
       return true;

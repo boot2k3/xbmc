@@ -11,19 +11,22 @@
 #include "controllers/Controller.h"
 #include "controllers/ControllerManager.h"
 #include "games/GameSettings.h"
+#include "games/agents/GameAgentManager.h"
 #include "profiles/ProfileManager.h"
 
 using namespace KODI;
 using namespace GAME;
 
-CGameServices::CGameServices(CControllerManager &controllerManager,
-                             RETRO:: CGUIGameRenderManager &renderManager,
-                             PERIPHERALS::CPeripherals &peripheralManager,
-                             const CProfileManager &profileManager) :
-  m_controllerManager(controllerManager),
-  m_gameRenderManager(renderManager),
-  m_profileManager(profileManager),
-  m_gameSettings(new CGameSettings())
+CGameServices::CGameServices(CControllerManager& controllerManager,
+                             RETRO::CGUIGameRenderManager& renderManager,
+                             PERIPHERALS::CPeripherals& peripheralManager,
+                             const CProfileManager& profileManager,
+                             CInputManager& inputManager)
+  : m_controllerManager(controllerManager),
+    m_gameRenderManager(renderManager),
+    m_profileManager(profileManager),
+    m_gameSettings(new CGameSettings()),
+    m_gameAgentManager(new CGameAgentManager(peripheralManager, inputManager))
 {
 }
 

@@ -8,8 +8,10 @@
 
 #include "HTTPPythonHandler.h"
 
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "addons/Webinterface.h"
+#include "addons/addoninfo/AddonType.h"
 #include "filesystem/File.h"
 #include "interfaces/generic/ScriptInvocationManager.h"
 #include "interfaces/python/XBPython.h"
@@ -50,8 +52,9 @@ CHTTPPythonHandler::CHTTPPythonHandler(const HTTPRequest &request)
   // get the real path of the script and check if it actually exists
   m_response.status = CHTTPWebinterfaceHandler::ResolveUrl(m_request.pathUrl, m_scriptPath, m_addon);
   // only allow requests to a non-static webinterface addon
-  if (m_addon == NULL || m_addon->Type() != ADDON::ADDON_WEB_INTERFACE ||
-      std::dynamic_pointer_cast<ADDON::CWebinterface>(m_addon)->GetType() == ADDON::WebinterfaceTypeStatic)
+  if (m_addon == NULL || m_addon->Type() != ADDON::AddonType::WEB_INTERFACE ||
+      std::dynamic_pointer_cast<ADDON::CWebinterface>(m_addon)->GetType() ==
+          ADDON::WebinterfaceTypeStatic)
   {
     m_response.type = HTTPError;
     m_response.status = MHD_HTTP_INTERNAL_SERVER_ERROR;
@@ -101,8 +104,8 @@ bool CHTTPPythonHandler::CanHandleRequest(const HTTPRequest &request) const
   ADDON::AddonPtr addon;
   std::string path;
   // try to resolve the addon as any python script must be part of a webinterface
-  if (!CHTTPWebinterfaceHandler::ResolveAddon(request.pathUrl, addon, path) ||
-      addon == NULL || addon->Type() != ADDON::ADDON_WEB_INTERFACE)
+  if (!CHTTPWebinterfaceHandler::ResolveAddon(request.pathUrl, addon, path) || addon == NULL ||
+      addon->Type() != ADDON::AddonType::WEB_INTERFACE)
     return false;
 
   // static webinterfaces aren't allowed to run python scripts
@@ -113,7 +116,7 @@ bool CHTTPPythonHandler::CanHandleRequest(const HTTPRequest &request) const
   return true;
 }
 
-int CHTTPPythonHandler::HandleRequest()
+MHD_RESULT CHTTPPythonHandler::HandleRequest()
 {
   if (m_response.type == HTTPError || m_response.type == HTTPRedirect)
     return MHD_YES;
@@ -148,7 +151,8 @@ int CHTTPPythonHandler::HandleRequest()
       pythonRequest->port = port;
     }
 
-    CHTTPPythonInvoker* pythonInvoker = new CHTTPPythonWsgiInvoker(&g_pythonParser, pythonRequest);
+    CHTTPPythonInvoker* pythonInvoker =
+        new CHTTPPythonWsgiInvoker(&CServiceBroker::GetXBPython(), pythonRequest);
     LanguageInvokerPtr languageInvokerPtr(pythonInvoker);
     int result = CScriptInvocationManager::GetInstance().ExecuteSync(m_scriptPath, languageInvokerPtr, m_addon, args, 30000, false);
 
@@ -233,7 +237,10 @@ bool CHTTPPythonHandler::appendPostData(const char *data, size_t size)
 {
   if (m_requestData.size() + size > MAX_STRING_POST_SIZE)
   {
-    CLog::Log(LOGERROR, "WebServer: Stopped uploading post since it exceeded size limitations");
+    CServiceBroker::GetLogging()
+        .GetLogger("CHTTPPythonHandler")
+        ->error("Stopped uploading post since it exceeded size limitations ({})",
+                MAX_STRING_POST_SIZE);
     return false;
   }
 

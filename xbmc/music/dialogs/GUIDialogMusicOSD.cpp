@@ -10,7 +10,8 @@
 
 #include "GUIUserMessages.h"
 #include "ServiceBroker.h"
-#include "addons/GUIWindowAddonBrowser.h"
+#include "addons/addoninfo/AddonType.h"
+#include "addons/gui/GUIWindowAddonBrowser.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "input/InputManager.h"
@@ -39,7 +40,8 @@ bool CGUIDialogMusicOSD::OnMessage(CGUIMessage &message)
       if (iControl == CONTROL_VIS_BUTTON)
       {
         std::string addonID;
-        if (CGUIWindowAddonBrowser::SelectAddonID(ADDON::ADDON_VIZ, addonID, true) == 1)
+        if (CGUIWindowAddonBrowser::SelectAddonID(ADDON::AddonType::VISUALIZATION, addonID, true) ==
+            1)
         {
           const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
           settings->SetString(CSettings::SETTING_MUSICPLAYER_VISUALISATION, addonID);

@@ -51,16 +51,24 @@ public:
   } UpdateState;
 
   CDirectoryProvider(const TiXmlElement *element, int parentID);
+  explicit CDirectoryProvider(const CDirectoryProvider& other);
   ~CDirectoryProvider() override;
 
+  // Implementation of IListProvider
+  std::unique_ptr<IListProvider> Clone() override;
   bool Update(bool forceRefresh) override;
-  void Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data) override;
+  void Announce(ANNOUNCEMENT::AnnouncementFlag flag,
+                const std::string& sender,
+                const std::string& message,
+                const CVariant& data) override;
   void Fetch(std::vector<CGUIListItemPtr> &items) override;
   void Reset() override;
   bool OnClick(const CGUIListItemPtr &item) override;
+  bool OnPlay(const CGUIListItemPtr& item) override;
   bool OnInfo(const CGUIListItemPtr &item) override;
   bool OnContextMenu(const CGUIListItemPtr &item) override;
   bool IsUpdating() const override;
+  void FreeResources(bool immediately) override;
 
   // callback from directory job
   void OnJobComplete(unsigned int jobID, bool success, CJob *job) override;

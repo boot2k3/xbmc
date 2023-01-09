@@ -8,13 +8,25 @@
 
 #pragma once
 
+#include "HDRStatus.h"
 #include "URL.h"
 #include "utils/Geometry.h"
 
 #include <vector>
 
+#include <dxgi1_5.h>
+
 #define BONJOUR_EVENT             ( WM_USER + 0x100 )	// Message sent to the Window when a Bonjour event occurs.
 #define BONJOUR_BROWSER_EVENT     ( WM_USER + 0x110 )
+#define TRAY_ICON_NOTIFY          ( WM_USER + 0x120 )
+
+struct VideoDriverInfo
+{
+  int majorVersion;
+  int minorVersion;
+  bool valid;
+  std::string version;
+};
 
 class CURL; // forward declaration
 
@@ -29,9 +41,10 @@ public:
   static bool XBMCShellExecute(const std::string &strPath, bool bWaitForScriptExit=false);
   static std::string GetResInfoString();
   static int GetDesktopColorDepth();
+  static size_t GetSystemMemorySize();
 
   static std::string GetSystemPath();
-  static std::string GetProfilePath();
+  static std::string GetProfilePath(const bool platformDirectories);
   static std::string UncToSmb(const std::string &strPath);
   static std::string SmbToUnc(const std::string &strPath);
   static bool AddExtraLongPathPrefix(std::wstring& path);
@@ -59,8 +72,14 @@ public:
 #endif // TARGET_WINDOWS_DESKTOP
   static void CropSource(CRect& src, CRect& dst, CRect target, UINT rotation = 0);
 
-  static bool IsUsbDevice(const std::wstring &strWdrive);
-
   static std::string WUSysMsg(DWORD dwError);
   static bool SetThreadLocalLocale(bool enable = true);
+
+  // HDR display support
+  static HDR_STATUS ToggleWindowsHDR(DXGI_MODE_DESC& modeDesc);
+  static HDR_STATUS GetWindowsHDRStatus();
+
+  static void PlatformSyslog();
+
+  static VideoDriverInfo GetVideoDriverInfo(const UINT vendorId, const std::wstring& driverDesc);
 };

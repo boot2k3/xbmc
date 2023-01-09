@@ -297,7 +297,7 @@ void CGUIDialogSmartPlaylistEditor::OnLimit()
     if (*limit == 0)
       dialog->Add(g_localizeStrings.Get(21428));
     else
-      dialog->Add(StringUtils::Format(g_localizeStrings.Get(21436).c_str(), *limit));
+      dialog->Add(StringUtils::Format(g_localizeStrings.Get(21436), *limit));
   }
   dialog->SetHeading(CVariant{ 21427 });
   dialog->SetSelected(selected);
@@ -324,6 +324,16 @@ void CGUIDialogSmartPlaylistEditor::OnType()
     return;
 
   m_playlist.SetType(ConvertType(allowedTypes[newSelected]));
+  
+  // Remove any invalid grouping left over when changing the type
+  Field currentGroup = CSmartPlaylistRule::TranslateGroup(m_playlist.GetGroup().c_str());
+  if (currentGroup != FieldNone && currentGroup != FieldUnknown)
+  {
+    std::vector<Field> groups = CSmartPlaylistRule::GetGroups(m_playlist.GetType());
+    if (std::find(groups.begin(), groups.end(), currentGroup) == groups.end())
+      m_playlist.SetGroup(CSmartPlaylistRule::TranslateGroup(FieldUnknown));
+  }
+
   UpdateButtons();
 }
 
@@ -404,7 +414,8 @@ void CGUIDialogSmartPlaylistEditor::UpdateButtons()
   if (m_playlist.m_limit == 0)
     SET_CONTROL_LABEL2(CONTROL_LIMIT, g_localizeStrings.Get(21428)); // no limit
   else
-    SET_CONTROL_LABEL2(CONTROL_LIMIT, StringUtils::Format(g_localizeStrings.Get(21436).c_str(), m_playlist.m_limit));
+    SET_CONTROL_LABEL2(CONTROL_LIMIT,
+                       StringUtils::Format(g_localizeStrings.Get(21436), m_playlist.m_limit));
   int currentItem = GetSelectedItem();
   CGUIMessage msgReset(GUI_MSG_LABEL_RESET, GetID(), CONTROL_RULE_LIST);
   OnMessage(msgReset);

@@ -1,18 +1,5 @@
 # Android packaging
 
-find_program(AAPT_EXECUTABLE aapt PATHS ${SDK_BUILDTOOLS_PATH})
-if(NOT AAPT_EXECUTABLE)
-  message(FATAL_ERROR "Could NOT find aapt executable")
-endif()
-find_program(DX_EXECUTABLE dx PATHS ${SDK_BUILDTOOLS_PATH})
-if(NOT DX_EXECUTABLE)
-  message(FATAL_ERROR "Could NOT find dx executable")
-endif()
-find_program(ZIPALIGN_EXECUTABLE zipalign PATHS ${SDK_BUILDTOOLS_PATH})
-if(NOT ZIPALIGN_EXECUTABLE)
-  message(FATAL_ERROR "Could NOT find zipalign executable")
-endif()
-
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   set(ANDROID_DEBUGGABLE true)
 else()
@@ -22,10 +9,8 @@ endif()
 # Configure files into packaging environment.
 configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/Makefile.in
                ${CMAKE_BINARY_DIR}/tools/android/packaging/Makefile @ONLY)
-configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/apksign
-               ${CMAKE_BINARY_DIR}/tools/android/packaging/apksign COPYONLY)
-configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/make_symbols.sh
-               ${CMAKE_BINARY_DIR}/tools/android/packaging/make_symbols.sh COPYONLY)
+configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/gradle.properties
+               ${CMAKE_BINARY_DIR}/tools/android/packaging/gradle.properties COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/build.gradle
                ${CMAKE_BINARY_DIR}/tools/android/packaging/build.gradle COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/gradlew
@@ -36,6 +21,8 @@ configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/gradle/wrapper/gradle
                ${CMAKE_BINARY_DIR}/tools/android/packaging/gradle/wrapper/gradle-wrapper.jar COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/gradle/wrapper/gradle-wrapper.properties
                ${CMAKE_BINARY_DIR}/tools/android/packaging/gradle/wrapper/gradle-wrapper.properties COPYONLY)
+configure_file(${CMAKE_SOURCE_DIR}/tools/android/packaging/xbmc/jni/Android.mk
+               ${CMAKE_BINARY_DIR}/tools/android/packaging/xbmc/jni/Android.mk COPYONLY)
 file(WRITE ${CMAKE_BINARY_DIR}/tools/depends/Makefile.include
      "$(PREFIX)/lib/${APP_NAME_LC}/lib${APP_NAME_LC}.so: ;\n")
 
@@ -70,6 +57,7 @@ set(package_files strings.xml
                   src/XBMCProperties.java
                   src/XBMCVideoView.java
                   src/XBMCFile.java
+                  src/XBMCURIUtils.java
                   src/channels/SyncChannelJobService.java
                   src/channels/SyncProgramsJobService.java
                   src/channels/model/XBMCDatabase.java
@@ -83,6 +71,7 @@ set(package_files strings.xml
                   src/interfaces/XBMCNsdManagerDiscoveryListener.java
                   src/interfaces/XBMCMediaDrmOnEventListener.java
                   src/interfaces/XBMCDisplayManagerDisplayListener.java
+                  src/interfaces/XBMCSpeechRecognitionListener.java
                   src/model/TVEpisode.java
                   src/model/Movie.java
                   src/model/TVShow.java
@@ -120,6 +109,7 @@ function(add_bundle_file file destination relative)
     file(REMOVE ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/BundleFiles.cmake)
     add_custom_target(bundle_files COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/BundleFiles.cmake)
     add_dependencies(bundle bundle_files)
+    add_dependencies(bundle_files ${APP_NAME_LC})
   endif()
 
   string(REPLACE "${relative}/" "" outfile ${file})
@@ -160,9 +150,9 @@ add_bundle_file(${SMBCLIENT_LIBRARY} ${libdir} "")
 if(CPU MATCHES i686)
   set(CPU x86)
 endif()
-foreach(target apk obb apk-unsigned apk-obb apk-obb-unsigned apk-noobb apk-clean apk-sign)
+foreach(target apk obb apk-obb apk-clean)
   add_custom_target(${target}
-      COMMAND PATH=${NATIVEPREFIX}/bin:$ENV{PATH} ${CMAKE_MAKE_PROGRAM}
+      COMMAND env PATH=${NATIVEPREFIX}/bin:$ENV{PATH} ${CMAKE_MAKE_PROGRAM} -j1
               -C ${CMAKE_BINARY_DIR}/tools/android/packaging
               CMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
               CC=${CMAKE_C_COMPILER}
@@ -174,11 +164,9 @@ foreach(target apk obb apk-unsigned apk-obb apk-obb-unsigned apk-noobb apk-clean
               NDKROOT=${NDKROOT}
               SDKROOT=${SDKROOT}
               STRIP=${CMAKE_STRIP}
-              AAPT=${AAPT_EXECUTABLE}
-              DX=${DX_EXECUTABLE}
-              ZIPALIGN=${ZIPALIGN_EXECUTABLE}
               ${target}
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tools/android/packaging
+      VERBATIM
   )
   if(NOT target STREQUAL apk-clean)
     add_dependencies(${target} bundle)

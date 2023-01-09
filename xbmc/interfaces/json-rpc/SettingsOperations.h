@@ -44,25 +44,55 @@ namespace JSONRPC
     static JSONRPC_STATUS SetSettingValue(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
     static JSONRPC_STATUS ResetSettingValue(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result);
 
+    static JSONRPC_STATUS GetSkinSettings(const std::string& method,
+                                          ITransportLayer* transport,
+                                          IClient* client,
+                                          const CVariant& parameterObject,
+                                          CVariant& result);
+    static JSONRPC_STATUS GetSkinSettingValue(const std::string& method,
+                                              ITransportLayer* transport,
+                                              IClient* client,
+                                              const CVariant& parameterObject,
+                                              CVariant& result);
+    static JSONRPC_STATUS SetSkinSettingValue(const std::string& method,
+                                              ITransportLayer* transport,
+                                              IClient* client,
+                                              const CVariant& parameterObject,
+                                              CVariant& result);
+
   private:
     static SettingLevel ParseSettingLevel(const std::string &strLevel);
 
-    static bool SerializeISetting(std::shared_ptr<const ISetting> setting, CVariant &obj);
-    static bool SerializeSettingSection(std::shared_ptr<const CSettingSection> setting, CVariant &obj);
-    static bool SerializeSettingCategory(std::shared_ptr<const CSettingCategory> setting, CVariant &obj);
-    static bool SerializeSettingGroup(std::shared_ptr<const CSettingGroup> setting, CVariant &obj);
-    static bool SerializeSetting(std::shared_ptr<const CSetting> setting, CVariant &obj);
-    static bool SerializeSettingBool(std::shared_ptr<const CSettingBool> setting, CVariant &obj);
-    static bool SerializeSettingInt(std::shared_ptr<const CSettingInt> setting, CVariant &obj);
-    static bool SerializeSettingNumber(std::shared_ptr<const CSettingNumber> setting, CVariant &obj);
-    static bool SerializeSettingString(std::shared_ptr<const CSettingString> setting, CVariant &obj);
-    static bool SerializeSettingAction(std::shared_ptr<const CSettingAction> setting, CVariant &obj);
-    static bool SerializeSettingList(std::shared_ptr<const CSettingList> setting, CVariant &obj);
-    static bool SerializeSettingPath(std::shared_ptr<const CSettingPath> setting, CVariant &obj);
-    static bool SerializeSettingAddon(std::shared_ptr<const CSettingAddon> setting, CVariant &obj);
-    static bool SerializeSettingDate(std::shared_ptr<const CSettingDate> setting, CVariant &obj);
-    static bool SerializeSettingTime(std::shared_ptr<const CSettingTime> setting, CVariant &obj);
-    static bool SerializeSettingControl(std::shared_ptr<const ISettingControl> control, CVariant &obj);
+    static bool SerializeISetting(const std::shared_ptr<const ISetting>& setting, CVariant& obj);
+    static bool SerializeSettingSection(const std::shared_ptr<const CSettingSection>& setting,
+                                        CVariant& obj);
+    static bool SerializeSettingCategory(const std::shared_ptr<const CSettingCategory>& setting,
+                                         CVariant& obj);
+    static bool SerializeSettingGroup(const std::shared_ptr<const CSettingGroup>& setting,
+                                      CVariant& obj);
+    static bool SerializeSetting(const std::shared_ptr<const CSetting>& setting, CVariant& obj);
+    static bool SerializeSettingBool(const std::shared_ptr<const CSettingBool>& setting,
+                                     CVariant& obj);
+    static bool SerializeSettingInt(const std::shared_ptr<const CSettingInt>& setting,
+                                    CVariant& obj);
+    static bool SerializeSettingNumber(const std::shared_ptr<const CSettingNumber>& setting,
+                                       CVariant& obj);
+    static bool SerializeSettingString(const std::shared_ptr<const CSettingString>& setting,
+                                       CVariant& obj);
+    static bool SerializeSettingAction(const std::shared_ptr<const CSettingAction>& setting,
+                                       CVariant& obj);
+    static bool SerializeSettingList(const std::shared_ptr<const CSettingList>& setting,
+                                     CVariant& obj);
+    static bool SerializeSettingPath(const std::shared_ptr<const CSettingPath>& setting,
+                                     CVariant& obj);
+    static bool SerializeSettingAddon(const std::shared_ptr<const CSettingAddon>& setting,
+                                      CVariant& obj);
+    static bool SerializeSettingDate(const std::shared_ptr<const CSettingDate>& setting,
+                                     CVariant& obj);
+    static bool SerializeSettingTime(const std::shared_ptr<const CSettingTime>& setting,
+                                     CVariant& obj);
+    static bool SerializeSettingControl(const std::shared_ptr<const ISettingControl>& control,
+                                        CVariant& obj);
 
     static void SerializeSettingListValues(const std::vector<CVariant> &values, CVariant &obj);
   };

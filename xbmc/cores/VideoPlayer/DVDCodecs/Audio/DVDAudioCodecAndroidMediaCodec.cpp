@@ -22,15 +22,12 @@
 #include "ServiceBroker.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
-#include "cores/VideoPlayer/Interface/Addon/DemuxCrypto.h"
-#include "settings/AdvancedSettings.h"
-#include "settings/SettingsComponent.h"
+#include "cores/VideoPlayer/Interface/DemuxCrypto.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
-#include "platform/android/activity/AndroidFeatures.h"
-
 #include <cassert>
+#include <stdexcept>
 
 #include <androidjni/ByteBuffer.h>
 #include <androidjni/MediaCodec.h>
@@ -53,7 +50,7 @@ static bool IsDownmixDecoder(const std::string &name)
   };
   for (const char **ptr = downmixDecoders; *ptr; ptr++)
   {
-    if (!strnicmp(*ptr, name.c_str(), strlen(*ptr)))
+    if (!StringUtils::CompareNoCase(*ptr, name, strlen(*ptr)))
       return true;
   }
   return false;
@@ -67,7 +64,7 @@ static bool IsDecoderWhitelisted(const std::string &name)
   };
   for (const char **ptr = whitelistDecoders; *ptr; ptr++)
   {
-    if (!strnicmp(*ptr, name.c_str(), strlen(*ptr)))
+    if (!StringUtils::CompareNoCase(*ptr, name, strlen(*ptr)))
       return true;
   }
   return false;
@@ -95,9 +92,9 @@ CDVDAudioCodecAndroidMediaCodec::~CDVDAudioCodecAndroidMediaCodec()
   Dispose();
 }
 
-CDVDAudioCodec* CDVDAudioCodecAndroidMediaCodec::Create(CProcessInfo &processInfo)
+std::unique_ptr<CDVDAudioCodec> CDVDAudioCodecAndroidMediaCodec::Create(CProcessInfo& processInfo)
 {
-  return new CDVDAudioCodecAndroidMediaCodec(processInfo);
+  return std::make_unique<CDVDAudioCodecAndroidMediaCodec>(processInfo);
 }
 
 bool CDVDAudioCodecAndroidMediaCodec::Register()
@@ -110,7 +107,9 @@ bool CDVDAudioCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
 {
   m_hints = hints;
 
-  CLog::Log(LOGDEBUG, "CDVDAudioCodecAndroidMediaCodec::Open codec(%d), profile(%d), tag(%d), extrasize(%d)", hints.codec, hints.profile, hints.codec_tag, hints.extrasize);
+  CLog::Log(LOGDEBUG,
+            "CDVDAudioCodecAndroidMediaCodec::Open codec({}), profile({}), tag({}), extrasize({})",
+            hints.codec, hints.profile, hints.codec_tag, hints.extrasize);
 
   // First check if passthrough decoder is supported
   CAEStreamInfo::DataType ptStreamType = CAEStreamInfo::STREAM_TYPE_NULL;
@@ -135,7 +134,7 @@ bool CDVDAudioCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
     case AV_CODEC_ID_AAC_LATM:
       if (!m_hints.extrasize)
       {
-        CLog::Log(LOGNOTICE, "CDVDAudioCodecAndroidMediaCodec: extradata required for aac decoder!");
+        CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec: extradata required for aac decoder!");
         return false;
       }
 
@@ -191,7 +190,7 @@ bool CDVDAudioCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
       break;
 
     default:
-      CLog::Log(LOGNOTICE, "CDVDAudioCodecAndroidMediaCodec: Unknown hints.codec(%d)", hints.codec);
+      CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec: Unknown hints.codec({})", hints.codec);
       return false;
       break;
   }
@@ -199,12 +198,12 @@ bool CDVDAudioCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
   {
     //StereoDownmixAllowed is true if the user has selected 2.0 Audio channels in settings
     bool stereoDownmixAllowed = CServiceBroker::GetActiveAE()->HasStereoAudioChannelCount();
-    unsigned int num_codecs = CJNIMediaCodecList::getCodecCount();
+    const std::vector<CJNIMediaCodecInfo> codecInfos =
+        CJNIMediaCodecList(CJNIMediaCodecList::REGULAR_CODECS).getCodecInfos();
     std::vector<std::string> mimeTypes;
 
-    for (int i = 0; i < num_codecs; i++)
+    for (const CJNIMediaCodecInfo& codec_info : codecInfos)
     {
-      CJNIMediaCodecInfo codec_info = CJNIMediaCodecList::getCodecInfoAt(i);
       if (codec_info.isEncoder())
         continue;
 
@@ -222,11 +221,13 @@ bool CDVDAudioCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
         m_codec = std::shared_ptr<CJNIMediaCodec>(new CJNIMediaCodec(CJNIMediaCodec::createByCodecName(codecName)));
         if (xbmc_jnienv()->ExceptionCheck())
         {
+          xbmc_jnienv()->ExceptionDescribe();
           xbmc_jnienv()->ExceptionClear();
           m_codec = NULL;
           continue;
         }
-        CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec: Selected audio decoder: %s", codecName.c_str());
+        CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec: Selected audio decoder: {}",
+                  codecName);
         break;
       }
     }
@@ -248,11 +249,14 @@ PROCESSDECODER:
       uuid = CJNIUUID(0x9A04F07998404286ULL, 0xAB92E65BE0885F95ULL);
     else
     {
-      CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::Open Unsupported crypto-keysystem:%u", m_hints.cryptoSession->keySystem);
+      CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::Open Unsupported crypto-keysystem:{}",
+                m_hints.cryptoSession->keySystem);
       return false;
     }
 
-    m_crypto = new CJNIMediaCrypto(uuid, std::vector<char>(m_hints.cryptoSession->sessionId, m_hints.cryptoSession->sessionId + m_hints.cryptoSession->sessionIdSize));
+    m_crypto =
+        new CJNIMediaCrypto(uuid, std::vector<char>(m_hints.cryptoSession->sessionId.begin(),
+                                                    m_hints.cryptoSession->sessionId.end()));
 
     if (xbmc_jnienv()->ExceptionCheck())
     {
@@ -273,6 +277,7 @@ PROCESSDECODER:
       m_codec = std::shared_ptr<CJNIMediaCodec>(new CJNIMediaCodec(CJNIMediaCodec::createDecoderByType(m_mime)));
       if (xbmc_jnienv()->ExceptionCheck())
       {
+        xbmc_jnienv()->ExceptionDescribe();
         xbmc_jnienv()->ExceptionClear();
         CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::Open Failed creating raw decoder");
         return false;
@@ -289,7 +294,8 @@ PROCESSDECODER:
           return false;
         }
       }
-      CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec Use raw decoder and decode using %s", m_decryptCodec->GetName());
+      CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec Use raw decoder and decode using {}",
+                m_decryptCodec->GetName());
     }
     else
     {
@@ -304,7 +310,7 @@ PROCESSDECODER:
     return false;
   }
 
-  CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec Open Android MediaCodec %s", m_formatname.c_str());
+  CLog::Log(LOGINFO, "CDVDAudioCodecAndroidMediaCodec Open Android MediaCodec {}", m_formatname);
 
   m_opened = true;
   m_codecIsFed = false;
@@ -332,7 +338,10 @@ void CDVDAudioCodecAndroidMediaCodec::Dispose()
     m_codec->release();
     m_codec.reset();
     if (xbmc_jnienv()->ExceptionCheck())
+    {
+      xbmc_jnienv()->ExceptionDescribe();
       xbmc_jnienv()->ExceptionClear();
+    }
   }
 
   if (m_crypto)
@@ -345,7 +354,9 @@ void CDVDAudioCodecAndroidMediaCodec::Dispose()
 
 bool CDVDAudioCodecAndroidMediaCodec::AddData(const DemuxPacket &packet)
 {
-  CLog::Log(LOGDEBUG, LOGAUDIO, "CDVDAudioCodecAndroidMediaCodec::AddData dts:%0.4lf pts:%0.4lf size(%d)", packet.dts, packet.pts, packet.iSize);
+  CLog::Log(LOGDEBUG, LOGAUDIO,
+            "CDVDAudioCodecAndroidMediaCodec::AddData dts:{:0.4f} pts:{:0.4f} size({})", packet.dts,
+            packet.pts, packet.iSize);
 
   if (packet.pData)
   {
@@ -355,7 +366,7 @@ bool CDVDAudioCodecAndroidMediaCodec::AddData(const DemuxPacket &packet)
     if (xbmc_jnienv()->ExceptionCheck())
     {
       std::string err = CJNIBase::ExceptionToString();
-      CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::AddData ExceptionCheck \n %s", err.c_str());
+      CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::AddData ExceptionCheck \n {}", err);
     }
     else if (index >= 0)
     {
@@ -371,7 +382,8 @@ bool CDVDAudioCodecAndroidMediaCodec::AddData(const DemuxPacket &packet)
 
       if (packet.iSize > size)
       {
-        CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::AddData, iSize(%d) > size(%d)", packet.iSize, size);
+        CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::AddData, iSize({}) > size({})",
+                  packet.iSize, size);
         return packet.iSize;
       }
       // fetch a pointer to the ByteBuffer backing store
@@ -393,14 +405,28 @@ bool CDVDAudioCodecAndroidMediaCodec::AddData(const DemuxPacket &packet)
       CJNIMediaCodecCryptoInfo *cryptoInfo(0);
       if (!!m_crypto->get_raw() && packet.cryptoInfo)
       {
+        if (CJNIBase::GetSDKVersion() < 25 &&
+            packet.cryptoInfo->mode == CJNIMediaCodec::CRYPTO_MODE_AES_CBC)
+        {
+          CLog::LogF(LOGERROR, "Device API does not support CBCS decryption");
+          return false;
+        }
         cryptoInfo = new CJNIMediaCodecCryptoInfo();
         cryptoInfo->set(
-          packet.cryptoInfo->numSubSamples,
-          std::vector<int>(packet.cryptoInfo->clearBytes, packet.cryptoInfo->clearBytes + packet.cryptoInfo->numSubSamples),
-          std::vector<int>(packet.cryptoInfo->cipherBytes, packet.cryptoInfo->cipherBytes + packet.cryptoInfo->numSubSamples),
-          std::vector<char>(packet.cryptoInfo->kid, packet.cryptoInfo->kid + 16),
-          std::vector<char>(packet.cryptoInfo->iv, packet.cryptoInfo->iv + 16),
-          CJNIMediaCodec::CRYPTO_MODE_AES_CTR);
+            packet.cryptoInfo->numSubSamples,
+            std::vector<int>(packet.cryptoInfo->clearBytes,
+                             packet.cryptoInfo->clearBytes + packet.cryptoInfo->numSubSamples),
+            std::vector<int>(packet.cryptoInfo->cipherBytes,
+                             packet.cryptoInfo->cipherBytes + packet.cryptoInfo->numSubSamples),
+            std::vector<char>(std::begin(packet.cryptoInfo->kid), std::end(packet.cryptoInfo->kid)),
+            std::vector<char>(std::begin(packet.cryptoInfo->iv), std::end(packet.cryptoInfo->iv)),
+            packet.cryptoInfo->mode == CJNIMediaCodec::CRYPTO_MODE_AES_CBC
+                ? CJNIMediaCodec::CRYPTO_MODE_AES_CBC
+                : CJNIMediaCodec::CRYPTO_MODE_AES_CTR);
+
+        CJNIMediaCodecCryptoInfoPattern cryptoInfoPattern(packet.cryptoInfo->cryptBlocks,
+                                                          packet.cryptoInfo->skipBlocks);
+        cryptoInfo->setPattern(cryptoInfoPattern);
       }
 
       int flags = 0;
@@ -463,6 +489,7 @@ void CDVDAudioCodecAndroidMediaCodec::Reset()
     if (xbmc_jnienv()->ExceptionCheck())
     {
       CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::Reset ExceptionCheck");
+      xbmc_jnienv()->ExceptionDescribe();
       xbmc_jnienv()->ExceptionClear();
     }
   }
@@ -496,8 +523,8 @@ bool CDVDAudioCodecAndroidMediaCodec::ConfigureMediaCodec(void)
 {
   // setup a MediaFormat to match the audio content,
   // used by codec during configure
-  CJNIMediaFormat mediaformat(CJNIMediaFormat::createAudioFormat(
-    m_mime.c_str(), m_hints.samplerate, m_hints.channels));
+  CJNIMediaFormat mediaformat(
+      CJNIMediaFormat::createAudioFormat(m_mime, m_hints.samplerate, m_hints.channels));
 
   if (!m_decryptCodec)
   {
@@ -592,8 +619,9 @@ void CDVDAudioCodecAndroidMediaCodec::GetData(DVDAudioFrame &frame)
     frame.duration = ((double)frame.nb_frames * DVD_TIME_BASE) / frame.format.m_sampleRate;
   else
     frame.duration = 0.0;
-  if (frame.nb_frames > 0 && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->CanLogComponent(LOGAUDIO))
-    CLog::Log(LOGDEBUG, "MediaCodecAudio::GetData: frames:%d pts: %0.4f", frame.nb_frames, frame.pts);
+  if (frame.nb_frames > 0 && CServiceBroker::GetLogging().CanLogComponent(LOGAUDIO))
+    CLog::Log(LOGDEBUG, "MediaCodecAudio::GetData: frames:{} pts: {:0.4f}", frame.nb_frames,
+              frame.pts);
 }
 
 int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
@@ -606,7 +634,9 @@ int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
   if (xbmc_jnienv()->ExceptionCheck())
   {
     std::string err = CJNIBase::ExceptionToString();
-    CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::GetData ExceptionCheck; dequeueOutputBuffer \n %s", err.c_str());
+    CLog::Log(LOGERROR,
+              "CDVDAudioCodecAndroidMediaCodec::GetData ExceptionCheck; dequeueOutputBuffer \n {}",
+              err);
     xbmc_jnienv()->ExceptionDescribe();
     xbmc_jnienv()->ExceptionClear();
     return 0;
@@ -616,7 +646,9 @@ int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
     CJNIByteBuffer buffer = m_codec->getOutputBuffer(index);
     if (xbmc_jnienv()->ExceptionCheck())
     {
-      CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::GetData ExceptionCheck: getOutputBuffer(%d)", index);
+      CLog::Log(LOGERROR,
+                "CDVDAudioCodecAndroidMediaCodec::GetData ExceptionCheck: getOutputBuffer({})",
+                index);
       xbmc_jnienv()->ExceptionDescribe();
       xbmc_jnienv()->ExceptionClear();
       return 0;
@@ -658,6 +690,8 @@ int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
       {
         m_bufferSize = size;
         m_buffer = (uint8_t*)realloc(m_buffer, m_bufferSize);
+        if (m_buffer == nullptr)
+          throw std::runtime_error("Failed to realloc memory, insufficient memory available");
       }
 
       memcpy(m_buffer, src_ptr, size);
@@ -674,7 +708,8 @@ int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
       xbmc_jnienv()->ExceptionClear();
     }
 
-    CLog::Log(LOGDEBUG, LOGAUDIO, "CDVDAudioCodecAndroidMediaCodec::GetData index(%d), size(%d)", index, m_bufferUsed);
+    CLog::Log(LOGDEBUG, LOGAUDIO, "CDVDAudioCodecAndroidMediaCodec::GetData index({}), size({})",
+              index, m_bufferUsed);
 
     m_currentPts = bufferInfo.presentationTimeUs() == (int64_t)DVD_NOPTS_VALUE ? DVD_NOPTS_VALUE :  bufferInfo.presentationTimeUs();
 
@@ -705,7 +740,7 @@ int CDVDAudioCodecAndroidMediaCodec::GetData(uint8_t** dst)
   else
   {
     // we should never get here
-    CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::GetData unknown index(%d)", index);
+    CLog::Log(LOGERROR, "CDVDAudioCodecAndroidMediaCodec::GetData unknown index({})", index);
   }
 
   *dst     = m_buffer;
@@ -723,12 +758,16 @@ void CDVDAudioCodecAndroidMediaCodec::ConfigureOutputFormat(CJNIMediaFormat* med
     m_channels     = mediaformat->getInteger("channel-count");
 
 #if 1 //defined(DEBUG_VERBOSE)
-  CLog::Log(LOGDEBUG, "CDVDAudioCodecAndroidMediaCodec:: "
-    "sample_rate(%d), channel_count(%d)",
-    m_samplerate, m_channels);
+  CLog::Log(LOGDEBUG,
+            "CDVDAudioCodecAndroidMediaCodec:: "
+            "sample_rate({}), channel_count({})",
+            m_samplerate, m_channels);
 #endif
 
   // clear any jni exceptions
   if (xbmc_jnienv()->ExceptionCheck())
+  {
+    xbmc_jnienv()->ExceptionDescribe();
     xbmc_jnienv()->ExceptionClear();
+  }
 }

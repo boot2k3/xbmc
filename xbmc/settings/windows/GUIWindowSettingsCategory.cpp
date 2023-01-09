@@ -106,6 +106,17 @@ bool CGUIWindowSettingsCategory::OnMessage(CGUIMessage &message)
       }
       break;
     }
+
+    case GUI_MSG_PLAYBACK_STARTED:
+    case GUI_MSG_PLAYBACK_ENDED:
+    case GUI_MSG_PLAYBACK_STOPPED:
+    {
+      if (IsActive())
+      {
+        UpdateSettings();
+      }
+      break;
+    }
   }
 
   return CGUIDialogSettingsManagerBase::OnMessage(message);
@@ -186,9 +197,11 @@ SettingSectionPtr CGUIWindowSettingsCategory::GetSection()
   return NULL;
 }
 
-void CGUIWindowSettingsCategory::Save()
+bool CGUIWindowSettingsCategory::Save()
 {
   m_settings->Save();
+
+  return true;
 }
 
 CSettingsManager* CGUIWindowSettingsCategory::GetSettingsManager() const
@@ -217,11 +230,15 @@ void CGUIWindowSettingsCategory::FocusElement(const std::string& elementId)
           if (control)
             SET_CONTROL_FOCUS(control->GetID(), 0);
           else
-            CLog::Log(LOGERROR, "CGUIWindowSettingsCategory: failed to get control for setting '%s'.", elementId.c_str());
+            CLog::Log(LOGERROR,
+                      "CGUIWindowSettingsCategory: failed to get control for setting '{}'.",
+                      elementId);
           return;
         }
       }
     }
   }
-  CLog::Log(LOGERROR, "CGUIWindowSettingsCategory: failed to set focus. unknown category/setting id '%s'.", elementId.c_str());
+  CLog::Log(LOGERROR,
+            "CGUIWindowSettingsCategory: failed to set focus. unknown category/setting id '{}'.",
+            elementId);
 }

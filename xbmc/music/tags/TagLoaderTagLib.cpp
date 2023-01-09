@@ -182,7 +182,9 @@ bool CTagLoaderTagLib::ParseTag(ASF::Tag *asf, EmbeddedArt *art, CMusicInfoTag& 
     else if (it->first == "WM/Script")
     {} // Known unsupported, suppress warnings
     else if (it->first == "WM/Year")
-      tag.SetYear(atoi(it->second.front().toString().toCString(true)));
+      tag.SetReleaseDate(it->second.front().toString().to8Bit(true));
+    else if (it->first == "WM/OriginalReleaseYear")
+      tag.SetOriginalDate(it->second.front().toString().to8Bit(true));
     else if (it->first == "WM/SetSubTitle")
       tag.SetDiscSubtitle(it->second.front().toString().to8Bit(true));
     else if (it->first == "MusicBrainz/Artist Id")
@@ -198,18 +200,20 @@ bool CTagLoaderTagLib::ParseTag(ASF::Tag *asf, EmbeddedArt *art, CMusicInfoTag& 
     else if (it->first == "MusicBrainz/Track Id")
       tag.SetMusicBrainzTrackID(it->second.front().toString().to8Bit(true));
     else if (it->first == "MusicBrainz/Album Status")
-    {}
+      tag.SetAlbumReleaseStatus(it->second.front().toString().toCString(true));
     else if (it->first == "MusicBrainz/Album Type")
       SetReleaseType(tag, GetASFStringList(it->second));
     else if (it->first == "MusicIP/PUID")
     {}
-    else if (it->first == "replaygain_track_gain")
+    else if (it->first == "WM/BeatsPerMinute")
+      tag.SetBPM(atoi(it->second.front().toString().toCString(true)));
+    else if (it->first == "replaygain_track_gain" || it->first == "REPLAYGAIN_TRACK_GAIN")
       replayGainInfo.ParseGain(ReplayGain::TRACK, it->second.front().toString().toCString(true));
-    else if (it->first == "replaygain_album_gain")
+    else if (it->first == "replaygain_album_gain" || it->first == "REPLAYGAIN_ALBUM_GAIN")
       replayGainInfo.ParseGain(ReplayGain::ALBUM, it->second.front().toString().toCString(true));
-    else if (it->first == "replaygain_track_peak")
+    else if (it->first == "replaygain_track_peak" || it->first == "REPLAYGAIN_TRACK_PEAK")
       replayGainInfo.ParsePeak(ReplayGain::TRACK, it->second.front().toString().toCString(true));
-    else if (it->first == "replaygain_album_peak")
+    else if (it->first == "replaygain_album_peak" || it->first == "REPLAYGAIN_ALBUM_PEAK")
       replayGainInfo.ParsePeak(ReplayGain::ALBUM, it->second.front().toString().toCString(true));
     else if (it->first == "WM/Picture")
     { // picture
@@ -219,13 +223,13 @@ bool CTagLoaderTagLib::ParseTag(ASF::Tag *asf, EmbeddedArt *art, CMusicInfoTag& 
         art->Set(reinterpret_cast<const uint8_t *>(pic.picture().data()), pic.picture().size(), pic.mimeType().toCString());
     }
     else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel == LOG_LEVEL_MAX)
-      CLog::Log(LOGDEBUG, "unrecognized ASF tag name: %s", it->first.toCString(true));
+      CLog::Log(LOGDEBUG, "unrecognized ASF tag name: {}", it->first.toCString(true));
   }
   // artist may be specified in the ContentDescription block rather than using the 'Author' attribute.
   if (tag.GetArtist().empty())
     tag.SetArtist(asf->artist().toCString(true));
 
-  if (asf->comment() != String::null)
+  if (!asf->comment().isEmpty())
     tag.SetComment(asf->comment().toCString(true));
   tag.SetReplayGain(replayGainInfo);
   tag.SetLoaded(true);
@@ -294,9 +298,15 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
     else if (it->first == "TSOC")   SetComposerSort(tag, GetID3v2StringList(it->second));
     else if (it->first == "TIT2")   tag.SetTitle(it->second.front()->toString().to8Bit(true));
     else if (it->first == "TCON")   SetGenre(tag, GetID3v2StringList(it->second));
-    else if (it->first == "TRCK")   tag.SetTrackNumber(strtol(it->second.front()->toString().toCString(true), nullptr, 10));
-    else if (it->first == "TPOS")   tag.SetDiscNumber(strtol(it->second.front()->toString().toCString(true), nullptr, 10));
-    else if (it->first == "TYER")   tag.SetYear(strtol(it->second.front()->toString().toCString(true), nullptr, 10));
+    else if (it->first == "TRCK")
+      tag.SetTrackNumber(
+          static_cast<int>(strtol(it->second.front()->toString().toCString(true), nullptr, 10)));
+    else if (it->first == "TPOS")
+      tag.SetDiscNumber(
+          static_cast<int>(strtol(it->second.front()->toString().toCString(true), nullptr, 10)));
+    else if (it->first == "TDOR" || it->first == "TORY") // TDOR - ID3v2.4, TORY - ID3v2.3
+      tag.SetOriginalDate(it->second.front()->toString().to8Bit(true));
+    else if (it->first == "TDAT")   {} // empty as taglib has moved the value to TDRC
     else if (it->first == "TCMP")   tag.SetCompilation((strtol(it->second.front()->toString().toCString(true), nullptr, 10) == 0) ? false : true);
     else if (it->first == "TENC")   {} // EncodedBy
     else if (it->first == "TCOM")   AddArtistRole(tag, "Composer", GetID3v2StringList(it->second));
@@ -305,13 +315,17 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
     else if (it->first == "TPE4")   AddArtistRole(tag, "Remixer", GetID3v2StringList(it->second));
     else if (it->first == "TPUB")   tag.SetRecordLabel(it->second.front()->toString().to8Bit(true));
     else if (it->first == "TCOP")   {} // Copyright message
-    else if (it->first == "TDRC")   tag.SetYear(strtol(it->second.front()->toString().toCString(true), nullptr, 10));
-    else if (it->first == "TDRL")   tag.SetYear(strtol(it->second.front()->toString().toCString(true), nullptr, 10));
+    else if (it->first == "TDRC")  // taglib concatenates TYER & TDAT into this field if v2.3
+      tag.SetReleaseDate(it->second.front()->toString().to8Bit(true));
+    else if (it->first == "TDRL")   {} // Not set by Picard or used in community generally
     else if (it->first == "TDTG")   {} // Tagging time
     else if (it->first == "TLAN")   {} // Languages
     else if (it->first == "TMOO")   tag.SetMood(it->second.front()->toString().to8Bit(true));
     else if (it->first == "TSST")
       tag.SetDiscSubtitle(it->second.front()->toString().to8Bit(true));
+    else if (it->first == "TBPM")
+      tag.SetBPM(
+          static_cast<int>(strtol(it->second.front()->toString().toCString(true), nullptr, 10)));
     else if (it->first == "USLT")
       // Loop through any lyrics frames. Could there be multiple frames, how to choose?
       for (ID3v2::FrameList::ConstIterator lt = it->second.begin(); lt != it->second.end(); ++lt)
@@ -352,6 +366,8 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
           SetAlbumArtist(tag, StringListToVectorString(stringList));
         else if (desc == "MUSICBRAINZ ALBUM TYPE")
           SetReleaseType(tag, StringListToVectorString(stringList));
+        else if (desc == "MUSICBRAINZ ALBUM STATUS")
+          tag.SetAlbumReleaseStatus(stringList.front().to8Bit(true));
         else if (desc == "REPLAYGAIN_TRACK_GAIN")
           replayGainInfo.ParseGain(ReplayGain::TRACK, stringList.front().toCString(true));
         else if (desc == "REPLAYGAIN_ALBUM_GAIN")
@@ -375,7 +391,8 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
         else if (desc == "MOOD")
           tag.SetMood(stringList.front().to8Bit(true));
         else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel == LOG_LEVEL_MAX)
-          CLog::Log(LOGDEBUG, "unrecognized user text tag detected: TXXX:%s", frame->description().toCString(true));
+          CLog::Log(LOGDEBUG, "unrecognized user text tag detected: TXXX:{}",
+                    frame->description().toCString(true));
       }
     else if (it->first == "TIPL")
       // Loop through and process the involved people list
@@ -440,12 +457,14 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
               popFrame->email() != "no@email" &&
               popFrame->email() != "quodlibet@lists.sacredchao.net" &&
               popFrame->email() != "rating@winamp.com")
-            CLog::Log(LOGDEBUG, "unrecognized ratings schema detected: %s", popFrame->email().toCString(true));
+            CLog::Log(LOGDEBUG, "unrecognized ratings schema detected: {}",
+                      popFrame->email().toCString(true));
           tag.SetUserrating(POPMtoXBMC(popFrame->rating()));
         }
       }
     else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel == LOG_LEVEL_MAX)
-      CLog::Log(LOGDEBUG, "unrecognized ID3 frame detected: %c%c%c%c", it->first[0], it->first[1], it->first[2], it->first[3]);
+      CLog::Log(LOGDEBUG, "unrecognized ID3 frame detected: {}{}{}{}", it->first[0], it->first[1],
+                it->first[2], it->first[3]);
   } // for
 
   // Process the extracted picture frames; 0 = CoverArt, 1 = Other, 2 = First Found picture
@@ -463,7 +482,7 @@ bool CTagLoaderTagLib::ParseTag(ID3v2::Tag *id3v2, EmbeddedArt *art, MUSIC_INFO:
     }
 
 
-  if (id3v2->comment() != String::null)
+  if (!id3v2->comment().isEmpty())
     tag.SetComment(id3v2->comment().toCString(true));
 
   tag.SetReplayGain(replayGainInfo);
@@ -503,9 +522,11 @@ bool CTagLoaderTagLib::ParseTag(APE::Tag *ape, EmbeddedArt *art, CMusicInfoTag& 
     else if (it->first == "DISCNUMBER" || it->first == "DISC")
       tag.SetDiscNumber(it->second.toString().toInt());
     else if (it->first == "YEAR")
-      tag.SetYear(it->second.toString().toInt());
+      tag.SetReleaseDate(it->second.toString().to8Bit(true));
     else if (it->first == "DISCSUBTITLE")
       tag.SetDiscSubtitle(it->second.toString().to8Bit(true));
+    else if (it->first == "ORIGINALYEAR")
+      tag.SetOriginalDate(it->second.toString().to8Bit(true));
     else if (it->first == "GENRE")
       SetGenre(tag, StringListToVectorString(it->second.toStringList()));
     else if (it->first == "MOOD")
@@ -571,6 +592,10 @@ bool CTagLoaderTagLib::ParseTag(APE::Tag *ape, EmbeddedArt *art, CMusicInfoTag& 
       tag.SetMusicBrainzTrackID(it->second.toString().to8Bit(true));
     else if (it->first == "MUSICBRAINZ_ALBUMTYPE")
       SetReleaseType(tag, StringListToVectorString(it->second.toStringList()));
+    else if (it->first == "BPM")
+      tag.SetBPM(it->second.toString().toInt());
+    else if (it->first == "MUSICBRAINZ_ALBUMSTATUS")
+      tag.SetAlbumReleaseStatus(it->second.toString().to8Bit(true));
     else if (it->first == "COVER ART (FRONT)")
     {
       TagLib::ByteVector tdata = it->second.binaryData();
@@ -595,7 +620,7 @@ bool CTagLoaderTagLib::ParseTag(APE::Tag *ape, EmbeddedArt *art, CMusicInfoTag& 
       }
     }
     else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel == LOG_LEVEL_MAX)
-      CLog::Log(LOGDEBUG, "unrecognized APE tag: %s", it->first.toCString(true));
+      CLog::Log(LOGDEBUG, "unrecognized APE tag: {}", it->first.toCString(true));
   }
 
   tag.SetReplayGain(replayGainInfo);
@@ -638,16 +663,16 @@ bool CTagLoaderTagLib::ParseTag(Ogg::XiphComment *xiph, EmbeddedArt *art, CMusic
       tag.SetTrackNumber(it->second.front().toInt());
     else if (it->first == "DISCNUMBER")
       tag.SetDiscNumber(it->second.front().toInt());
-    else if (it->first == "YEAR")
-      tag.SetYear(it->second.front().toInt());
-    else if (it->first == "DATE")
-      tag.SetYear(it->second.front().toInt());
+    else if (it->first == "YEAR" || it->first == "DATE")
+      tag.AddReleaseDate(it->second.front().to8Bit(true));
     else if (it->first == "GENRE")
       SetGenre(tag, StringListToVectorString(it->second));
     else if (it->first == "MOOD")
       tag.SetMood(it->second.front().to8Bit(true));
     else if (it->first == "COMMENT")
       tag.SetComment(it->second.front().to8Bit(true));
+    else if (it->first == "ORIGINALYEAR" || it->first == "ORIGINALDATE")
+      tag.AddOriginalDate(it->second.front().to8Bit(true));
     else if (it->first == "CUESHEET")
       tag.SetCueSheet(it->second.front().to8Bit(true));
     else if (it->first == "DISCSUBTITLE")
@@ -709,6 +734,10 @@ bool CTagLoaderTagLib::ParseTag(Ogg::XiphComment *xiph, EmbeddedArt *art, CMusic
       tag.SetMusicBrainzTrackID(it->second.front().to8Bit(true));
     else if (it->first == "RELEASETYPE")
       SetReleaseType(tag, StringListToVectorString(it->second));
+    else if (it->first == "BPM")
+      tag.SetBPM(strtol(it->second.front().toCString(true), nullptr, 10));
+    else if (it->first == "RELEASESTATUS")
+      tag.SetAlbumReleaseStatus(it->second.front().toCString(true));
     else if (it->first == "RATING")
     {
       // Vorbis ratings are a mess because the standard forgot to mention anything about them.
@@ -749,7 +778,7 @@ bool CTagLoaderTagLib::ParseTag(Ogg::XiphComment *xiph, EmbeddedArt *art, CMusic
     }
 #endif
     else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_logLevel == LOG_LEVEL_MAX)
-      CLog::Log(LOGDEBUG, "unrecognized XipComment name: %s", it->first.toCString(true));
+      CLog::Log(LOGDEBUG, "unrecognized XipComment name: {}", it->first.toCString(true));
   }
 
 #if TAGLIB_MAJOR_VERSION <= 1 && TAGLIB_MINOR_VERSION < 11
@@ -791,7 +820,7 @@ bool CTagLoaderTagLib::ParseTag(Ogg::XiphComment *xiph, EmbeddedArt *art, CMusic
   }
 #endif
 
-  if (xiph->comment() != String::null)
+  if (!xiph->comment().isEmpty())
     tag.SetComment(xiph->comment().toCString(true));
 
   tag.SetReplayGain(replayGainInfo);
@@ -805,8 +834,8 @@ bool CTagLoaderTagLib::ParseTag(MP4::Tag *mp4, EmbeddedArt *art, CMusicInfoTag& 
     return false;
 
   ReplayGain replayGainInfo;
-  MP4::ItemListMap& itemListMap = mp4->itemListMap();
-  for (MP4::ItemListMap::ConstIterator it = itemListMap.begin(); it != itemListMap.end(); ++it)
+  const MP4::ItemMap itemMap = mp4->itemMap();
+  for (auto it = itemMap.begin(); it != itemMap.end(); ++it)
   {
     if (it->first == "\251nam")
       tag.SetTitle(it->second.toStringList().front().to8Bit(true));
@@ -822,7 +851,8 @@ bool CTagLoaderTagLib::ParseTag(MP4::Tag *mp4, EmbeddedArt *art, CMusicInfoTag& 
       SetAlbumArtist(tag, StringListToVectorString(it->second.toStringList()));
     else if (it->first == "soaa")
       SetAlbumArtistSort(tag, StringListToVectorString(it->second.toStringList()));
-    else if (it->first == "----:com.apple.iTunes:ALBUMARTISTS")
+    else if (it->first == "----:com.apple.iTunes:albumartists" ||
+             it->first == "----:com.apple.iTunes:ALBUMARTISTS")
       SetAlbumArtistHints(tag, StringListToVectorString(it->second.toStringList()));
     else if (it->first == "soco")
       SetComposerSort(tag, StringListToVectorString(it->second.toStringList()));
@@ -861,14 +891,20 @@ bool CTagLoaderTagLib::ParseTag(MP4::Tag *mp4, EmbeddedArt *art, CMusicInfoTag& 
     else if (it->first == "disk")
       tag.SetDiscNumber(it->second.toIntPair().first);
     else if (it->first == "\251day")
-      tag.SetYear(it->second.toStringList().front().toInt());
-    else if (it->first == "----:com.apple.iTunes:replaygain_track_gain")
+      tag.SetReleaseDate(it->second.toStringList().front().to8Bit(true));
+    else if (it->first == "----:com.apple.iTunes:originaldate")
+      tag.SetOriginalDate(it->second.toStringList().front().to8Bit(true));
+    else if (it->first == "----:com.apple.iTunes:replaygain_track_gain" ||
+             it->first == "----:com.apple.iTunes:REPLAYGAIN_TRACK_GAIN")
       replayGainInfo.ParseGain(ReplayGain::TRACK, it->second.toStringList().front().toCString());
-    else if (it->first == "----:com.apple.iTunes:replaygain_album_gain")
+    else if (it->first == "----:com.apple.iTunes:replaygain_album_gain" ||
+             it->first == "----:com.apple.iTunes:REPLAYGAIN_ALBUM_GAIN")
       replayGainInfo.ParseGain(ReplayGain::ALBUM, it->second.toStringList().front().toCString());
-    else if (it->first == "----:com.apple.iTunes:replaygain_track_peak")
+    else if (it->first == "----:com.apple.iTunes:replaygain_track_peak" ||
+             it->first == "----:com.apple.iTunes:REPLAYGAIN_TRACK_PEAK")
       replayGainInfo.ParsePeak(ReplayGain::TRACK, it->second.toStringList().front().toCString());
-    else if (it->first == "----:com.apple.iTunes:replaygain_album_peak")
+    else if (it->first == "----:com.apple.iTunes:replaygain_album_peak" ||
+             it->first == "----:com.apple.iTunes:REPLAYGAIN_ALBUM_PEAK")
       replayGainInfo.ParsePeak(ReplayGain::ALBUM, it->second.toStringList().front().toCString());
     else if (it->first == "----:com.apple.iTunes:MusicBrainz Artist Id")
       tag.SetMusicBrainzArtistID(SplitMBID(StringListToVectorString(it->second.toStringList())));
@@ -884,6 +920,10 @@ bool CTagLoaderTagLib::ParseTag(MP4::Tag *mp4, EmbeddedArt *art, CMusicInfoTag& 
       tag.SetMusicBrainzTrackID(it->second.toStringList().front().to8Bit(true));
     else if (it->first == "----:com.apple.iTunes:MusicBrainz Album Type")
       SetReleaseType(tag, StringListToVectorString(it->second.toStringList()));
+    else if (it->first == "----:com.apple.iTunes:MusicBrainz Album Status")
+      tag.SetAlbumReleaseStatus(it->second.toStringList().front().to8Bit(true));
+    else if (it->first == "tmpo")
+      tag.SetBPM(it->second.toIntPair().first);
     else if (it->first == "covr")
     {
       MP4::CoverArtList coverArtList = it->second.toCoverArtList();
@@ -911,7 +951,7 @@ bool CTagLoaderTagLib::ParseTag(MP4::Tag *mp4, EmbeddedArt *art, CMusicInfoTag& 
     }
   }
 
-  if (mp4->comment() != String::null)
+  if (!mp4->comment().isEmpty())
     tag.SetComment(mp4->comment().toCString(true));
 
   tag.SetReplayGain(replayGainInfo);
@@ -1123,8 +1163,8 @@ void CTagLoaderTagLib::AddArtistInstrument(CMusicInfoTag &tag, const std::vector
   {
     std::vector<std::string> roles;
     std::string strArtist = values[i];
-    size_t firstLim = values[i].find_first_of("(");
-    size_t lastLim = values[i].find_last_of(")");
+    size_t firstLim = values[i].find_first_of('(');
+    size_t lastLim = values[i].find_last_of(')');
     if (lastLim != std::string::npos && firstLim != std::string::npos && firstLim < lastLim - 1)
     {
       //Pair of brackets with something between them
@@ -1148,10 +1188,6 @@ void CTagLoaderTagLib::AddArtistInstrument(CMusicInfoTag &tag, const std::vector
 
 bool CTagLoaderTagLib::Load(const std::string& strFileName, CMusicInfoTag& tag, const std::string& fallbackFileExtension, EmbeddedArt *art /* = NULL */)
 {
-  // Dont try to read the tags for streams & shoutcast
-  if (URIUtils::IsInternetStream(strFileName))
-    return false;
-
   std::string strExtension = URIUtils::GetExtension(strFileName);
   StringUtils::TrimLeft(strExtension, ".");
 
@@ -1166,8 +1202,16 @@ bool CTagLoaderTagLib::Load(const std::string& strFileName, CMusicInfoTag& tag, 
   TagLibVFSStream*           stream = new TagLibVFSStream(strFileName, true);
   if (!stream)
   {
-    CLog::Log(LOGERROR, "could not create TagLib VFS stream for: %s", strFileName.c_str());
+    CLog::Log(LOGERROR, "could not create TagLib VFS stream for: {}", strFileName);
     return false;
+  }
+
+  long file_length = stream->length();
+
+  if (file_length == 0) // a stream returns zero as the length
+  {
+    delete stream; // scrap this instance
+    return false; // and quit without attempting to read non-existent tags
   }
 
   TagLib::File*              file = nullptr;
@@ -1234,14 +1278,14 @@ bool CTagLoaderTagLib::Load(const std::string& strFileName, CMusicInfoTag& tag, 
   }
   catch (const std::exception& ex)
   {
-    CLog::Log(LOGERROR, "Taglib exception: %s", ex.what());
+    CLog::Log(LOGERROR, "Taglib exception: {}", ex.what());
   }
 
   if (!file || !file->isOpen())
   {
     delete file;
     delete stream;
-    CLog::Log(LOGDEBUG, "file %s could not be opened for tag reading", strFileName.c_str());
+    CLog::Log(LOGDEBUG, "file {} could not be opened for tag reading", strFileName);
     return false;
   }
 
@@ -1290,7 +1334,12 @@ bool CTagLoaderTagLib::Load(const std::string& strFileName, CMusicInfoTag& tag, 
     genericTag = file->tag();
 
   if (file->audioProperties())
+  {
     tag.SetDuration(file->audioProperties()->length());
+    tag.SetBitRate(file->audioProperties()->bitrate());
+    tag.SetNoOfChannels(file->audioProperties()->channels());
+    tag.SetSampleRate(file->audioProperties()->sampleRate());
+  }
 
   if (asf)
     ParseTag(asf, art, tag);

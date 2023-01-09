@@ -12,14 +12,11 @@
 #include "cores/IPlayer.h"
 #include "guilib/DispResource.h"
 #include "threads/SystemClock.h"
+#include "utils/logtypes.h"
 
 #include <string>
 
 class PLT_MediaController;
-class CGUIDialogBusy;
-
-namespace XbmcThreads { class EndTime; }
-
 
 namespace UPNP
 {
@@ -44,9 +41,6 @@ public:
   void SeekPercentage(float fPercent = 0) override;
   void SetVolume(float volume) override;
 
-  int GetChapterCount() override { return 0; }
-  int GetChapter() override { return -1; }
-  void GetChapterName(std::string& strChapterName, int chapterIdx = -1) override { }
   int SeekChapter(int iChapter) override { return -1; }
 
   void SeekTime(int64_t iTime = 0) override;
@@ -59,7 +53,9 @@ public:
 
   void FrameMove() override;
 
-  int PlayFile(const CFileItem& file, const CPlayerOptions& options, CGUIDialogBusy*& dialog, XbmcThreads::EndTime& timeout);
+  int PlayFile(const CFileItem& file,
+               const CPlayerOptions& options,
+               XbmcThreads::EndTime<>& timeout);
 
 private:
   bool IsPaused() const;
@@ -73,7 +69,9 @@ private:
   std::string m_current_meta;
   bool m_started;
   bool m_stopremote;
-  XbmcThreads::EndTime m_updateTimer;
+  XbmcThreads::EndTime<> m_updateTimer;
+
+  Logger m_logger;
 };
 
 } /* namespace UPNP */

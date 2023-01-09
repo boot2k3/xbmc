@@ -8,13 +8,14 @@
 
 #pragma once
 
+#include <cstdint>
 #include <ctime>
-#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-class CBaseTexture;
+class CTexture;
 class CXBTFReader;
 class CXBTFFrame;
 
@@ -27,22 +28,36 @@ public:
 
   void SetThemeBundle(bool themeBundle);
   bool HasFile(const std::string& Filename);
-  void GetTexturesFromPath(const std::string &path, std::vector<std::string> &textures);
-  static std::string Normalize(const std::string &name);
+  std::vector<std::string> GetTexturesFromPath(const std::string& path);
+  static std::string Normalize(std::string name);
 
-  bool LoadTexture(const std::string& Filename, CBaseTexture** ppTexture,
-                       int &width, int &height);
+  /*!
+   * \brief See CTextureBundle::LoadTexture
+   */
+  bool LoadTexture(const std::string& filename,
+                   std::unique_ptr<CTexture>& texture,
+                   int& width,
+                   int& height);
 
-  int LoadAnim(const std::string& Filename, CBaseTexture*** ppTextures,
-                int &width, int &height, int& nLoops, int** ppDelays);
+  /*!
+   * \brief See CTextureBundle::LoadAnim
+   */
+  bool LoadAnim(const std::string& filename,
+                std::vector<std::pair<std::unique_ptr<CTexture>, int>>& textures,
+                int& width,
+                int& height,
+                int& nLoops);
 
-  static uint8_t* UnpackFrame(const CXBTFReader& reader, const CXBTFFrame& frame);
-  
+  //! @todo Change return to std::optional<std::vector<uint8_t>>> when c++17 is allowed
+  static std::vector<uint8_t> UnpackFrame(const CXBTFReader& reader, const CXBTFFrame& frame);
+
   void CloseBundle();
 
 private:
   bool OpenBundle();
-  bool ConvertFrameToTexture(const std::string& name, CXBTFFrame& frame, CBaseTexture** ppTexture);
+  bool ConvertFrameToTexture(const std::string& name,
+                             const CXBTFFrame& frame,
+                             std::unique_ptr<CTexture>& texture);
 
   time_t m_TimeStamp;
 

@@ -6,27 +6,29 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include "Application.h"
+#include "WinSystemWin10.h"
+
+#include "ServiceBroker.h"
+#include "WinEventsWin10.h"
+#include "application/Application.h"
 #include "cores/AudioEngine/AESinkFactory.h"
-#include "cores/AudioEngine/Sinks/AESinkXAudio.h"
 #include "cores/AudioEngine/Sinks/AESinkWASAPI.h"
-#include "windowing/GraphicContext.h"
-#include "platform/win10/AsyncHelpers.h"
-#include "platform/win10/powermanagement/Win10PowerSyscall.h"
-#include "platform/win32/CharsetConverter.h"
+#include "cores/AudioEngine/Sinks/AESinkXAudio.h"
 #include "rendering/dx/DirectXHelper.h"
 #include "rendering/dx/RenderContext.h"
 #include "rendering/dx/ScreenshotSurfaceWindows.h"
-#include "ServiceBroker.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
-#include "utils/log.h"
 #include "utils/SystemInfo.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
 #include "windowing/windows/VideoSyncD3D.h"
-#include "WinEventsWin10.h"
-#include "WinSystemWin10.h"
+
+#include "platform/win10/AsyncHelpers.h"
+#include "platform/win32/CharsetConverter.h"
+
+#include <mutex>
 
 #pragma pack(push,8)
 
@@ -44,6 +46,8 @@ using namespace winrt::Windows::Graphics::Display::Core;
 using namespace winrt::Windows::UI::Core;
 using namespace winrt::Windows::UI::ViewManagement;
 
+using namespace std::chrono_literals;
+
 CWinSystemWin10::CWinSystemWin10()
   : CWinSystemBase()
   , m_ValidWindowedPosition(false)
@@ -59,13 +63,8 @@ CWinSystemWin10::CWinSystemWin10()
 
   AE::CAESinkFactory::ClearSinks();
   CAESinkXAudio::Register();
+  CAESinkWASAPI::Register();
   CScreenshotSurfaceWindows::Register();
-
-  if (CSysInfo::GetWindowsDeviceFamily() == CSysInfo::WindowsDeviceFamily::Desktop)
-  {
-    CAESinkWASAPI::Register();
-  }
-  CPowerSyscall::Register();
 }
 
 CWinSystemWin10::~CWinSystemWin10()
@@ -82,7 +81,7 @@ bool CWinSystemWin10::InitWindowSystem()
 
   if (m_displays.empty())
   {
-    CLog::Log(LOGERROR, "%s - no suitable monitor found, aborting...", __FUNCTION__);
+    CLog::Log(LOGERROR, "{} - no suitable monitor found, aborting...", __FUNCTION__);
     return false;
   }
 
@@ -201,8 +200,9 @@ bool CWinSystemWin10::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
   CWinSystemWin10::UpdateStates(fullScreen);
   WINDOW_STATE state = GetState(fullScreen);
 
-  CLog::Log(LOGDEBUG, "%s (%s) with size %dx%d, refresh %f%s", __FUNCTION__, window_state_names[state]
-          , res.iWidth, res.iHeight, res.fRefreshRate, (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
+  CLog::Log(LOGDEBUG, "{} ({}) with size {}x{}, refresh {:f}{}", __FUNCTION__,
+            window_state_names[state], res.iWidth, res.iHeight, res.fRefreshRate,
+            (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
 
   bool forceChange = false;    // resolution/display is changed but window state isn't changed
   bool stereoChange = IsStereoEnabled() != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_HARDWAREBASED);
@@ -250,7 +250,7 @@ bool CWinSystemWin10::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
   {
     if (state == WINDOW_STATE_WINDOWED) // go to a windowed state
     {
-      // need to restore resoultion if it was changed to not native
+      // need to restore resolution if it was changed to not native
       // because we do not support resolution change in windowed mode
       RestoreDesktopResolution();
     }
@@ -324,7 +324,7 @@ bool CWinSystemWin10::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
         auto hdmiModes = hdmiInfo.GetSupportedDisplayModes();
 
         HdmiDisplayMode selected = nullptr;
-        for (auto& mode : hdmiModes)
+        for (const auto& mode : hdmiModes)
         {
           if (res.iScreenWidth == mode.ResolutionWidthInRawPixels() && res.iScreenHeight == mode.ResolutionHeightInRawPixels()
             && fabs(res.fRefreshRate - mode.RefreshRate()) <= 0.00001)
@@ -357,7 +357,7 @@ bool CWinSystemWin10::ChangeResolution(const RESOLUTION_INFO& res, bool forceCha
     return changed;
   }
 
-  CLog::LogFunction(LOGDEBUG, __FUNCTION__, "Not supported.");
+  CLog::LogF(LOGDEBUG, "Not supported.");
   return false;
 }
 
@@ -384,7 +384,7 @@ void CWinSystemWin10::UpdateResolutions()
 
   RESOLUTION_INFO& primary_info = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP);
   UpdateDesktopResolution(primary_info, "Default", w, h, refreshRate, dwFlags);
-  CLog::Log(LOGNOTICE, "Primary mode: %s", primary_info.strMode.c_str());
+  CLog::Log(LOGINFO, "Primary mode: {}", primary_info.strMode);
 
   // erase previous stored modes
   CDisplaySettings::GetInstance().ClearCustomResolutions();
@@ -395,7 +395,7 @@ void CWinSystemWin10::UpdateResolutions()
     if (hdmiInfo != nullptr)
     {
       auto hdmiModes = hdmiInfo.GetSupportedDisplayModes();
-      for (auto& mode : hdmiModes)
+      for (const auto& mode : hdmiModes)
       {
         RESOLUTION_INFO res;
         res.iWidth = mode.ResolutionWidthInRawPixels();
@@ -406,13 +406,14 @@ void CWinSystemWin10::UpdateResolutions()
         res.fPixelRatio = 1.0f;
         res.iScreenWidth = res.iWidth;
         res.iScreenHeight = res.iHeight;
-        res.iSubtitles = (int)(0.965 * res.iHeight);
-        res.strMode = StringUtils::Format("Default: %dx%d @ %.2fHz",
-                                          res.iWidth, res.iHeight, res.fRefreshRate);
+        res.iSubtitles = res.iHeight;
+        res.strMode = StringUtils::Format("Default: {}x{} @ {:.2f}Hz", res.iWidth, res.iHeight,
+                                          res.fRefreshRate);
         GetGfxContext().ResetOverscan(res);
 
         if (AddResolution(res))
-          CLog::Log(LOGNOTICE, "Additional mode: %s %s", res.strMode.c_str(), mode.Is2086MetadataSupported() ? "(HDR)" : "");
+          CLog::Log(LOGINFO, "Additional mode: {} {}", res.strMode,
+                    mode.Is2086MetadataSupported() ? "(HDR)" : "");
       }
     }
   }
@@ -477,6 +478,10 @@ void CWinSystemWin10::GetConnectedDisplays(std::vector<MONITOR_DETAILS>& outputs
       if (hdmiInfo != nullptr)
       {
         auto currentMode = hdmiInfo.GetCurrentDisplayMode();
+        // On Xbox, 4K resolutions only are reported by HdmiDisplayInformation API
+        // so ScreenHeight & ScreenWidth are updated with info provided here
+        md.ScreenHeight = currentMode.ResolutionHeightInRawPixels();
+        md.ScreenWidth = currentMode.ResolutionWidthInRawPixels();
         md.RefreshRate = currentMode.RefreshRate();
         md.Bpp = currentMode.BitsPerPixel();
       }
@@ -524,34 +529,34 @@ void CWinSystemWin10::ShowOSMouse(bool show)
 
 bool CWinSystemWin10::Minimize()
 {
-  CLog::Log(LOGDEBUG, "%s is not implemented", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} is not implemented", __FUNCTION__);
   return true;
 }
 bool CWinSystemWin10::Restore()
 {
-  CLog::Log(LOGDEBUG, "%s is not implemented", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} is not implemented", __FUNCTION__);
   return true;
 }
 bool CWinSystemWin10::Hide()
 {
-  CLog::Log(LOGDEBUG, "%s is not implemented", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} is not implemented", __FUNCTION__);
   return true;
 }
 bool CWinSystemWin10::Show(bool raise)
 {
-  CLog::Log(LOGDEBUG, "%s is not implemented", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} is not implemented", __FUNCTION__);
   return true;
 }
 
 void CWinSystemWin10::Register(IDispResource *resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemWin10::Unregister(IDispResource* resource)
 {
-  CSingleLock lock(m_resourceSection);
+  std::unique_lock<CCriticalSection> lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -559,10 +564,10 @@ void CWinSystemWin10::Unregister(IDispResource* resource)
 
 void CWinSystemWin10::OnDisplayLost()
 {
-  CLog::Log(LOGDEBUG, "%s - notify display lost event", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} - notify display lost event", __FUNCTION__);
 
   {
-    CSingleLock lock(m_resourceSection);
+    std::unique_lock<CCriticalSection> lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnLostDisplay();
   }
@@ -572,8 +577,8 @@ void CWinSystemWin10::OnDisplayReset()
 {
   if (!m_delayDispReset)
   {
-    CLog::Log(LOGDEBUG, "%s - notify display reset event", __FUNCTION__);
-    CSingleLock lock(m_resourceSection);
+    CLog::Log(LOGDEBUG, "{} - notify display reset event", __FUNCTION__);
+    std::unique_lock<CCriticalSection> lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnResetDisplay();
   }
@@ -581,11 +586,14 @@ void CWinSystemWin10::OnDisplayReset()
 
 void CWinSystemWin10::OnDisplayBack()
 {
-  int delay = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("videoscreen.delayrefreshchange");
-  if (delay > 0)
+  auto delay =
+      std::chrono::milliseconds(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+                                    "videoscreen.delayrefreshchange") *
+                                100);
+  if (delay > 0ms)
   {
     m_delayDispReset = true;
-    m_dispResetTimer.Set(delay * 100);
+    m_dispResetTimer.Set(delay);
   }
   OnDisplayReset();
 }
@@ -640,6 +648,13 @@ WINDOW_STATE CWinSystemWin10::GetState(bool fullScreen) const
 bool CWinSystemWin10::MessagePump()
 {
   return m_winEvents->MessagePump();
+}
+
+int CWinSystemWin10::GetGuiSdrPeakLuminance() const
+{
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+
+  return settings->GetInt(CSettings::SETTING_VIDEOSCREEN_GUISDRPEAKLUMINANCE);
 }
 
 #pragma pack(pop)

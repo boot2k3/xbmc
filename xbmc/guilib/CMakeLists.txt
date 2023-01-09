@@ -7,6 +7,7 @@ set(SOURCES DDSImage.cpp
             GUIBaseContainer.cpp
             GUIBorderedImage.cpp
             GUIButtonControl.cpp
+            GUIColorButtonControl.cpp
             GUIColorManager.cpp
             GUIComponent.cpp
             GUIControl.cpp
@@ -82,6 +83,7 @@ set(HEADERS DDSImage.h
             GUIBaseContainer.h
             GUIBorderedImage.h
             GUIButtonControl.h
+            GUIColorButtonControl.h
             GUIColorManager.h
             GUIComponent.h
             GUIControl.h
@@ -155,31 +157,24 @@ set(HEADERS DDSImage.h
             XBTF.h
             XBTFReader.h)
 
-if(OPENGL_FOUND)
+if(OPENGL_FOUND OR OPENGLES_FOUND)
   list(APPEND SOURCES GUIFontTTFGL.cpp
-                      GUITextureGL.cpp
                       Shader.cpp
                       TextureGL.cpp)
   list(APPEND HEADERS GUIFontTTFGL.h
-                      GUITextureGL.h
                       Shader.h
                       TextureGL.h)
-endif()
 
-if(OPENGLES_FOUND)
-  list(APPEND SOURCES GUIFontTTFGL.cpp
-                      GUITextureGLES.cpp
-                      Shader.cpp
-                      TextureGL.cpp)
-  list(APPEND HEADERS GUIFontTTFGL.h
-                      GUITextureGLES.h
-                      Shader.h
-                      TextureGL.h)
-endif()
+  if(OPENGL_FOUND)
+    list(APPEND SOURCES GUITextureGL.cpp)
+    list(APPEND HEADERS GUITextureGL.h)
+  endif()
 
-if(CORE_PLATFORM_NAME_LC STREQUAL rbpi)
-  list(APPEND SOURCES TexturePi.cpp)
-  list(APPEND HEADERS TexturePi.h)
+  if(OPENGLES_FOUND)
+    list(APPEND SOURCES GUITextureGLES.cpp)
+    list(APPEND HEADERS GUITextureGLES.h)
+  endif()
+
 endif()
 
 if(CORE_SYSTEM_NAME STREQUAL windows OR CORE_SYSTEM_NAME STREQUAL windowsstore)

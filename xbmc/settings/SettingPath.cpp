@@ -15,6 +15,8 @@
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
 
+#include <mutex>
+
 #define XML_ELM_DEFAULT     "default"
 #define XML_ELM_CONSTRAINTS "constraints"
 
@@ -39,7 +41,7 @@ SettingPtr CSettingPath::Clone(const std::string &id) const
 
 bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
 {
-  CExclusiveLock lock(m_critical);
+  std::unique_lock<CSharedSection> lock(m_critical);
 
   if (!CSettingString::Deserialize(node, update))
     return false;
@@ -47,7 +49,7 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
   if (m_control != nullptr &&
      (m_control->GetType() != "button" || (m_control->GetFormat() != "path" && m_control->GetFormat() != "file" && m_control->GetFormat() != "image")))
   {
-    CLog::Log(LOGERROR, "CSettingPath: invalid <control> of \"%s\"", m_id.c_str());
+    CLog::Log(LOGERROR, "CSettingPath: invalid <control> of \"{}\"", m_id);
     return false;
   }
 
@@ -56,6 +58,8 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
   {
     // get writable
     XMLUtils::GetBoolean(constraints, "writable", m_writable);
+    // get hide extensions
+    XMLUtils::GetBoolean(constraints, "hideextensions", m_hideExtension);
 
     // get sources
     auto sources = constraints->FirstChild("sources");
@@ -65,9 +69,13 @@ bool CSettingPath::Deserialize(const TiXmlNode *node, bool update /* = false */)
       auto source = sources->FirstChild("source");
       while (source != nullptr)
       {
-        std::string strSource = source->FirstChild()->ValueStr();
-        if (!strSource.empty())
-          m_sources.push_back(strSource);
+        auto child = source->FirstChild();
+        if (child != nullptr)
+        {
+          const std::string& strSource = child->ValueStr();
+          if (!strSource.empty())
+            m_sources.push_back(strSource);
+        }
 
         source = source->NextSibling("source");
       }
@@ -98,9 +106,9 @@ std::string CSettingPath::GetMasking(const CFileExtensionProvider& fileExtension
     return m_masking;
 
   // setup masking
-  const auto audioMask = fileExtensionProvider.GetMusicExtensions();
-  const auto videoMask = fileExtensionProvider.GetVideoExtensions();
-  const auto imageMask = fileExtensionProvider.GetPictureExtensions();
+  auto audioMask = fileExtensionProvider.GetMusicExtensions();
+  auto videoMask = fileExtensionProvider.GetVideoExtensions();
+  auto imageMask = fileExtensionProvider.GetPictureExtensions();
   auto execMask = "";
 #if defined(TARGET_WINDOWS)
   execMask = ".exe|.bat|.cmd|.py";
@@ -129,7 +137,7 @@ void CSettingPath::copy(const CSettingPath& setting)
 {
   CSettingString::Copy(setting);
 
-  CExclusiveLock lock(m_critical);
+  std::unique_lock<CSharedSection> lock(m_critical);
   m_writable = setting.m_writable;
   m_sources = setting.m_sources;
   m_hideExtension = setting.m_hideExtension;

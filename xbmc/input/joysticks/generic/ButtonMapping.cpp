@@ -10,8 +10,8 @@
 
 #include "ServiceBroker.h"
 #include "games/controllers/Controller.h"
-#include "games/controllers/ControllerFeature.h"
 #include "games/controllers/ControllerManager.h"
+#include "games/controllers/input/PhysicalFeature.h"
 #include "input/IKeymap.h"
 #include "input/InputTranslator.h"
 #include "input/Key.h"
@@ -20,7 +20,6 @@
 #include "input/joysticks/JoystickUtils.h"
 #include "input/joysticks/interfaces/IButtonMap.h"
 #include "input/joysticks/interfaces/IButtonMapper.h"
-#include "threads/SystemClock.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -29,20 +28,20 @@
 
 using namespace KODI;
 using namespace JOYSTICK;
-using namespace XbmcThreads;
 
-#define MAPPING_COOLDOWN_MS  50    // Guard against repeated input
-#define AXIS_THRESHOLD       0.75f // Axis must exceed this value to be mapped
-#define TRIGGER_DELAY_MS     200   // Delay trigger detection to handle anomalous triggers with non-zero center
+#define MAPPING_COOLDOWN_MS 50 // Guard against repeated input
+#define AXIS_THRESHOLD 0.75f // Axis must exceed this value to be mapped
+#define TRIGGER_DELAY_MS \
+  200 // Delay trigger detection to handle anomalous triggers with non-zero center
 
 // --- CPrimitiveDetector ------------------------------------------------------
 
-CPrimitiveDetector::CPrimitiveDetector(CButtonMapping* buttonMapping) :
-  m_buttonMapping(buttonMapping)
+CPrimitiveDetector::CPrimitiveDetector(CButtonMapping* buttonMapping)
+  : m_buttonMapping(buttonMapping)
 {
 }
 
-bool CPrimitiveDetector::MapPrimitive(const CDriverPrimitive &primitive)
+bool CPrimitiveDetector::MapPrimitive(const CDriverPrimitive& primitive)
 {
   if (primitive.IsValid())
     return m_buttonMapping->MapPrimitive(primitive);
@@ -52,9 +51,8 @@ bool CPrimitiveDetector::MapPrimitive(const CDriverPrimitive &primitive)
 
 // --- CButtonDetector ---------------------------------------------------------
 
-CButtonDetector::CButtonDetector(CButtonMapping* buttonMapping, unsigned int buttonIndex) :
-  CPrimitiveDetector(buttonMapping),
-  m_buttonIndex(buttonIndex)
+CButtonDetector::CButtonDetector(CButtonMapping* buttonMapping, unsigned int buttonIndex)
+  : CPrimitiveDetector(buttonMapping), m_buttonIndex(buttonIndex)
 {
 }
 
@@ -68,9 +66,8 @@ bool CButtonDetector::OnMotion(bool bPressed)
 
 // --- CHatDetector ------------------------------------------------------------
 
-CHatDetector::CHatDetector(CButtonMapping* buttonMapping, unsigned int hatIndex) :
-  CPrimitiveDetector(buttonMapping),
-  m_hatIndex(hatIndex)
+CHatDetector::CHatDetector(CButtonMapping* buttonMapping, unsigned int hatIndex)
+  : CPrimitiveDetector(buttonMapping), m_hatIndex(hatIndex)
 {
 }
 
@@ -81,16 +78,17 @@ bool CHatDetector::OnMotion(HAT_STATE state)
 
 // --- CAxisDetector -----------------------------------------------------------
 
-CAxisDetector::CAxisDetector(CButtonMapping* buttonMapping, unsigned int axisIndex, const AxisConfiguration& config) :
-  CPrimitiveDetector(buttonMapping),
-  m_axisIndex(axisIndex),
-  m_config(config),
-  m_state(AXIS_STATE::INACTIVE),
-  m_type(AXIS_TYPE::UNKNOWN),
-  m_initialPositionKnown(false),
-  m_initialPosition(0.0f),
-  m_initialPositionChanged(false),
-  m_activationTimeMs(0)
+CAxisDetector::CAxisDetector(CButtonMapping* buttonMapping,
+                             unsigned int axisIndex,
+                             const AxisConfiguration& config)
+  : CPrimitiveDetector(buttonMapping),
+    m_axisIndex(axisIndex),
+    m_config(config),
+    m_state(AXIS_STATE::INACTIVE),
+    m_type(AXIS_TYPE::UNKNOWN),
+    m_initialPositionKnown(false),
+    m_initialPosition(0.0f),
+    m_initialPositionChanged(false)
 {
 }
 
@@ -123,8 +121,10 @@ bool CAxisDetector::OnMotion(float position)
       if (m_state == AXIS_STATE::ACTIVATED)
       {
         // Range is set later for anomalous triggers
-        m_activatedPrimitive = CDriverPrimitive(m_axisIndex, m_config.center, CJoystickTranslator::PositionToSemiAxisDirection(position), 1);
-        m_activationTimeMs = SystemClockMillis();
+        m_activatedPrimitive =
+            CDriverPrimitive(m_axisIndex, m_config.center,
+                             CJoystickTranslator::PositionToSemiAxisDirection(position), 1);
+        m_activationTimeMs = std::chrono::steady_clock::now();
       }
     }
   }
@@ -141,8 +141,11 @@ void CAxisDetector::ProcessMotion()
     bool bIgnore = false;
     if (m_type == AXIS_TYPE::OFFSET)
     {
-      unsigned int elapsedMs = SystemClockMillis() - m_activationTimeMs;
-      if (elapsedMs < TRIGGER_DELAY_MS)
+      auto now = std::chrono::steady_clock::now();
+      auto duration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - m_activationTimeMs);
+
+      if (duration.count() < TRIGGER_DELAY_MS)
         bIgnore = true;
     }
 
@@ -151,19 +154,18 @@ void CAxisDetector::ProcessMotion()
       // Update driver primitive's range if we're mapping an anomalous trigger
       if (m_type == AXIS_TYPE::OFFSET)
       {
-        m_activatedPrimitive = CDriverPrimitive(m_activatedPrimitive.Index(),
-                                                m_activatedPrimitive.Center(),
-                                                m_activatedPrimitive.SemiAxisDirection(),
-                                                m_config.range);
+        m_activatedPrimitive =
+            CDriverPrimitive(m_activatedPrimitive.Index(), m_activatedPrimitive.Center(),
+                             m_activatedPrimitive.SemiAxisDirection(), m_config.range);
       }
 
       // Map primitive
       if (!MapPrimitive(m_activatedPrimitive))
       {
         if (m_type == AXIS_TYPE::OFFSET)
-          CLog::Log(LOGDEBUG, "Mapping offset axis %u failed", m_axisIndex);
+          CLog::Log(LOGDEBUG, "Mapping offset axis {} failed", m_axisIndex);
         else
-          CLog::Log(LOGDEBUG, "Mapping normal axis %u failed", m_axisIndex);
+          CLog::Log(LOGDEBUG, "Mapping normal axis {} failed", m_axisIndex);
       }
 
       m_state = AXIS_STATE::MAPPED;
@@ -219,27 +221,28 @@ void CAxisDetector::DetectType(float position)
     {
       m_config.center = -1;
       m_type = AXIS_TYPE::OFFSET;
-      CLog::Log(LOGDEBUG, "Anomalous trigger detected on axis %u with center %d", m_axisIndex, m_config.center);
+      CLog::Log(LOGDEBUG, "Anomalous trigger detected on axis {} with center {}", m_axisIndex,
+                m_config.center);
     }
     else if (m_initialPosition > 0.5f)
     {
       m_config.center = 1;
       m_type = AXIS_TYPE::OFFSET;
-      CLog::Log(LOGDEBUG, "Anomalous trigger detected on axis %u with center %d", m_axisIndex, m_config.center);
+      CLog::Log(LOGDEBUG, "Anomalous trigger detected on axis {} with center {}", m_axisIndex,
+                m_config.center);
     }
     else
     {
       m_type = AXIS_TYPE::NORMAL;
-      CLog::Log(LOGDEBUG, "Normal axis detected on axis %u", m_axisIndex);
+      CLog::Log(LOGDEBUG, "Normal axis detected on axis {}", m_axisIndex);
     }
   }
 }
 
 // --- CKeyDetector ---------------------------------------------------------
 
-CKeyDetector::CKeyDetector(CButtonMapping* buttonMapping, XBMCKey keycode) :
-  CPrimitiveDetector(buttonMapping),
-  m_keycode(keycode)
+CKeyDetector::CKeyDetector(CButtonMapping* buttonMapping, XBMCKey keycode)
+  : CPrimitiveDetector(buttonMapping), m_keycode(keycode)
 {
 }
 
@@ -253,9 +256,9 @@ bool CKeyDetector::OnMotion(bool bPressed)
 
 // --- CMouseButtonDetector ----------------------------------------------------
 
-CMouseButtonDetector::CMouseButtonDetector(CButtonMapping* buttonMapping, MOUSE::BUTTON_ID buttonIndex) :
-  CPrimitiveDetector(buttonMapping),
-  m_buttonIndex(buttonIndex)
+CMouseButtonDetector::CMouseButtonDetector(CButtonMapping* buttonMapping,
+                                           MOUSE::BUTTON_ID buttonIndex)
+  : CPrimitiveDetector(buttonMapping), m_buttonIndex(buttonIndex)
 {
 }
 
@@ -269,8 +272,8 @@ bool CMouseButtonDetector::OnMotion(bool bPressed)
 
 // --- CPointerDetector --------------------------------------------------------
 
-CPointerDetector::CPointerDetector(CButtonMapping* buttonMapping) :
-  CPrimitiveDetector(buttonMapping)
+CPointerDetector::CPointerDetector(CButtonMapping* buttonMapping)
+  : CPrimitiveDetector(buttonMapping)
 {
 }
 
@@ -309,17 +312,14 @@ KODI::INPUT::INTERCARDINAL_DIRECTION CPointerDetector::GetPointerDirection(int x
   // Translate from left-handed coordinate system to right-handed coordinate system
   y *= -1;
 
-  return CInputTranslator::VectorToIntercardinalDirection(static_cast<float>(x), static_cast<float>(y));
+  return CInputTranslator::VectorToIntercardinalDirection(static_cast<float>(x),
+                                                          static_cast<float>(y));
 }
 
 // --- CButtonMapping ----------------------------------------------------------
 
-CButtonMapping::CButtonMapping(IButtonMapper* buttonMapper, IButtonMap* buttonMap, IKeymap* keymap) :
-  m_buttonMapper(buttonMapper),
-  m_buttonMap(buttonMap),
-  m_keymap(keymap),
-  m_lastAction(0),
-  m_frameCount(0)
+CButtonMapping::CButtonMapping(IButtonMapper* buttonMapper, IButtonMap* buttonMap, IKeymap* keymap)
+  : m_buttonMapper(buttonMapper), m_buttonMap(buttonMap), m_keymap(keymap), m_frameCount(0)
 {
   assert(m_buttonMapper != nullptr);
   assert(m_buttonMap != nullptr);
@@ -338,7 +338,8 @@ CButtonMapping::CButtonMapping(IButtonMapper* buttonMapper, IButtonMap* buttonMa
     {
       bool bIsSelectAction = false;
 
-      const auto &actions = m_keymap->GetActions(CJoystickUtils::MakeKeyName(feature.Name())).actions;
+      const auto& actions =
+          m_keymap->GetActions(CJoystickUtils::MakeKeyName(feature.Name())).actions;
       if (!actions.empty() && actions.begin()->actionId == ACTION_SELECT_ITEM)
         bIsSelectAction = true;
 
@@ -358,7 +359,8 @@ CButtonMapping::CButtonMapping(IButtonMapper* buttonMapper, IButtonMap* buttonMa
       axisConfig.center = primitive.Center();
       axisConfig.range = primitive.Range();
 
-      GetAxis(primitive.Index(), static_cast<float>(primitive.Center()), axisConfig).SetEmitted(primitive);
+      GetAxis(primitive.Index(), static_cast<float>(primitive.Center()), axisConfig)
+          .SetEmitted(primitive);
     }
   }
 }
@@ -379,7 +381,10 @@ bool CButtonMapping::OnHatMotion(unsigned int hatIndex, HAT_STATE state)
   return GetHat(hatIndex).OnMotion(state);
 }
 
-bool CButtonMapping::OnAxisMotion(unsigned int axisIndex, float position, int center, unsigned int range)
+bool CButtonMapping::OnAxisMotion(unsigned int axisIndex,
+                                  float position,
+                                  int center,
+                                  unsigned int range)
 {
   if (!m_buttonMapper->AcceptsPrimitive(PRIMITIVE_TYPE::SEMIAXIS))
     return false;
@@ -387,7 +392,7 @@ bool CButtonMapping::OnAxisMotion(unsigned int axisIndex, float position, int ce
   return GetAxis(axisIndex, position).OnMotion(position);
 }
 
-void CButtonMapping::ProcessAxisMotions(void)
+void CButtonMapping::OnInputFrame(void)
 {
   for (auto& axis : m_axes)
     axis.second.ProcessMotion();
@@ -449,19 +454,19 @@ bool CButtonMapping::MapPrimitive(const CDriverPrimitive& primitive)
 {
   bool bHandled = false;
 
-  const unsigned int now = SystemClockMillis();
+  auto now = std::chrono::steady_clock::now();
 
   bool bTimeoutElapsed = true;
 
   if (m_buttonMapper->NeedsCooldown())
-    bTimeoutElapsed = (now >= m_lastAction + MAPPING_COOLDOWN_MS);
+    bTimeoutElapsed = (now >= m_lastAction + std::chrono::milliseconds(MAPPING_COOLDOWN_MS));
 
   if (bTimeoutElapsed)
   {
     bHandled = m_buttonMapper->MapPrimitive(m_buttonMap, m_keymap, primitive);
 
     if (bHandled)
-      m_lastAction = SystemClockMillis();
+      m_lastAction = std::chrono::steady_clock::now();
   }
   else if (m_buttonMap->IsIgnored(primitive))
   {
@@ -469,9 +474,10 @@ bool CButtonMapping::MapPrimitive(const CDriverPrimitive& primitive)
   }
   else
   {
-    const unsigned int elapsed = now - m_lastAction;
-    CLog::Log(LOGDEBUG, "Button mapping: rapid input after %ums dropped for profile \"%s\"",
-              elapsed, m_buttonMapper->ControllerID().c_str());
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastAction);
+
+    CLog::Log(LOGDEBUG, "Button mapping: rapid input after {}ms dropped for profile \"{}\"",
+              duration.count(), m_buttonMapper->ControllerID());
     bHandled = true;
   }
 
@@ -515,9 +521,10 @@ CHatDetector& CButtonMapping::GetHat(unsigned int hatIndex)
   return itHat->second;
 }
 
-CAxisDetector& CButtonMapping::GetAxis(unsigned int axisIndex,
-                                       float position,
-                                       const AxisConfiguration& initialConfig /* = AxisConfiguration() */)
+CAxisDetector& CButtonMapping::GetAxis(
+    unsigned int axisIndex,
+    float position,
+    const AxisConfiguration& initialConfig /* = AxisConfiguration() */)
 {
   auto itAxis = m_axes.find(axisIndex);
 
@@ -532,8 +539,8 @@ CAxisDetector& CButtonMapping::GetAxis(unsigned int axisIndex,
     }
 
     // Report axis
-    CLog::Log(LOGDEBUG, "Axis %u discovered at position %.4f after %lu frames",
-              axisIndex, position, static_cast<unsigned long>(m_frameCount));
+    CLog::Log(LOGDEBUG, "Axis {} discovered at position {:.4f} after {} frames", axisIndex,
+              position, static_cast<unsigned long>(m_frameCount));
 
     m_axes.insert(std::make_pair(axisIndex, CAxisDetector(this, axisIndex, config)));
     itAxis = m_axes.find(axisIndex);
@@ -568,7 +575,7 @@ CMouseButtonDetector& CButtonMapping::GetMouseButton(MOUSE::BUTTON_ID buttonInde
   return itButton->second;
 }
 
-CPointerDetector &CButtonMapping::GetPointer()
+CPointerDetector& CButtonMapping::GetPointer()
 {
   if (!m_pointer)
     m_pointer.reset(new CPointerDetector(this));

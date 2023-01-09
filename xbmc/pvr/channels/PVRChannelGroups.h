@@ -10,15 +10,16 @@
 
 #include "pvr/channels/PVRChannelGroup.h"
 #include "threads/CriticalSection.h"
-#include "threads/SingleLock.h"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 namespace PVR
 {
   class CPVRChannel;
+  class CPVRClient;
 
   /** A container class for channel groups */
 
@@ -33,20 +34,33 @@ namespace PVR
     virtual ~CPVRChannelGroups();
 
     /*!
-     * @brief Remove all channels from this group.
+     * @brief Remove all groups from this container.
      */
-    void Clear();
+    void Unload();
 
     /*!
-     * @brief Load this container's contents from the database or PVR clients.
-     * @return True if it was loaded successfully, false if not.
+     * @brief Load all channel groups and all channels from PVR database.
+     * @param clients The PVR clients data should be loaded for. Leave empty for all clients.
+     * @return True on success, false otherwise.
      */
-    bool Load();
+    bool LoadFromDatabase(const std::vector<std::shared_ptr<CPVRClient>>& clients);
+
+    /*!
+     * @brief Create a channel group matching the given type.
+     * @param iType The type for the group.
+     * @param path The path of the group.
+     * @return The new group.
+     */
+    std::shared_ptr<CPVRChannelGroup> CreateChannelGroup(int iType, const CPVRChannelsPath& path);
 
     /*!
      * @return Amount of groups in this container
      */
-    size_t Size() const { CSingleLock lock(m_critSection); return m_groups.size(); }
+    size_t Size() const
+    {
+      std::unique_lock<CCriticalSection> lock(m_critSection);
+      return m_groups.size();
+    }
 
     /*!
      * @brief Update a group or add it if it's not in here yet.
@@ -54,21 +68,25 @@ namespace PVR
      * @param bUpdateFromClient True to save the changes in the db.
      * @return True if the group was added or update successfully, false otherwise.
      */
-    bool Update(const CPVRChannelGroup& group, bool bUpdateFromClient = false);
+    bool Update(const std::shared_ptr<CPVRChannelGroup>& group, bool bUpdateFromClient = false);
 
     /*!
      * @brief Called by the add-on callback to add a new group
      * @param group The group to add
      * @return True when updated, false otherwise
      */
-    bool UpdateFromClient(const CPVRChannelGroup& group) { return Update(group, true); }
+    bool UpdateFromClient(const std::shared_ptr<CPVRChannelGroup>& group)
+    {
+      return Update(group, true);
+    }
 
     /*!
-     * @brief Get a channel given its path
-     * @param strPath The path to the channel
-     * @return The channel, or nullptr if not found
+     * @brief Get a channel group member given its path
+     * @param strPath The path to the channel group member
+     * @return The channel group member, or nullptr if not found
      */
-    std::shared_ptr<CPVRChannel> GetByPath(const CPVRChannelsPath& path) const;
+    std::shared_ptr<CPVRChannelGroupMember> GetChannelGroupMemberByPath(
+        const CPVRChannelsPath& path) const;
 
     /*!
      * @brief Get a pointer to a channel group given its ID.
@@ -116,11 +134,14 @@ namespace PVR
     std::shared_ptr<CPVRChannelGroup> GetLastGroup() const;
 
     /*!
-     * @brief The group that was played last and optionally contains the given channel.
-     * @param iChannelID The channel ID
-     * @return The last watched group.
+     * @return The last and previous to last played channel group members. pair.first contains the last, pair.second the previous to last member.
      */
-    std::shared_ptr<CPVRChannelGroup> GetLastPlayedGroup(int iChannelID = -1) const;
+    GroupMemberPair GetLastAndPreviousToLastPlayedChannelGroupMember() const;
+
+    /*!
+     * @return The last opened group.
+     */
+    std::shared_ptr<CPVRChannelGroup> GetLastOpenedGroup() const;
 
     /*!
      * @brief Get the list of groups.
@@ -145,23 +166,6 @@ namespace PVR
     std::shared_ptr<CPVRChannelGroup> GetNextGroup(const CPVRChannelGroup& group) const;
 
     /*!
-     * @brief Get the group that is currently selected in the UI.
-     * @return The selected group.
-     */
-    std::shared_ptr<CPVRChannelGroup> GetSelectedGroup() const;
-
-    /*!
-     * @brief Change the selected group.
-     * @param selectedGroup The group to select.
-     */
-    void SetSelectedGroup(const std::shared_ptr<CPVRChannelGroup>& selectedGroup);
-
-    /*!
-     * @brief Update the selected groups channel numbers and client order.
-     */
-    void UpdateSelectedGroup();
-
-    /*!
      * @brief Add a group to this container.
      * @param strName The name of the group.
      * @return True if the group was added, false otherwise.
@@ -169,11 +173,19 @@ namespace PVR
     bool AddGroup(const std::string& strName);
 
     /*!
-     * @brief Delete a group in this container.
+     * @brief Remove a group from this container and delete it from the database.
      * @param group The group to delete.
      * @return True if it was deleted successfully, false if not.
      */
-    bool DeleteGroup(const CPVRChannelGroup& group);
+    bool DeleteGroup(const std::shared_ptr<CPVRChannelGroup>& group);
+
+    /*!
+     * @brief Hide/unhide a group in this container.
+     * @param group The group to hide/unhide.
+     * @param bHide True to hide the group, false to unhide it.
+     * @return True on success, false otherwise.
+     */
+    bool HideGroup(const std::shared_ptr<CPVRChannelGroup>& group, bool bHide);
 
     /*!
      * @brief Create EPG tags for all channels of the internal group.
@@ -193,37 +205,38 @@ namespace PVR
     bool IsRadio() const { return m_bRadio; }
 
     /*!
-     * @brief Update the contents of the groups in this container.
+     * @brief Update data with groups and channels from the given clients, sync with local data.
+     * @param clients The clients to fetch data from. Leave empty to fetch data from all created clients.
      * @param bChannelsOnly Set to true to only update channels, not the groups themselves.
-     * @return True if the update was successful, false otherwise.
+     * @return True on success, false otherwise.
      */
-    bool Update(bool bChannelsOnly = false);
+    bool UpdateFromClients(const std::vector<std::shared_ptr<CPVRClient>>& clients,
+                           bool bChannelsOnly = false);
 
     /*!
      * @brief Update the channel numbers across the channel groups from the all channels group
      * @return True if any channel number was changed, false otherwise.
      */
-    bool PropagateChannelNumbersAndPersist();
+    bool UpdateChannelNumbersFromAllChannelsGroup();
+
+    /*!
+     * @brief Erase stale texture db entries and image files.
+     * @return number of cleaned up images.
+     */
+    int CleanupCachedImages();
 
   private:
-    bool LoadUserDefinedChannelGroups();
-    bool GetGroupsFromClients();
     void SortGroups();
 
     /*!
-     * @brief Remove the given channels from all non-system groups.
-     * @param channel The channels to remove.
+     * @brief Check, whether data for given pvr clients are currently valid. For instance, data
+     * can be invalid because the client's backend was offline when data was last queried.
+     * @param clients The clients to check. Check all active clients if vector is empty.
+     * @return True, if data is currently valid, false otherwise.
      */
-    void RemoveFromAllGroups(const std::vector<std::shared_ptr<CPVRChannel>>& channelsToRemove);
-
-    /*!
-     * @brief Remove a channel from all non-system groups.
-     * @param channel The channel to remove.
-     */
-    void RemoveFromAllGroups(const std::shared_ptr<CPVRChannel>& channel);
+    bool HasValidDataForClients(const std::vector<std::shared_ptr<CPVRClient>>& clients) const;
 
     bool m_bRadio; /*!< true if this is a container for radio channels, false if it is for tv channels */
-    std::shared_ptr<CPVRChannelGroup> m_selectedGroup; /*!< the group that's currently selected in the UI */
     std::vector<std::shared_ptr<CPVRChannelGroup>> m_groups; /*!< the groups in this container */
     mutable CCriticalSection m_critSection;
     std::vector<int> m_failedClientsForChannelGroups;

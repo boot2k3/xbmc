@@ -12,6 +12,7 @@
 #include "ServiceBroker.h"
 #include "addons/Addon.h"
 #include "addons/AddonManager.h"
+#include "addons/addoninfo/AddonInfo.h"
 #include "guilib/LocalizeStrings.h"
 #include "guilib/guiinfo/GUIInfo.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
@@ -56,7 +57,34 @@ bool CAddonsGUIInfo::GetLabel(std::string& value, const CFileItem *item, int con
         value = addonInfo->ChangeLog();
         return true;
       case LISTITEM_ADDON_BROKEN:
-        value = addonInfo->Broken();
+      {
+        // Fallback for old GUI info
+        if (addonInfo->LifecycleState() == ADDON::AddonLifecycleState::BROKEN)
+          value = addonInfo->LifecycleStateDescription();
+        else
+          value = "";
+        return true;
+      }
+      case LISTITEM_ADDON_LIFECYCLE_TYPE:
+      {
+        const ADDON::AddonLifecycleState state = addonInfo->LifecycleState();
+        switch (state)
+        {
+          case ADDON::AddonLifecycleState::BROKEN:
+            value = g_localizeStrings.Get(24171); // "Broken"
+            break;
+          case ADDON::AddonLifecycleState::DEPRECATED:
+            value = g_localizeStrings.Get(24170); // "Deprecated";
+            break;
+          case ADDON::AddonLifecycleState::NORMAL:
+          default:
+            value = g_localizeStrings.Get(24169); // "Normal";
+            break;
+        }
+        return true;
+      }
+      case LISTITEM_ADDON_LIFECYCLE_DESC:
+        value = addonInfo->LifecycleStateDescription();
         return true;
       case LISTITEM_ADDON_TYPE:
         value = ADDON::CAddonInfo::TranslateType(addonInfo->Type(), true);
@@ -85,13 +113,17 @@ bool CAddonsGUIInfo::GetLabel(std::string& value, const CFileItem *item, int con
           value = g_localizeStrings.Get(24992);
           return true;
         }
-        ADDON::AddonPtr origin;
-        if (CServiceBroker::GetAddonMgr().GetAddon(item->GetAddonInfo()->Origin(), origin, ADDON::ADDON_UNKNOWN, false))
+        if (!item->GetAddonInfo()->OriginName().empty())
         {
-          value = origin->Name();
+          value = item->GetAddonInfo()->OriginName();
           return true;
         }
-        value = g_localizeStrings.Get(13205);
+        else if (!item->GetAddonInfo()->Origin().empty())
+        {
+          value = item->GetAddonInfo()->Origin();
+          return true;
+        }
+        value = g_localizeStrings.Get(25014);
         return true;
       }
       case LISTITEM_ADDON_SIZE:
@@ -110,6 +142,20 @@ bool CAddonsGUIInfo::GetLabel(std::string& value, const CFileItem *item, int con
   switch (info.m_info)
   {
     ///////////////////////////////////////////////////////////////////////////////////////////////
+    // ADDON_*
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    case ADDON_SETTING_STRING:
+    {
+      ADDON::AddonPtr addon;
+      if (!CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon,
+                                                  ADDON::OnlyEnabled::CHOICE_YES))
+      {
+        return false;
+      }
+      value = addon->GetSetting(info.GetData5());
+      return true;
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     // SYSTEM_*
     ///////////////////////////////////////////////////////////////////////////////////////////////
     case SYSTEM_ADDON_TITLE:
@@ -123,8 +169,9 @@ bool CAddonsGUIInfo::GetLabel(std::string& value, const CFileItem *item, int con
       ADDON::AddonPtr addon;
       if (!info.GetData3().empty())
       {
-        CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon, ADDON::ADDON_UNKNOWN, false);
-        if (!addon)
+        bool success = CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon,
+                                                              ADDON::OnlyEnabled::CHOICE_YES);
+        if (!success || !addon)
           break;
 
         if (info.m_info == SYSTEM_ADDON_TITLE)
@@ -152,6 +199,22 @@ bool CAddonsGUIInfo::GetLabel(std::string& value, const CFileItem *item, int con
 
 bool CAddonsGUIInfo::GetInt(int& value, const CGUIListItem *gitem, int contextWindow, const CGUIInfo &info) const
 {
+  switch (info.m_info)
+  {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // ADDON_*
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    case ADDON_SETTING_INT:
+    {
+      ADDON::AddonPtr addon;
+      if (!CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon,
+                                                  ADDON::OnlyEnabled::CHOICE_YES))
+      {
+        return false;
+      }
+      return addon->GetSettingInt(info.GetData5(), value);
+    }
+  }
   return false;
 }
 
@@ -159,6 +222,19 @@ bool CAddonsGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int context
 {
   switch (info.m_info)
   {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // ADDON_*
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    case ADDON_SETTING_BOOL:
+    {
+      ADDON::AddonPtr addon;
+      if (!CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon,
+                                                  ADDON::OnlyEnabled::CHOICE_YES))
+      {
+        return false;
+      }
+      return addon->GetSettingBool(info.GetData5(), value);
+    }
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // SYSTEM_*
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,8 +248,29 @@ bool CAddonsGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int context
     {
       value = false;
       ADDON::AddonPtr addon;
-      if (CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon))
+      if (CServiceBroker::GetAddonMgr().GetAddon(info.GetData3(), addon,
+                                                 ADDON::OnlyEnabled::CHOICE_YES))
         value = !CServiceBroker::GetAddonMgr().IsAddonDisabled(info.GetData3());
+      return true;
+    }
+    case LISTITEM_ISAUTOUPDATEABLE:
+    {
+      value = true;
+      const CFileItem* item = static_cast<const CFileItem*>(gitem);
+      if (item->GetAddonInfo())
+        value = CServiceBroker::GetAddonMgr().IsAutoUpdateable(item->GetAddonInfo()->ID()) ||
+                !CServiceBroker::GetAddonMgr().IsAddonInstalled(item->GetAddonInfo()->ID(),
+                                                                item->GetAddonInfo()->Origin());
+
+      //! @Todo: store origin of not-autoupdateable installed addons in table 'update_rules'
+      //         of the addon database. this is needed to pin ambiguous addon-id's that are
+      //         available from multiple origins accordingly.
+      //
+      //         after this is done the above call should be changed to
+      //
+      //         value = CServiceBroker::GetAddonMgr().IsAutoUpdateable(item->GetAddonInfo()->ID(),
+      //                                                                item->GetAddonInfo()->Origin());
+
       return true;
     }
   }

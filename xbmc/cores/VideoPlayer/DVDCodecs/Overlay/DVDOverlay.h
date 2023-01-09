@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <atomic>
+#include <stdexcept>
 #include <vector>
 
 enum DVDOverlayType
@@ -35,6 +36,9 @@ public:
     replace = false;
     m_references = 1;
     m_textureid = 0;
+    m_enableTextAlign = false;
+    m_overlayContainerFlushable = true;
+    m_setForcedMargins = false;
   }
 
   CDVDOverlay(const CDVDOverlay& src)
@@ -46,6 +50,9 @@ public:
     replace       = src.replace;
     m_references  = 1;
     m_textureid = 0;
+    m_enableTextAlign = src.m_enableTextAlign;
+    m_overlayContainerFlushable = src.m_overlayContainerFlushable;
+    m_setForcedMargins = src.m_setForcedMargins;
   }
 
   virtual ~CDVDOverlay()
@@ -90,13 +97,50 @@ public:
    */
   virtual CDVDOverlay* Clone() { return Acquire(); }
 
+  /*
+   * \brief Enable the use of text alignment (left/center/right).
+   */
+  virtual void SetTextAlignEnabled(bool enable)
+  {
+    throw std::logic_error("EnableTextAlign method not implemented.");
+  }
+
+  /*
+   * \brief Return true if the text alignment (left/center/right) is enabled otherwise false.
+   */
+  bool IsTextAlignEnabled() { return m_enableTextAlign; }
+
+  /*
+   * \brief Allow/Disallow the overlay container to flush the overlay.
+   */
+  void SetOverlayContainerFlushable(bool isFlushable) { m_overlayContainerFlushable = isFlushable; }
+
+  /*
+   * \brief Return true when the overlay container can flush the overlay on flush events.
+   */
+  bool IsOverlayContainerFlushable() { return m_overlayContainerFlushable; }
+
+  /*
+   * \brief Specify if the margins are handled by the subtitle codec/parser.
+   */
+  void SetForcedMargins(bool setForcedMargins) { m_setForcedMargins = setForcedMargins; }
+
+  /*
+   * \brief Return true if the margins are handled by the subtitle codec/parser.
+   */
+  bool IsForcedMargins() const { return m_setForcedMargins; }
+
   double iPTSStartTime;
   double iPTSStopTime;
   bool bForced; // display, no matter what
   bool replace; // replace by next nomatter what stoptime it has
   unsigned long m_textureid;
+
 protected:
   DVDOverlayType m_type;
+  bool m_enableTextAlign;
+  bool m_overlayContainerFlushable;
+  bool m_setForcedMargins;
 
 private:
   std::atomic_int m_references;

@@ -27,7 +27,7 @@ class IPowerSyscall
 public:
   /**\brief Called by power manager to create platform power system adapter
   *
-  * This method used to create platfrom specified power system adapter
+  * This method used to create platform specified power system adapter
   */
   static IPowerSyscall* CreateInstance();
   static void RegisterPowerSyscall(CreatePowerSyscallFunc createFunc);
@@ -55,7 +55,7 @@ public:
    PumpPowerEvents is called from Application Thread and the platform implementation may signal
    power related events back to xbmc through the callback.
 
-   return true if an event occured and false if not.
+   return true if an event occurred and false if not.
 
    \param callback the callback to signal to
    */

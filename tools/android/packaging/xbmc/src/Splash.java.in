@@ -1,56 +1,54 @@
 package @APP_PACKAGE@;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.lang.System;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.Iterator;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Properties;
-import java.util.Enumeration;
-import java.util.ArrayList;
+import static android.content.pm.PackageManager.FEATURE_LEANBACK;
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
 import android.Manifest;
-import android.net.Uri;
-import android.os.AsyncTask;
-import android.os.Build;
-import android.os.Bundle;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningTaskInfo;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.util.Log;
+import android.content.IntentFilter;
+import android.content.res.Resources;
+import android.content.res.Resources.NotFoundException;
+import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.provider.Settings;
 import android.text.Html;
 import android.text.method.LinkMovementMethod;
+import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.content.res.Resources;
-import android.content.res.Resources.NotFoundException;
 
-import android.os.Handler;
-import android.os.Message;
-import android.content.BroadcastReceiver;
-import android.content.IntentFilter;
-import android.os.Environment;
-
-import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.lang.System;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class Splash extends Activity
 {
@@ -68,12 +66,14 @@ public class Splash extends Activity
   private static final int CheckingPermissionsDone = 10;
   private static final int CheckingPermissionsInfo = 11;
   private static final int CheckExternalStorage = 12;
+  private static final int RecordAudioPermission = 13;
   private static final int DownloadingObb = 90;
   private static final int DownloadObbDone = 91;
   private static final int StartingXBMC = 99;
 
   private static final String TAG = "@APP_NAME@";
 
+  private static final int RECORDAUDIO_RESULT_CODE = 8946;
   private static final int PERMISSION_RESULT_CODE = 8947;
 
   private String mCpuinfo = "";
@@ -91,6 +91,8 @@ public class Splash extends Activity
   private String sXbmcdata = "";
   private File fPackagePath = null;
   private File fXbmcHome = null;
+  private String sXbmcTemp = "";
+  private File fXbmcTemp = null;
 
   private BroadcastReceiver mExternalStorageReceiver = null;
   private boolean mExternalStorageChecked = false;
@@ -105,6 +107,7 @@ public class Splash extends Activity
 
     StateMachine(Splash a)
     {
+      super(Looper.myLooper());
       this.mSplash = a;
     }
 
@@ -128,17 +131,38 @@ public class Splash extends Activity
             @Override
             public void onClick(DialogInterface dialog, int which)
             {
-              mStateMachine.sendEmptyMessage(CheckingPermissions);
+              mStateMachine.sendEmptyMessage(RecordAudioPermission);
             }
           });
           dialog.show();
           break;
-        case CheckingPermissions:
+        case RecordAudioPermission:
           mSplash.mTextView.setText("Asking for permissions...");
           mSplash.mProgress.setVisibility(View.INVISIBLE);
 
-          requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+          requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},
+                  RECORDAUDIO_RESULT_CODE);
+          break;
+        case CheckingPermissions:
+          if (Build.VERSION.SDK_INT >= 33 || (Build.VERSION.SDK_INT >= 30 && !isAndroidTV()))
+          {
+            try
+            {
+              Intent intent = new Intent();
+              intent.setAction(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+              intent.setData(Uri.parse(String.format("package:%s", getPackageName())));
+              startActivityForResult(intent, PERMISSION_RESULT_CODE);
+            }
+            catch (Exception e)
+            {
+              Log.d(TAG, "Exception asking for permissions: " + e.getMessage());
+            }
+          }
+          else
+          {
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                     PERMISSION_RESULT_CODE);
+          }
           break;
         case CheckingPermissionsDone:
           if (mPermissionOK)
@@ -196,7 +220,6 @@ public class Splash extends Activity
           else
           {
             SetupEnvironment();
-            MigrateUserData();
 
             if (mState == InError)
             {
@@ -416,8 +439,6 @@ public class Splash extends Activity
 
           if (!(sName.startsWith("assets/") || (mInstallLibs && sName.startsWith("lib/"))))
             continue;
-          if (sName.startsWith("assets/python"))
-            continue;
 
           String sFullPath = null;
           if (sName.startsWith("lib/"))
@@ -518,7 +539,11 @@ public class Splash extends Activity
     AlertDialog.Builder builder = new AlertDialog.Builder(act);
     builder.setTitle(title);
     builder.setIcon(android.R.drawable.ic_dialog_alert);
-    builder.setMessage(Html.fromHtml(message));
+    if (Build.VERSION.SDK_INT >= 24) {
+      builder.setMessage(Html.fromHtml(message, Html.FROM_HTML_MODE_LEGACY));
+    } else {
+      builder.setMessage(Html.fromHtml(message));
+    }
     builder.setPositiveButton("Exit",
             new DialogInterface.OnClickListener()
             {
@@ -598,6 +623,32 @@ public class Splash extends Activity
       }
     }
 
+    sXbmcTemp = XBMCProperties.getStringProperty("xbmc.temp", "");
+    if (!sXbmcTemp.isEmpty())
+    {
+      File fXbmcTemp = new File(sXbmcTemp);
+      int loop = 20;
+      while (!fXbmcTemp.exists() && loop > 0)
+      {
+        // Wait a while in case of non-primary sdcard
+        try
+        {
+          Thread.sleep(1000);
+        }
+        catch (InterruptedException e)
+        {
+          continue;
+        }
+        loop--;
+      }
+
+      if (!fXbmcTemp.exists())
+      {
+        sXbmcTemp = "";
+        System.setProperty("xbmc.temp", "");
+      }
+    }
+
     sPackagePath = getPackageResourcePath();
     fPackagePath = new File(sPackagePath);
     String obbfn = "";
@@ -627,55 +678,6 @@ public class Splash extends Activity
       }
     }
   }
-
-  private void MigrateUserData()
-  {
-    String sOldUserDir;
-    File fOldUserDir;
-    try
-    {
-      sOldUserDir = getExternalFilesDir(null).getParentFile().getParentFile() + "/org.xbmc.xbmc/files/.xbmc";
-      fOldUserDir = new File(sOldUserDir);
-      if (!fOldUserDir.exists())
-        return;
-    }
-    catch (Exception e)
-    {
-      return;
-    }
-
-    File fNewUserDir = new File(getExternalFilesDir(null), ".@APP_NAME_LC@");
-    String s@APP_NAME@Migrated = fNewUserDir.getAbsolutePath() + "/.@APP_NAME_LC@_data_was_migrated";
-    File f@APP_NAME@Migrated = new File(s@APP_NAME@Migrated);
-
-    Log.d(TAG, "External_dir = " + fOldUserDir);
-    if (fOldUserDir.exists() && !fNewUserDir.exists())
-    {
-      Log.d(TAG, "XBMC user data detected at " + fOldUserDir.getAbsolutePath() + ", migrating to " + fNewUserDir.getAbsolutePath());
-      if (!fNewUserDir.getParentFile().exists() && !fNewUserDir.getParentFile().mkdirs())
-      {
-        Log.d(TAG, "Error creating " + fNewUserDir.getParentFile().getAbsolutePath());
-        return;
-      }
-      if (fOldUserDir.renameTo(fNewUserDir))
-      {
-        try
-        {
-          new FileOutputStream(f@APP_NAME@Migrated).close();
-        }
-        catch (IOException e1)
-        {
-          e1.printStackTrace();
-        }
-        Log.d(TAG, "XBMC user data migrated to @APP_NAME@ successfully");
-      }
-      else
-      {
-        Log.d(TAG, "Error migrating XBMC user data");
-      }
-    }
-  }
-
 
   private boolean ParseCpuFeature()
   {
@@ -763,7 +765,14 @@ public class Splash extends Activity
   private boolean CheckPermissions()
   {
     boolean retVal = false;
-    if (android.os.Build.VERSION.SDK_INT > 22)
+    if (Build.VERSION.SDK_INT >= 33 || (Build.VERSION.SDK_INT >= 30 && !isAndroidTV()))
+    {
+      if (Environment.isExternalStorageManager())
+      {
+        retVal = true;
+      }
+    }
+    else if (Build.VERSION.SDK_INT > 22)
     {
       int permissionCheck;
       permissionCheck = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -789,9 +798,28 @@ public class Splash extends Activity
         {
           mPermissionOK = true;
         }
+        mStateMachine.sendEmptyMessage(CheckingPermissionsDone);
+        break;
+      }
+      case RECORDAUDIO_RESULT_CODE:
+      {
+        mStateMachine.sendEmptyMessage(CheckingPermissions);
       }
     }
-    mStateMachine.sendEmptyMessage(CheckingPermissionsDone);
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, Intent data)
+  {
+    super.onActivityResult(requestCode, resultCode, data);
+    if (requestCode == PERMISSION_RESULT_CODE)
+    {
+      if (Environment.isExternalStorageManager())
+      {
+        mPermissionOK = true;
+      }
+      mStateMachine.sendEmptyMessage(CheckingPermissionsDone);
+    }
   }
 
   void updateExternalStorageState()
@@ -913,7 +941,7 @@ public class Splash extends Activity
 
     if (mState != InError)
     {
-      if (pkg_arch.equalsIgnoreCase("arm"))
+      if (pkg_arch.equalsIgnoreCase("armeabi-v7a"))
       {
         // arm arch: check if the cpu supports neon
         boolean ret = ParseCpuFeature();
@@ -953,7 +981,6 @@ public class Splash extends Activity
         mState = ChecksDone;
 
         SetupEnvironment();
-        MigrateUserData();
 
         if ((mState != DownloadingObb && mState != InError) && fXbmcHome.exists() && fXbmcHome.lastModified() >= fPackagePath.lastModified() && !mInstallLibs)
         {
@@ -990,6 +1017,20 @@ public class Splash extends Activity
         new FillCache(this).execute();
       else
         mStateMachine.sendEmptyMessage(CachingDone);
+    }
+  }
+
+  private boolean isAndroidTV()
+  {
+    if (getPackageManager().hasSystemFeature(FEATURE_LEANBACK))
+    {
+      Log.d(TAG, "Running on an Android TV Device");
+      return true;
+    }
+    else
+    {
+      Log.d(TAG, "Running on a non Android TV Device");
+      return false;
     }
   }
 

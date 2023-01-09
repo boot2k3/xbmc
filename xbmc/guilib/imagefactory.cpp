@@ -9,17 +9,17 @@
 #include "imagefactory.h"
 
 #include "ServiceBroker.h"
+#include "addons/ExtsMimeSupportList.h"
 #include "addons/ImageDecoder.h"
-#include "addons/binary-addons/BinaryAddonBase.h"
+#include "addons/addoninfo/AddonType.h"
 #include "guilib/FFmpegImage.h"
 #include "utils/Mime.h"
-#include "utils/StringUtils.h"
 
-#include <algorithm>
+#include <mutex>
 
 CCriticalSection ImageFactory::m_createSec;
 
-using namespace ADDON;
+using namespace KODI::ADDONS;
 
 IImage* ImageFactory::CreateLoader(const std::string& strFileName)
 {
@@ -37,19 +37,22 @@ IImage* ImageFactory::CreateLoader(const CURL& url)
 
 IImage* ImageFactory::CreateLoaderFromMimeType(const std::string& strMimeType)
 {
-  BinaryAddonBaseList addonInfos;
-
-  CServiceBroker::GetBinaryAddonManager().GetAddonInfos(addonInfos, true, ADDON_IMAGEDECODER);
-  for (auto addonInfo : addonInfos)
+  auto addonInfos = CServiceBroker::GetExtsMimeSupportList().GetMimetypeSupportedAddonInfos(
+      strMimeType, CExtsMimeSupportList::FilterSelect::all);
+  for (const auto& addonInfo : addonInfos)
   {
-    std::vector<std::string> mime = StringUtils::Split(addonInfo->Type(ADDON_IMAGEDECODER)->GetValue("@mimetype").asString(), "|");
-    if (std::find(mime.begin(), mime.end(), strMimeType) != mime.end())
+    // Check asked and given mime type is supported by only for here allowed imagedecoder addons.
+    if (addonInfo.first != ADDON::AddonType::IMAGEDECODER)
+      continue;
+
+    std::unique_lock<CCriticalSection> lock(m_createSec);
+    std::unique_ptr<CImageDecoder> result =
+        std::make_unique<CImageDecoder>(addonInfo.second, strMimeType);
+    if (!result->IsCreated())
     {
-      CSingleLock lock(m_createSec);
-      CImageDecoder* result = new CImageDecoder(addonInfo);
-      result->Create(strMimeType);
-      return result;
+      continue;
     }
+    return result.release();
   }
 
   return new CFFmpegImage(strMimeType);

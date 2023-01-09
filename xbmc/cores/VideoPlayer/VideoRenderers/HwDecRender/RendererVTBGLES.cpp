@@ -44,7 +44,6 @@ bool CRendererVTB::Register()
 
 CRendererVTB::CRendererVTB()
 {
-  m_textureCache = nullptr;
   auto winSystem = dynamic_cast<WIN_SYSTEM_CLASS*>(CServiceBroker::GetWinSystem());
   m_glContext = winSystem->GetEAGLContextObj();
   CVReturn ret = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault,
@@ -54,7 +53,7 @@ CRendererVTB::CRendererVTB()
                                               &m_textureCache);
   if (ret != kCVReturnSuccess)
   {
-    CLog::Log(LOGERROR, "CRendererVTB::CRendererVTB - Error creating texture cache (err: %d)", ret);
+    CLog::Log(LOGERROR, "CRendererVTB::CRendererVTB - Error creating texture cache (err: {})", ret);
   }
 
   for (auto &buf : m_vtbBuffers)
@@ -100,13 +99,13 @@ EShaderFormat CRendererVTB::GetShaderFormat()
 
 bool CRendererVTB::LoadShadersHook()
 {
-  CLog::Log(LOGNOTICE, "GL: Using CVBREF render method");
+  CLog::Log(LOGINFO, "GL: Using CVBREF render method");
   m_textureTarget = GL_TEXTURE_2D;
   m_renderMethod = RENDER_CUSTOM;
 
   if (!m_textureCache)
   {
-    CLog::Log(LOGNOTICE, "CRendererVTB::LoadShadersHook: no texture cache");
+    CLog::Log(LOGINFO, "CRendererVTB::LoadShadersHook: no texture cache");
     return false;
   }
 
@@ -205,7 +204,7 @@ bool CRendererVTB::UploadTexture(int index)
 
   if (ret != kCVReturnSuccess)
   {
-    CLog::Log(LOGERROR, "CRendererVTB::UploadTexture - Error uploading texture Y (err: %d)", ret);
+    CLog::Log(LOGERROR, "CRendererVTB::UploadTexture - Error uploading texture Y (err: {})", ret);
     return false;
   }
 
@@ -218,7 +217,7 @@ bool CRendererVTB::UploadTexture(int index)
 
   if (ret != kCVReturnSuccess)
   {
-    CLog::Log(LOGERROR, "CRendererVTB::UploadTexture - Error uploading texture UV (err: %d)", ret);
+    CLog::Log(LOGERROR, "CRendererVTB::UploadTexture - Error uploading texture UV (err: {})", ret);
     return false;
   }
 

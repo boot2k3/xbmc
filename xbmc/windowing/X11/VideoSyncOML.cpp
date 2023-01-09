@@ -13,15 +13,19 @@
 #include "windowing/GraphicContext.h"
 #include "windowing/X11/WinSystemX11GLContext.h"
 
+#include <unistd.h>
+
+using namespace KODI::WINDOWING::X11;
 
 bool CVideoSyncOML::Setup(PUPDATECLOCK func)
 {
-  CLog::Log(LOGDEBUG, "CVideoSyncOML::%s - setting up OML", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "CVideoSyncOML::{} - setting up OML", __FUNCTION__);
 
   UpdateClock = func;
 
   m_abort = false;
-  m_winSystem.Register(this);
+
+  static_cast<CWinSystemX11*>(&m_winSystem)->Register(this);
 
   return true;
 }

@@ -53,7 +53,8 @@ CPVRChannelsPath::CPVRChannelsPath(const std::string& strPath)
         }
         else
         {
-          CLog::LogF(LOGERROR, "Invalid channels path '%s' - channel root segment syntax error.", strPath.c_str());
+          CLog::LogF(LOGERROR, "Invalid channels path '{}' - channel root segment syntax error.",
+                     strPath);
           m_kind = Kind::INVALID;
         }
         break;
@@ -68,7 +69,18 @@ CPVRChannelsPath::CPVRChannelsPath(const std::string& strPath)
         std::vector<std::string> tokens = StringUtils::Split(segment, "_");
         if (tokens.size() == 2)
         {
-          m_clientID = tokens[0];
+          std::vector<std::string> instance = StringUtils::Split(tokens[0], "@");
+          if (instance.size() == 2)
+          {
+            m_instanceID = std::atoi(instance[0].c_str());
+            m_addonID = instance[1];
+          }
+          else
+          {
+            m_instanceID = ADDON::ADDON_SINGLETON_INSTANCE_ID;
+            m_addonID = tokens[0];
+          }
+
           tokens = StringUtils::Split(tokens[1], ".");
           if (tokens.size() == 2 && tokens[1] == "pvr")
           {
@@ -78,20 +90,22 @@ CPVRChannelsPath::CPVRChannelsPath(const std::string& strPath)
           }
         }
 
-        if (!m_clientID.empty() && m_iChannelUID >= 0)
+        if (!m_addonID.empty() && m_iChannelUID >= 0)
         {
-          m_kind = Kind::CHANNEL; // pvr://channels/(tv|radio)/<groupname>/<addonid>_<channeluid>.pvr
+          m_kind = Kind::
+              CHANNEL; // pvr://channels/(tv|radio)/<groupname>/<instanceid>@<addonid>_<channeluid>.pvr
         }
         else
         {
-          CLog::LogF(LOGERROR, "Invalid channels path '%s' - channel segment syntax error.", strPath.c_str());
+          CLog::LogF(LOGERROR, "Invalid channels path '{}' - channel segment syntax error.",
+                     strPath);
           m_kind = Kind::INVALID;
         }
         break;
       }
 
       case Kind::CHANNEL:
-        CLog::LogF(LOGERROR, "Invalid channels path '%s' - too many path segments.", strPath.c_str());
+        CLog::LogF(LOGERROR, "Invalid channels path '{}' - too many path segments.", strPath);
         m_kind = Kind::INVALID; // too many segments
         break;
     }
@@ -116,7 +130,8 @@ CPVRChannelsPath::CPVRChannelsPath(bool bRadio, bool bHidden, const std::string&
     m_kind = Kind::GROUP;
 
   m_group = bHidden ? ".hidden" : strGroupName;
-  m_path = StringUtils::Format("pvr://channels/%s/%s", bRadio ? "radio" : "tv", CURL::Encode(m_group).c_str());
+  m_path =
+      StringUtils::Format("pvr://channels/{}/{}", bRadio ? "radio" : "tv", CURL::Encode(m_group));
 
   if (!m_group.empty())
     m_path.append("/");
@@ -131,23 +146,29 @@ CPVRChannelsPath::CPVRChannelsPath(bool bRadio, const std::string& strGroupName)
     m_kind = Kind::GROUP;
 
   m_group = strGroupName;
-  m_path = StringUtils::Format("pvr://channels/%s/%s", bRadio ? "radio" : "tv", CURL::Encode(m_group).c_str());
+  m_path =
+      StringUtils::Format("pvr://channels/{}/{}", bRadio ? "radio" : "tv", CURL::Encode(m_group));
 
   if (!m_group.empty())
     m_path.append("/");
 }
 
-CPVRChannelsPath::CPVRChannelsPath(bool bRadio, const std::string& strGroupName, const std::string& strClientID, int iChannelUID)
+CPVRChannelsPath::CPVRChannelsPath(bool bRadio,
+                                   const std::string& strGroupName,
+                                   const std::string& strAddonID,
+                                   ADDON::AddonInstanceId instanceID,
+                                   int iChannelUID)
   : m_bRadio(bRadio)
 {
-  if (!strGroupName.empty() && !strClientID.empty() && iChannelUID >= 0)
+  if (!strGroupName.empty() && !strAddonID.empty() && iChannelUID >= 0)
   {
     m_kind = Kind::CHANNEL;
     m_group = strGroupName;
-    m_clientID = strClientID;
+    m_addonID = strAddonID;
+    m_instanceID = instanceID;
     m_iChannelUID = iChannelUID;
-    m_path = StringUtils::Format("pvr://channels/%s/%s/%s_%d.pvr",
-                                 bRadio ? "radio" : "tv", CURL::Encode(m_group).c_str(), m_clientID.c_str(), m_iChannelUID);
+    m_path = StringUtils::Format("pvr://channels/{}/{}/{}@{}_{}.pvr", bRadio ? "radio" : "tv",
+                                 CURL::Encode(m_group), m_instanceID, m_addonID, m_iChannelUID);
   }
 }
 

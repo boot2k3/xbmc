@@ -10,7 +10,6 @@
 
 #include "URL.h"
 #include "utils/URIUtils.h"
-#include "utils/auto_buffer.h"
 #include "utils/log.h"
 
 #include <sys/stat.h>
@@ -36,7 +35,7 @@ CZipFile::~CZipFile()
 
 bool CZipFile::Open(const CURL&url)
 {
-  std::string strOpts = url.GetOptions();
+  const std::string& strOpts = url.GetOptions();
   CURL url2(url);
   url2.SetOptions("");
   if (!g_ZipManager.GetZipEntry(url2,mZipItem))
@@ -69,7 +68,7 @@ bool CZipFile::Open(const CURL&url)
 
   if (!mFile.Open(url.GetHostName())) // this is the zip-file, always open binary
   {
-    CLog::Log(LOGERROR,"FileZip: unable to open zip file %s!",url.GetHostName().c_str());
+    CLog::Log(LOGERROR, "FileZip: unable to open zip file {}!", url.GetHostName());
     return false;
   }
   mFile.Seek(mZipItem.offset,SEEK_SET);
@@ -158,7 +157,7 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
   if (mZipItem.method == 8)
   {
     static const int blockSize = 128 * 1024;
-    XUTILS::auto_buffer buf(blockSize);
+    std::vector<char> buf(blockSize);
     switch (iWhence)
     {
     case SEEK_SET:
@@ -182,7 +181,7 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
         while (m_iFilePos < iFilePosition)
         {
           ssize_t iToRead = (iFilePosition - m_iFilePos) > blockSize ? blockSize : iFilePosition - m_iFilePos;
-          if (Read(buf.get(),iToRead) != iToRead)
+          if (Read(buf.data(), iToRead) != iToRead)
             return -1;
         }
         return m_iFilePos;
@@ -201,7 +200,7 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
       while (m_iFilePos < iFilePosition)
       {
         ssize_t iToRead = (iFilePosition - m_iFilePos)>blockSize ? blockSize : iFilePosition - m_iFilePos;
-        if (Read(buf.get(), iToRead) != iToRead)
+        if (Read(buf.data(), iToRead) != iToRead)
           return -1;
       }
       return m_iFilePos;
@@ -214,7 +213,7 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
       while(static_cast<ssize_t>(m_ZStream.total_out) < mZipItem.usize+iFilePosition)
       {
         ssize_t iToRead = (mZipItem.usize + iFilePosition - m_ZStream.total_out > blockSize) ? blockSize : mZipItem.usize + iFilePosition - m_ZStream.total_out;
-        if (Read(buf.get(), iToRead) != iToRead)
+        if (Read(buf.data(), iToRead) != iToRead)
           return -1;
       }
       return m_iFilePos;
@@ -256,6 +255,9 @@ int CZipFile::Stat(struct __stat64 *buffer)
 
 int CZipFile::Stat(const CURL& url, struct __stat64* buffer)
 {
+  if (!buffer)
+    return -1;
+
   if (!g_ZipManager.GetZipEntry(url, mZipItem))
   {
     if (url.GetFileName().empty() && CFile::Exists(url.GetHostName()))
@@ -267,7 +269,7 @@ int CZipFile::Stat(const CURL& url, struct __stat64* buffer)
       return -1;
   }
 
-  memset(buffer, 0, sizeof(struct __stat64));
+  *buffer = {};
   buffer->st_gid = 0;
   buffer->st_atime = buffer->st_ctime = mZipItem.mod_time;
   buffer->st_size = mZipItem.usize;
@@ -399,12 +401,47 @@ int CZipFile::UnpackFromMemory(std::string& strDest, const std::string& strInput
     if (!isGZ)
     {
       CZipManager::readHeader(strInput.data()+iPos,mZipItem);
-      if( mZipItem.header != ZIP_LOCAL_HEADER )
+      if (mZipItem.header == ZIP_DATA_RECORD_HEADER)
+      {
+        // this header concerns a file we already processed, so we can just skip it
+        iPos += DREC_SIZE;
+        continue;
+      }
+      if (mZipItem.header != ZIP_LOCAL_HEADER)
         return iResult;
       if( (mZipItem.flags & 8) == 8 )
       {
-        CLog::Log(LOGERROR,"FileZip: extended local header, not supported!");
-        return iResult;
+        // if an extended local header (=data record header) is present,
+        // the following fields are 0 in the local header and we need to read
+        // them from the extended local header
+
+        // search for the extended local header
+        unsigned int i = iPos + LHDR_SIZE + mZipItem.flength + mZipItem.elength;
+        while (1)
+        {
+          if (i + DREC_SIZE > strInput.size())
+          {
+            CLog::Log(LOGERROR, "FileZip: extended local header expected, but not present!");
+            return iResult;
+          }
+          if ((strInput[i] == 0x50) && (strInput[i + 1] == 0x4b) &&
+            (strInput[i + 2] == 0x07) && (strInput[i + 3] == 0x08))
+            break; // header found
+          i++;
+        }
+        // ZIP is little endian:
+        mZipItem.crc32 = static_cast<uint8_t>(strInput[i + 4]) |
+                         static_cast<uint8_t>(strInput[i + 5]) << 8 |
+                         static_cast<uint8_t>(strInput[i + 6]) << 16 |
+                         static_cast<uint8_t>(strInput[i + 7]) << 24;
+        mZipItem.csize = static_cast<uint8_t>(strInput[i + 8]) |
+                         static_cast<uint8_t>(strInput[i + 9]) << 8 |
+                         static_cast<uint8_t>(strInput[i + 10]) << 16 |
+                         static_cast<uint8_t>(strInput[i + 11]) << 24;
+        mZipItem.usize = static_cast<uint8_t>(strInput[i + 12]) |
+                         static_cast<uint8_t>(strInput[i + 13]) << 8 |
+                         static_cast<uint8_t>(strInput[i + 14]) << 16 |
+                         static_cast<uint8_t>(strInput[i + 15]) << 24;
       }
     }
     if (!InitDecompress())
@@ -456,7 +493,7 @@ bool CZipFile::DecompressGzip(const std::string& in, std::string& out)
   int err = inflateInit2(&strm, windowBits);
   if (err != Z_OK)
   {
-    CLog::Log(LOGERROR, "FileZip: zlib error %d", err);
+    CLog::Log(LOGERROR, "FileZip: zlib error {}", err);
     return false;
   }
 
@@ -475,10 +512,11 @@ bool CZipFile::DecompressGzip(const std::string& in, std::string& out)
     {
       case Z_NEED_DICT:
         err = Z_DATA_ERROR;
+        [[fallthrough]];
       case Z_DATA_ERROR:
       case Z_MEM_ERROR:
       case Z_STREAM_ERROR:
-        CLog::Log(LOGERROR, "FileZip: failed to decompress. zlib error %d", err);
+        CLog::Log(LOGERROR, "FileZip: failed to decompress. zlib error {}", err);
         inflateEnd(&strm);
         return false;
     }

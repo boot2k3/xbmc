@@ -10,14 +10,17 @@
 
 #include "AndroidUtils.h"
 #include "rendering/gles/RenderSystemGLES.h"
+#include "system_egl.h"
 #include "threads/CriticalSection.h"
 #include "threads/Timer.h"
+#include "utils/HDRCapabilities.h"
 #include "windowing/WinSystem.h"
 
-#include <EGL/egl.h>
+#include <memory>
 
 class CDecoderFilterManager;
 class IDispResource;
+class CNativeWindow;
 
 class CWinSystemAndroid : public CWinSystemBase, public ITimerCallback
 {
@@ -36,12 +39,12 @@ public:
   void UpdateResolutions() override;
 
   void InitiateModeChange();
-  bool IsHdmiModeTriggered() const { return m_HdmiModeTriggered; };
+  bool IsHdmiModeTriggered() const { return m_HdmiModeTriggered; }
   void SetHdmiState(bool connected);
 
   void UpdateDisplayModes();
 
-  bool HasCursor() override { return false; };
+  bool HasCursor() override { return false; }
 
   bool Hide() override;
   bool Show(bool raise = true) override;
@@ -54,14 +57,16 @@ public:
   bool MessagePump() override;
   bool IsHDRDisplay() override;
 
+  CHDRCapabilities GetDisplayHDRCapabilities() const override;
+
 protected:
   std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> GetOSScreenSaverImpl() override;
   void OnTimeout() override;
 
   CAndroidUtils *m_android;
 
-  EGLDisplay m_nativeDisplay;
-  EGLNativeWindowType m_nativeWindow;
+  EGLDisplay m_nativeDisplay = EGL_NO_DISPLAY;
+  std::shared_ptr<CNativeWindow> m_nativeWindow;
 
   int m_displayWidth;
   int m_displayHeight;

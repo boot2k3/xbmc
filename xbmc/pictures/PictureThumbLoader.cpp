@@ -15,7 +15,6 @@
 #include "TextureCache.h"
 #include "URL.h"
 #include "filesystem/Directory.h"
-#include "filesystem/File.h"
 #include "filesystem/MultiPathDirectory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
@@ -23,6 +22,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/FileUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoThumbLoader.h"
 
@@ -60,7 +60,7 @@ bool CPictureThumbLoader::LoadItemCached(CFileItem* pItem)
 
   if (pItem->HasArt("thumb") && m_regenerateThumbs)
   {
-    CTextureCache::GetInstance().ClearCachedImage(pItem->GetArt("thumb"));
+    CServiceBroker::GetTextureCache()->ClearCachedImage(pItem->GetArt("thumb"));
     if (m_textureDatabase->Open())
     {
       m_textureDatabase->ClearTextureForPath(pItem->GetPath(), "thumb");
@@ -80,7 +80,7 @@ bool CPictureThumbLoader::LoadItemCached(CFileItem* pItem)
     if (!loader.FillThumb(*pItem))
     {
       std::string thumbURL = CVideoThumbLoader::GetEmbeddedThumbURL(*pItem);
-      if (CTextureCache::GetInstance().HasCachedImage(thumbURL))
+      if (CServiceBroker::GetTextureCache()->HasCachedImage(thumbURL))
       {
         thumb = thumbURL;
       }
@@ -99,7 +99,7 @@ bool CPictureThumbLoader::LoadItemCached(CFileItem* pItem)
   }
   if (!thumb.empty())
   {
-    CTextureCache::GetInstance().BackgroundCacheImage(thumb);
+    CServiceBroker::GetTextureCache()->BackgroundCacheImage(thumb);
     pItem->SetArt("thumb", thumb);
   }
   pItem->FillInDefaultIcon();
@@ -134,10 +134,10 @@ void CPictureThumbLoader::ProcessFoldersAndArchives(CFileItem *pItem)
   if (pItem->IsCBR() || pItem->IsCBZ())
   {
     std::string strTBN(URIUtils::ReplaceExtension(pItem->GetPath(),".tbn"));
-    if (CFile::Exists(strTBN))
+    if (CFileUtils::Exists(strTBN))
     {
       db.SetTextureForPath(pItem->GetPath(), "thumb", strTBN);
-      CTextureCache::GetInstance().BackgroundCacheImage(strTBN);
+      CServiceBroker::GetTextureCache()->BackgroundCacheImage(strTBN);
       pItem->SetArt("thumb", strTBN);
       return;
     }
@@ -161,10 +161,10 @@ void CPictureThumbLoader::ProcessFoldersAndArchives(CFileItem *pItem)
     if (pItem->IsMultiPath())
       pathToUrl = CURL(CMultiPathDirectory::GetFirstPath(pItem->GetPath()));
     thumb = URIUtils::AddFileToFolder(pathToUrl.Get(), thumb);
-    if (CFile::Exists(thumb))
+    if (CFileUtils::Exists(thumb))
     {
       db.SetTextureForPath(pItem->GetPath(), "thumb", thumb);
-      CTextureCache::GetInstance().BackgroundCacheImage(thumb);
+      CServiceBroker::GetTextureCache()->BackgroundCacheImage(thumb);
       pItem->SetArt("thumb", thumb);
       return;
     }
@@ -218,7 +218,7 @@ void CPictureThumbLoader::ProcessFoldersAndArchives(CFileItem *pItem)
         items.Sort(SortByLabel, SortOrderAscending);
         std::string thumb = CTextureUtils::GetWrappedThumbURL(items[0]->GetPath());
         db.SetTextureForPath(pItem->GetPath(), "thumb", thumb);
-        CTextureCache::GetInstance().BackgroundCacheImage(thumb);
+        CServiceBroker::GetTextureCache()->BackgroundCacheImage(thumb);
         pItem->SetArt("thumb", thumb);
       }
       else
@@ -226,6 +226,7 @@ void CPictureThumbLoader::ProcessFoldersAndArchives(CFileItem *pItem)
         // ok, now we've got the files to get the thumbs from, lets create it...
         // we basically load the 4 images and combine them
         std::vector<std::string> files;
+        files.reserve(4);
         for (int thumb = 0; thumb < 4; thumb++)
           files.push_back(items[thumb]->GetPath());
         std::string thumb = CTextureUtils::GetWrappedImageURL(pItem->GetPath(), "picturefolder");
@@ -236,7 +237,7 @@ void CPictureThumbLoader::ProcessFoldersAndArchives(CFileItem *pItem)
           details.file = relativeCacheFile;
           details.width = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
           details.height = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_imageRes;
-          CTextureCache::GetInstance().AddCachedTexture(thumb, details);
+          CServiceBroker::GetTextureCache()->AddCachedTexture(thumb, details);
           db.SetTextureForPath(pItem->GetPath(), "thumb", thumb);
           pItem->SetArt("thumb", CTextureCache::GetCachedPath(relativeCacheFile));
         }

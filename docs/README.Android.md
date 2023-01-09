@@ -15,7 +15,8 @@ It should work if you're using macOS. If that is the case, read **[macOS specifi
   3.4. **[Create a key to sign debug APKs](#34-create-a-key-to-sign-debug-apks)**  
   3.5. **[macOS specific prerequisites](#35-macos-specific-prerequisites)**
 4. **[Get the source code](#4-get-the-source-code)**
-5. **[Build tools and dependencies](#5-build-tools-and-dependencies)**
+5. **[Build tools and dependencies](#5-build-tools-and-dependencies)**  
+  5.1. **[Advanced Configure Options](#51-advanced-configure-options)**  
 6. **[Build binary add-ons](#6-build-binary-add-ons)**
 7. **[Build Kodi](#7-build-kodi)**
 8. **[Package](#8-package)**
@@ -58,14 +59,17 @@ Several different strategies are used to draw your attention to certain pieces o
 ## 2. Install the required packages
 Install build dependencies needed to cross-compile Kodi for Android:
 ```
-sudo apt install autoconf build-essential curl default-jdk gawk git gperf lib32stdc++6 lib32z1 lib32z1-dev libcurl4-openssl-dev unzip zlib1g-dev
+sudo apt install autoconf bison build-essential curl default-jdk flex gawk git gperf lib32stdc++6 lib32z1 lib32z1-dev libcurl4-openssl-dev unzip zip zlib1g-dev
 ```
 **NOTE:** If you're running a 32bit Debian/Ubuntu distribution,  remove `lib32stdc++6 lib32z1 lib32z1-dev` from the command.
+**NOTE:** Gradle 7.0.2+ requires Jave Runtime 11+. Check java version by running `java --version`.  If version is < 11, set JAVA_HOME to java 11+ home directory._
+
 
 **[back to top](#table-of-contents)**
 
 ## 3. Prerequisites
-Building Kodi for Android requires Android NDK revision 20. For the SDK just use the latest available.
+Building Kodi for Android requires Android NDK revision 20b. For the SDK just use the latest available.
+Kodi CI/CD platforms currently use r21e for build testing and releases, so we recommend using r21e for the most tested build experience
 
 * **[Android SDK](https://developer.android.com/studio/index.html)** (Look for `Get just the command line tools`)
 * **[Android NDK](https://developer.android.com/ndk/downloads/index.html)**
@@ -73,29 +77,29 @@ Building Kodi for Android requires Android NDK revision 20. For the SDK just use
 ### 3.1. Extract Android SDK and NDK
 Create needed directories:
 ```
-mkdir -p $HOME/android-tools/android-sdk-linux
+mkdir -p $HOME/android-tools/android-sdk-linux/cmdline-tools
 ```
 
 Extract Android SDK:
 ```
-unzip $HOME/Downloads/sdk-tools-linux-4333796.zip -d $HOME/android-tools/android-sdk-linux
+unzip $HOME/Downloads/commandlinetools-linux-6200805_latest.zip -d $HOME/android-tools/android-sdk-linux/cmdline-tools
 ```
 
 **NOTE:** Since we're using the latest SDK available, filename can change over time. Adapt the `unzip` command accordingly.
 
 Extract Android NDK:
 ```
-unzip $HOME/Downloads/android-ndk-r20-linux-x86_64.zip -d $HOME/android-tools
+unzip $HOME/Downloads/android-ndk-r21e-linux-x86_64.zip -d $HOME/android-tools
 ```
 
 ### 3.2. Configure Android SDK
 Before Android SDK can be used, you need to accept the licenses and configure it:
 ```
-cd $HOME/android-tools/android-sdk-linux/tools/bin
-./sdkmanager --licenses
-./sdkmanager platform-tools
-./sdkmanager "platforms;android-28"
-./sdkmanager "build-tools;28.0.3"
+cd $HOME/android-tools/android-sdk-linux/cmdline-tools/tools/bin
+./sdkmanager --sdk_root=$(pwd)/../.. --licenses
+./sdkmanager --sdk_root=$(pwd)/../.. platform-tools
+./sdkmanager --sdk_root=$(pwd)/../.. "platforms;android-28"
+./sdkmanager --sdk_root=$(pwd)/../.. "build-tools;28.0.3"
 ```
 
 ### 3.3. Create a key to sign debug APKs
@@ -106,13 +110,13 @@ keytool -genkey -keystore ~/.android/debug.keystore -v -alias androiddebugkey -d
 ```
 
 ### 3.4. macOS specific prerequisites
-* **[Java Development Kit (JDK)](http://www.oracle.com/technetwork/java/javase/downloads/index.html)** installed.
+* **[Java Development Kit 11+ (JDK)](http://www.oracle.com/technetwork/java/javase/downloads/index.html)** installed.
 * Normal macOS installations filesystem is case insensitive but compiling for Android requires a case sensitive filesystem. Generate a writeable hdd image and format it with hfs+ (case sensitive) issuing
   * `hdiutil create -type UDIF -fs 'Case-sensitive Journaled HFS+' -size 20g -volname android-dev $HOME/android-dev.dmg`
 * Whenever you want to compile/develop you need to mount the image
   * `open ~/android-dev.dmg`
 * Once you have your hdd image with case sensitive hfs+ file system execute all the steps inside of this filesystem. You need to adapt all paths in this guide so that they match your local environment. As an example here is a configure line that demonstrates possible paths:
-  * `./configure --with-tarballs=/Users/Shared/xbmc-depends/tarballs --host=arm-linux-androideabi --with-sdk-path=/Volumes/android-dev/android/android-sdk-macosx --with-ndk-path=/Volumes/android-dev/android/android-ndk-r20 --prefix=/Volumes/android-dev/android/xbmc-depends`
+  * `./configure --with-tarballs=/Users/Shared/xbmc-depends/tarballs --host=arm-linux-androideabi --with-sdk-path=/Volumes/android-dev/android/android-sdk-macosx --with-ndk-path=/Volumes/android-dev/android/android-ndk-r21e --prefix=/Volumes/android-dev/android/xbmc-depends`
   
 **[back to top](#table-of-contents)** | **[back to section top](#3-prerequisites)**
 
@@ -138,22 +142,22 @@ cd $HOME/kodi/tools/depends
 
 Configure build for aarch64:
 ```
-./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=aarch64-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r20 --prefix=$HOME/android-tools/xbmc-depends
+./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=aarch64-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r21e --prefix=$HOME/android-tools/xbmc-depends
 ```
 
 Or configure build for arm:
 ```
-./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=arm-linux-androideabi --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r20 --prefix=$HOME/android-tools/xbmc-depends
+./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=arm-linux-androideabi --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r21e --prefix=$HOME/android-tools/xbmc-depends
 ```
 
 Or configure build for x86:
 ```
-./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=i686-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r20 --prefix=$HOME/android-tools/xbmc-depends
+./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=i686-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r21e --prefix=$HOME/android-tools/xbmc-depends
 ```
 
 Or configure build for x86_64:
 ```
-./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=x86_64-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r20 --prefix=$HOME/android-tools/xbmc-depends
+./configure --with-tarballs=$HOME/android-tools/xbmc-tarballs --host=x86_64-linux-android --with-sdk-path=$HOME/android-tools/android-sdk-linux --with-ndk-path=$HOME/android-tools/android-ndk-r21e --prefix=$HOME/android-tools/xbmc-depends
 ```
 
 > **Note:** Android x86 and x86_64 are not maintained and are not 100% sure that everything works correctly!
@@ -166,6 +170,89 @@ make -j$(getconf _NPROCESSORS_ONLN)
 **TIP:** By adding `-j<number>` to the make command, you can choose how many concurrent jobs will be used and expedite the build process. It is recommended to use `-j$(getconf _NPROCESSORS_ONLN)` to compile on all available processor cores. The build machine can also be configured to do this automatically by adding `export MAKEFLAGS="-j$(getconf _NPROCESSORS_ONLN)"` to your shell config (e.g. `~/.bashrc`).
 
 **WARNING:** Look for the `Dependencies built successfully.` success message. If in doubt run a single threaded `make` command until the message appears. If the single make fails, clean the specific library by issuing `make -C target/<name_of_failed_lib> distclean` and run `make`again.
+
+### 5.1. Advanced Configure Options
+
+
+**All platforms:**
+
+```
+--with-toolchain=<path>
+```
+  specify path to toolchain. Auto set for android. Defaults to xcode root for darwin, /usr for linux
+
+```
+--enable-debug=<yes:no>
+```
+  enable debugging information (default is yes)
+
+```
+--disable-ccache
+```
+  disable ccache
+
+```
+--with-tarballs=<path>
+```
+  path where tarballs will be saved [prefix/xbmc-tarballs]
+
+```
+--with-cpu=<cpu>
+```
+  optional. specify target cpu. guessed if not specified
+
+```
+--with-linker=<linker>
+```
+  specify linker to use. (default is ld)
+
+```
+--with-platform=<platform>
+```
+  target platform
+
+```
+--enable-gplv3=<yes:no>
+```
+  enable gplv3 components. (default is yes)
+
+```
+--with-target-cflags=<cflags>
+```
+  C compiler flags (target)
+
+```
+--with-target-cxxflags=<cxxflags>
+```
+  C++ compiler flags (target)
+
+```
+--with-target-ldflags=<ldflags>
+```
+  linker flags. Use e.g. for -l<lib> (target)
+
+```
+--with-ffmpeg-options
+```
+  FFmpeg configure options, e.g. --enable-vaapi (target)
+
+
+**Android Specific:**
+
+```
+--with-ndk-api=<ndk number>
+```
+  specify ndk level (optional for android), default is 21.]
+
+```
+--with-ndk-path=<path>
+```
+  specify path to ndk (required for android only)
+
+```
+--with-sdk-path=<path>
+```
+  specify path to sdk (required for android only)
 
 
 **[back to top](#table-of-contents)** | **[back to section top](#5-build-tools-and-dependencies)**
@@ -192,6 +279,7 @@ Build a specific group of add-ons:
 ```
 make -j$(getconf _NPROCESSORS_ONLN) -C tools/depends/target/binary-addons ADDONS="pvr.*"
 ```
+For additional information on regular expression usage for ADDONS_TO_BUILD, view ADDONS_TO_BUILD section located at [Kodi add-ons CMake based buildsystem](../cmake/addons/README.md)
 
 **[back to top](#table-of-contents)**
 
@@ -210,7 +298,7 @@ make -C tools/depends/target/cmakebuildsys BUILD_DIR=$HOME/kodi-build
 
 Build Kodi:
 ```
-cd $HOME/kodi/build
+cd $HOME/kodi-build
 make -j$(getconf _NPROCESSORS_ONLN)
 ```
 
@@ -280,11 +368,11 @@ Enable CheckJNI (**before** starting the Kodi):
 adb shell setprop debug.checkjni 1
 ```
 
-**NOTE:** These commands assume that current directory is `tools/android/packaging` and that the proper SDK/NDK paths are set.
+**NOTE:** These commands assume that current directory is `$HOME/kodi-build/tools/android/packaging` and that the proper SDK/NDK paths are set.
 
-GDB can be used to debug, though the support is rather primitive. Rather than using gdb directly, you will need to use ndk-gdb which wraps it. Do **not** trust the `-p/--project` switches, as they do not work. Instead you will need to `cd` to `tools/android/packaging/xbmc` and execute it from there.
+GDB can be used to debug, though the support is rather primitive. Rather than using `gdb` directly, you will need to use `ndk-gdb` which wraps it. You can use the `-p/--project` switches or instead you will need to `cd` to `$HOME/kodi-build/tools/android/packaging/xbmc` and execute it from there.
 ```
- ndk-gdb --start --delay=0
+ ndk-gdb --verbose
 ```
 
 This will open the installed version of Kodi and break. The warnings can be ignored as we have the appropriate paths already setup.

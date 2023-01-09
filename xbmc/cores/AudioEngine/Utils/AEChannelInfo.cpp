@@ -28,8 +28,6 @@ CAEChannelInfo::CAEChannelInfo(const AEStdChLayout rhs)
   *this = rhs;
 }
 
-CAEChannelInfo::~CAEChannelInfo() = default;
-
 void CAEChannelInfo::ResolveChannels(const CAEChannelInfo& rhs)
 {
   /* mono gets upmixed to dual mono */
@@ -160,19 +158,19 @@ CAEChannelInfo& CAEChannelInfo::operator=(const enum AEStdChLayout rhs)
 {
   assert(rhs > AE_CH_LAYOUT_INVALID && rhs < AE_CH_LAYOUT_MAX);
 
-  static enum AEChannel layouts[AE_CH_LAYOUT_MAX][9] = {
-    {AE_CH_FC, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_LFE, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_LFE, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_BL , AE_CH_BR , AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_BL , AE_CH_BR , AE_CH_LFE, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_BL , AE_CH_BR , AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_LFE,  AE_CH_BL , AE_CH_BR , AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_BL , AE_CH_BR , AE_CH_SL , AE_CH_SR, AE_CH_NULL},
-    {AE_CH_FL, AE_CH_FR, AE_CH_FC , AE_CH_LFE, AE_CH_BL , AE_CH_BR , AE_CH_SL , AE_CH_SR, AE_CH_NULL}
-  };
+  static constexpr enum AEChannel layouts[AE_CH_LAYOUT_MAX][9] = {
+      {AE_CH_FC, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_LFE, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_LFE, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_BL, AE_CH_BR, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_BL, AE_CH_BR, AE_CH_LFE, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_BL, AE_CH_BR, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_LFE, AE_CH_BL, AE_CH_BR, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_BL, AE_CH_BR, AE_CH_SL, AE_CH_SR, AE_CH_NULL},
+      {AE_CH_FL, AE_CH_FR, AE_CH_FC, AE_CH_LFE, AE_CH_BL, AE_CH_BR, AE_CH_SL, AE_CH_SR,
+       AE_CH_NULL}};
 
   *this = layouts[rhs];
   return *this;
@@ -180,7 +178,7 @@ CAEChannelInfo& CAEChannelInfo::operator=(const enum AEStdChLayout rhs)
 
 bool CAEChannelInfo::operator==(const CAEChannelInfo& rhs) const
 {
-  /* if the channel count doesnt match, no need to check further */
+  /* if the channel count doesn't match, no need to check further */
   if (m_channelCount != rhs.m_channelCount)
     return false;
 

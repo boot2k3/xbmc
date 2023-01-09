@@ -8,8 +8,6 @@
 
 #pragma once
 
-#include "utils/StringUtils.h"
-
 #include <stdlib.h>
 #include <string>
 #include <vector>
@@ -18,14 +16,15 @@ namespace ADDON
 {
 
 class CAddonInfoBuilder;
+class CAddonDatabaseSerializer;
 
 struct SExtValue
 {
   explicit SExtValue(const std::string& strValue) : str(strValue) { }
   const std::string& asString() const { return str; }
-  bool asBoolean() const { return StringUtils::EqualsNoCase(str, "true"); }
-  int asInteger() const { return atoi(str.c_str()); }
-  float asFloat() const { return static_cast<float>(atof(str.c_str())); }
+  bool asBoolean() const;
+  int asInteger() const { return std::atoi(str.c_str()); }
+  float asFloat() const { return static_cast<float>(std::atof(str.c_str())); }
   bool empty() const { return str.empty(); }
   const std::string str;
 };
@@ -43,7 +42,7 @@ public:
 
   const SExtValue GetValue(const std::string& id) const
   {
-    for (auto value : *this)
+    for (const auto& value : *this)
     {
       if (value.first == id)
         return value.second;
@@ -67,6 +66,7 @@ public:
 
 private:
   friend class CAddonInfoBuilder;
+  friend class CAddonDatabaseSerializer;
 
   std::string m_point;
   EXT_VALUES m_values;

@@ -42,7 +42,11 @@ CInputProcessorPointer::CInputProcessorPointer(wayland::surface_t const& surface
 {
 }
 
-void CInputProcessorPointer::OnPointerEnter(CSeat* seat, std::uint32_t serial, wayland::surface_t surface, double surfaceX, double surfaceY)
+void CInputProcessorPointer::OnPointerEnter(CSeat* seat,
+                                            std::uint32_t serial,
+                                            const wayland::surface_t& surface,
+                                            double surfaceX,
+                                            double surfaceY)
 {
   if (surface == m_surface)
   {
@@ -53,7 +57,9 @@ void CInputProcessorPointer::OnPointerEnter(CSeat* seat, std::uint32_t serial, w
   }
 }
 
-void CInputProcessorPointer::OnPointerLeave(CSeat* seat, std::uint32_t serial, wayland::surface_t surface)
+void CInputProcessorPointer::OnPointerLeave(CSeat* seat,
+                                            std::uint32_t serial,
+                                            const wayland::surface_t& surface)
 {
   if (m_pointerOnSurface)
   {
@@ -115,14 +121,16 @@ void CInputProcessorPointer::SetMousePosFromSurface(CPointGen<double> position)
 
 void CInputProcessorPointer::SendMouseMotion()
 {
-  XBMC_Event event{XBMC_MOUSEMOTION};
+  XBMC_Event event{};
+  event.type = XBMC_MOUSEMOTION;
   event.motion = {m_pointerPosition.x, m_pointerPosition.y};
   m_handler.OnPointerEvent(event);
 }
 
 void CInputProcessorPointer::SendMouseButton(unsigned char button, bool pressed)
 {
-  XBMC_Event event{static_cast<unsigned char> (pressed ? XBMC_MOUSEBUTTONDOWN : XBMC_MOUSEBUTTONUP)};
+  XBMC_Event event{};
+  event.type = pressed ? XBMC_MOUSEBUTTONDOWN : XBMC_MOUSEBUTTONUP;
   event.button = {button, m_pointerPosition.x, m_pointerPosition.y};
   m_handler.OnPointerEvent(event);
 }

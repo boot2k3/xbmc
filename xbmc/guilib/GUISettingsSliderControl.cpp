@@ -20,7 +20,13 @@ CGUISettingsSliderControl::CGUISettingsSliderControl(int parentID, int controlID
   m_active = false;
 }
 
-CGUISettingsSliderControl::~CGUISettingsSliderControl(void) = default;
+CGUISettingsSliderControl::CGUISettingsSliderControl(const CGUISettingsSliderControl& control)
+  : CGUISliderControl(control),
+    m_buttonControl(control.m_buttonControl),
+    m_label(control.m_label),
+    m_active(control.m_active)
+{
+}
 
 void CGUISettingsSliderControl::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
@@ -152,11 +158,11 @@ std::string CGUISettingsSliderControl::GetDescription() const
   return m_buttonControl.GetDescription() + " " + CGUISliderControl::GetDescription();
 }
 
-bool CGUISettingsSliderControl::UpdateColors()
+bool CGUISettingsSliderControl::UpdateColors(const CGUIListItem* item)
 {
-  bool changed = CGUISliderControl::UpdateColors();
+  bool changed = CGUISliderControl::UpdateColors(nullptr);
   changed |= m_buttonControl.SetColorDiffuse(m_diffuseColor);
-  changed |= m_buttonControl.UpdateColors();
+  changed |= m_buttonControl.UpdateColors(nullptr);
   changed |= m_label.UpdateColors();
 
   return changed;

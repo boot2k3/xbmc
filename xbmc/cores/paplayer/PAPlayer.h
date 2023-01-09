@@ -9,7 +9,7 @@
 #pragma once
 
 #include "AudioDecoder.h"
-#include "FileItem.h"
+#include "cores/AudioEngine/Interfaces/AE.h"
 #include "cores/AudioEngine/Interfaces/IAudioCallback.h"
 #include "cores/IPlayer.h"
 #include "threads/CriticalSection.h"
@@ -39,7 +39,7 @@ public:
   void Pause() override;
   bool HasVideo() const override { return false; }
   bool HasAudio() const override { return true; }
-  bool CanSeek() override;
+  bool CanSeek() const override;
   void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false) override;
   void SeekPercentage(float fPercent = 0.0f) override;
   void SetVolume(float volume) override;
@@ -47,12 +47,13 @@ public:
   void SetSpeed(float speed = 0) override;
   int GetCacheLevel() const override;
   void SetTotalTime(int64_t time) override;
-  void GetAudioStreamInfo(int index, AudioStreamInfo &info) override;
+  void GetAudioStreamInfo(int index, AudioStreamInfo& info) const override;
   void SetTime(int64_t time) override;
   void SeekTime(int64_t iTime = 0) override;
-  void GetAudioCapabilities(std::vector<int> &audioCaps) override {}
+  void GetAudioCapabilities(std::vector<int>& audioCaps) const override {}
 
-  static bool HandlesType(const std::string &type);
+  int GetAudioStreamCount() const override { return 1; }
+  int GetAudioStream() override { return 0; }
 
   // implementation of IJobCallback
   void OnJobComplete(unsigned int jobID, bool success, CJob *job) override;
@@ -80,7 +81,7 @@ protected:
 private:
   struct StreamInfo
   {
-    CFileItem m_fileItem;
+    std::unique_ptr<CFileItem> m_fileItem;
     std::unique_ptr<CFileItem> m_nextFileItem;
     CAudioDecoder m_decoder;             /* the stream decoder */
     int64_t m_startOffset;               /* the stream start offset */
@@ -101,7 +102,7 @@ private:
     int m_seekNextAtFrame;               /* the FF/RR sample to seek at */
     int m_seekFrame;                     /* the exact position to seek too, -1 for none */
 
-    IAEStream* m_stream;                 /* the playback stream */
+    IAE::StreamPtr m_stream; /* the playback stream */
     float m_volume;                      /* the initial volume level to set the stream to on creation */
 
     bool m_isSlaved;                     /* true if the stream has been slaved to another */

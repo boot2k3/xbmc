@@ -8,15 +8,12 @@
 
 #pragma once
 
-/*!
-\file GUITexture.h
-\brief
-*/
-
 #include "TextureManager.h"
-#include "utils/Color.h"
-#include "utils/Geometry.h"
 #include "guiinfo/GUIInfoColor.h"
+#include "utils/ColorUtils.h"
+#include "utils/Geometry.h"
+
+#include <functional>
 
 // image alignment for <aspect>keep</aspect>, <aspect>scale</aspect> or <aspect>center</aspect>
 #define ASPECT_ALIGN_CENTER  0
@@ -56,21 +53,39 @@ class CTextureInfo
 public:
   CTextureInfo();
   explicit CTextureInfo(const std::string &file);
-  CTextureInfo& operator=(const CTextureInfo& right) = default;
   bool       useLarge;
   CRect      border;          // scaled  - unneeded if we get rid of scale on load
+  bool m_infill{
+      true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
   int        orientation;     // orientation of the texture (0 - 7 == EXIForientation - 1)
   std::string diffuse;         // diffuse overlay texture
   KODI::GUILIB::GUIINFO::CGUIInfoColor diffuseColor; // diffuse color
   std::string filename;        // main texture file
 };
 
-class CGUITextureBase
+class CGUITexture;
+
+using CreateGUITextureFunc = std::function<CGUITexture*(
+    float posX, float posY, float width, float height, const CTextureInfo& texture)>;
+using DrawQuadFunc = std::function<void(
+    const CRect& coords, UTILS::COLOR::Color color, CTexture* texture, const CRect* texCoords)>;
+
+class CGUITexture
 {
 public:
-  CGUITextureBase(float posX, float posY, float width, float height, const CTextureInfo& texture);
-  CGUITextureBase(const CGUITextureBase &left);
-  virtual ~CGUITextureBase(void);
+  virtual ~CGUITexture() = default;
+
+  static void Register(const CreateGUITextureFunc& createFunction,
+                       const DrawQuadFunc& drawQuadFunction);
+
+  static CGUITexture* CreateTexture(
+      float posX, float posY, float width, float height, const CTextureInfo& texture);
+  virtual CGUITexture* Clone() const = 0;
+
+  static void DrawQuad(const CRect& coords,
+                       UTILS::COLOR::Color color,
+                       CTexture* texture = nullptr,
+                       const CRect* texCoords = nullptr);
 
   bool Process(unsigned int currentTime);
   void Render();
@@ -82,7 +97,7 @@ public:
 
   bool SetVisible(bool visible);
   bool SetAlpha(unsigned char alpha);
-  bool SetDiffuseColor(UTILS::Color color);
+  bool SetDiffuseColor(UTILS::COLOR::Color color, const CGUIListItem* item = nullptr);
   bool SetPosition(float x, float y);
   bool SetWidth(float width);
   bool SetHeight(float height);
@@ -90,39 +105,63 @@ public:
   void SetUseCache(const bool useCache = true);
   bool SetAspectRatio(const CAspectRatio &aspect);
 
-  const std::string& GetFileName() const { return m_info.filename; };
-  float GetTextureWidth() const { return m_frameWidth; };
-  float GetTextureHeight() const { return m_frameHeight; };
-  float GetWidth() const { return m_width; };
-  float GetHeight() const { return m_height; };
-  float GetXPosition() const { return m_posX; };
-  float GetYPosition() const { return m_posY; };
+  const std::string& GetFileName() const { return m_info.filename; }
+  float GetTextureWidth() const { return m_frameWidth; }
+  float GetTextureHeight() const { return m_frameHeight; }
+  float GetWidth() const { return m_width; }
+  float GetHeight() const { return m_height; }
+  float GetXPosition() const { return m_posX; }
+  float GetYPosition() const { return m_posY; }
   int GetOrientation() const;
-  const CRect &GetRenderRect() const { return m_vertex; };
-  bool IsLazyLoaded() const { return m_info.useLarge; };
+  const CRect& GetRenderRect() const { return m_vertex; }
+  bool IsLazyLoaded() const { return m_info.useLarge; }
 
-  bool HitTest(const CPoint &point) const { return CRect(m_posX, m_posY, m_posX + m_width, m_posY + m_height).PtInRect(point); };
-  bool IsAllocated() const { return m_isAllocated != NO; };
-  bool FailedToAlloc() const { return m_isAllocated == NORMAL_FAILED || m_isAllocated == LARGE_FAILED; };
+  bool HitTest(const CPoint& point) const
+  {
+    return CRect(m_posX, m_posY, m_posX + m_width, m_posY + m_height).PtInRect(point);
+  }
+  bool IsAllocated() const { return m_isAllocated != NO; }
+  bool FailedToAlloc() const
+  {
+    return m_isAllocated == NORMAL_FAILED || m_isAllocated == LARGE_FAILED;
+  }
   bool ReadyToRender() const;
+
 protected:
+  CGUITexture(float posX, float posY, float width, float height, const CTextureInfo& texture);
+  CGUITexture(const CGUITexture& left);
+
   bool CalculateSize();
   void LoadDiffuseImage();
   bool AllocateOnDemand();
   bool UpdateAnimFrame(unsigned int currentTime);
-  void Render(float left, float top, float bottom, float right, float u1, float v1, float u2, float v2, float u3, float v3);
+  void Render(float left,
+              float top,
+              float right,
+              float bottom,
+              float u1,
+              float v1,
+              float u2,
+              float v2,
+              float u3,
+              float v3);
   static void OrientateTexture(CRect &rect, float width, float height, int orientation);
   void ResetAnimState();
 
   // functions that our implementation classes handle
   virtual void Allocate() {}; ///< called after our textures have been allocated
   virtual void Free() {};     ///< called after our textures have been freed
-  virtual void Begin(UTILS::Color color) {};
-  virtual void Draw(float *x, float *y, float *z, const CRect &texture, const CRect &diffuse, int orientation)=0;
-  virtual void End() {};
+  virtual void Begin(UTILS::COLOR::Color color) = 0;
+  virtual void Draw(float* x,
+                    float* y,
+                    float* z,
+                    const CRect& texture,
+                    const CRect& diffuse,
+                    int orientation) = 0;
+  virtual void End() = 0;
 
   bool m_visible;
-  UTILS::Color m_diffuseColor;
+  UTILS::COLOR::Color m_diffuseColor;
 
   float m_posX;         // size of the frame
   float m_posY;
@@ -155,17 +194,8 @@ protected:
 
   CTextureArray m_diffuse;
   CTextureArray m_texture;
+
+private:
+  static CreateGUITextureFunc m_createGUITextureFunc;
+  static DrawQuadFunc m_drawQuadFunc;
 };
-
-
-#if defined(HAS_GL)
-#include "GUITextureGL.h"
-#define CGUITexture CGUITextureGL
-#elif defined(HAS_GLES)
-#include "GUITextureGLES.h"
-#define CGUITexture CGUITextureGLES
-#elif defined(HAS_DX)
-#include "GUITextureD3D.h"
-#define CGUITexture CGUITextureD3D
-#endif
-

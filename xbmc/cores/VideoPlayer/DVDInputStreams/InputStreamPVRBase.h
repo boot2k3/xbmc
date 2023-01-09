@@ -36,7 +36,6 @@ public:
   void Close() override;
   int Read(uint8_t* buf, int buf_size) override;
   int64_t Seek(int64_t offset, int whence) override;
-  bool Pause(double dTime) override { return false; }
   bool IsEOF() override;
   int64_t GetLength() override;
   int GetBlockSize() override;
@@ -52,7 +51,7 @@ public:
   void Pause(bool bPaused);
 
   // Demux interface
-  CDVDInputStream::IDemux* GetIDemux() override { return nullptr; };
+  CDVDInputStream::IDemux* GetIDemux() override { return nullptr; }
   bool OpenDemux() override;
   DemuxPacket* ReadDemux() override;
   CDemuxStream* GetStream(int iStreamId) const override;

@@ -11,6 +11,9 @@ Also, always keep in mind that for many of us English is not our native language
 Before you start coding we advise you to build Kodi's master branch. This will save you and us precious time by making sure a proper build environment is set up and all dependencies are met. For your convenience, **[build guides](README.md)** are available for most common platforms. A **[git guide](GIT-FU.md)** is also available, streamlined to Kodi's development workflow. Unless you're a *git ninja*, please read it carefully.  
 If you are a *git ninja*, we feel happy and sad for you at the same time. Your soul might be lost to the dark side already but worry not, we have cookies!
 
+## Reviews
+Reviews are a great way to get familiar with the codebase. If you would like to start with reviewing just use **[this handy github filter](https://github.com/xbmc/xbmc/pulls?q=is%3Apr+is%3Aopen+review%3Anone)** to see PRs that are in need of one (we have plenty!).
+
 ## Pull request guidelines
 * **Create topic branches**. Never ever open a pull request from your master branch. **Ever!**
 * **Code against master branch**. Unless release specific, all Kodi development occurs in the `master` branch. If it needs backporting it can be done after it hits master.
@@ -22,7 +25,7 @@ If you are a *git ninja*, we feel happy and sad for you at the same time. Your s
 ## Coding guidelines
 * **Follow our [code guidelines](CODE_GUIDELINES.md)**. New code should follow those guidelines even if existing code doesn't. If you're up to it, improve existing code and submit it in separate commits.
 * **Document the code**. You know you're brilliant, but maybe you'd like to understand what you did a year from now. Or, code God forbid, help others... Nope, `// Magic. Do not touch!` does not count as documentation.
-* **Separate code from cosmetics**. Code and cosmetic changes should be in separate commits. It's already hard to review code without added noise. Of course, deleting a **few** trailing spaces does not warrant a separate commit. Use your judgement.
+* **Separate code from cosmetics**. Don't mix code and unrelated cosmetic changes in the same commit. It's already hard to review code without added noise. Of course, deleting a **few** trailing spaces does not warrant a separate commit. Use your judgement. Also, note that the PR build job expects each individual commit to be formatted according to the [`.clang-format`](https://github.com/xbmc/xbmc/blob/master/.clang-format) rules, so if your change touches existing code that needs reformatting to satisfy the current rules, then those would be considered related cosmetic changes that should be included in the same commit.
 * **Test your changes**. Kodi's **[continuous integration system](http://jenkins.kodi.tv/)** builds every PR automatically. Nonetheless, you're expected to test the code on your development platform.
 
 ## Updating your PR

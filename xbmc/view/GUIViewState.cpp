@@ -17,11 +17,12 @@
 #include "ViewDatabase.h"
 #include "addons/Addon.h"
 #include "addons/AddonManager.h"
-#include "addons/GUIViewStateAddonBrowser.h"
 #include "addons/PluginSource.h"
+#include "addons/addoninfo/AddonType.h"
+#include "addons/gui/GUIViewStateAddonBrowser.h"
 #include "dialogs/GUIDialogSelect.h"
 #include "events/windows/GUIViewStateEventLog.h"
-#include "filesystem/AddonsDirectory.h"
+#include "favourites/GUIViewStateFavourites.h"
 #include "games/windows/GUIViewStateWindowGames.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
@@ -32,10 +33,11 @@
 #include "profiles/ProfileManager.h"
 #include "programs/GUIViewStatePrograms.h"
 #include "pvr/windows/GUIViewStatePVR.h"
-#include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
+#include "settings/SettingUtils.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
 #include "utils/URIUtils.h"
 #include "video/GUIViewStateVideo.h"
 #include "view/ViewState.h"
@@ -99,7 +101,13 @@ CGUIViewState* CGUIViewState::GetViewState(int windowId, const CFileItemList& it
     return new CGUIViewStateLibrary(items);
 
   if (items.IsPlayList())
-    return new CGUIViewStateMusicPlaylist(items);
+  {
+    // Playlists (like .strm) can be music or video type
+    if (windowId == WINDOW_VIDEO_NAV)
+      return new CGUIViewStateVideoPlaylist(items);
+    else
+      return new CGUIViewStateMusicPlaylist(items);
+  }
 
   if (items.GetPath() == "special://musicplaylists/")
     return new CGUIViewStateWindowMusicNav(items);
@@ -176,6 +184,9 @@ CGUIViewState* CGUIViewState::GetViewState(int windowId, const CFileItemList& it
   if (windowId == WINDOW_EVENT_LOG)
     return new CGUIViewStateEventLog(items);
 
+  if (windowId == WINDOW_FAVOURITES)
+    return new CGUIViewStateFavourites(items);
+
   //  Use as fallback/default
   return new CGUIViewStateGeneral(items);
 }
@@ -184,7 +195,7 @@ CGUIViewState::CGUIViewState(const CFileItemList& items) : m_items(items)
 {
   m_currentViewAsControl = 0;
   m_currentSortMethod = 0;
-  m_playlist = PLAYLIST_NONE;
+  m_playlist = PLAYLIST::TYPE_NONE;
 }
 
 CGUIViewState::~CGUIViewState() = default;
@@ -271,6 +282,16 @@ void CGUIViewState::GetSortMethodLabelMasks(LABEL_MASKS& masks) const
   masks.m_strLabel2File.clear();
   masks.m_strLabelFolder.clear();
   masks.m_strLabel2Folder.clear();
+}
+
+std::vector<SortDescription> CGUIViewState::GetSortDescriptions() const
+{
+  std::vector<SortDescription> descriptions;
+  for (const auto& desc : m_sortMethods)
+  {
+    descriptions.emplace_back(desc.m_sortDescription);
+  }
+  return descriptions;
 }
 
 void CGUIViewState::AddSortMethod(SortBy sortBy, int buttonLabel, const LABEL_MASKS &labelMasks, SortAttribute sortAttributes /* = SortAttributeNone */, SortOrder sortOrder /* = SortOrderNone */)
@@ -397,7 +418,7 @@ bool CGUIViewState::DisableAddSourceButtons()
   return true;
 }
 
-int CGUIViewState::GetPlaylist() const
+PLAYLIST::Id CGUIViewState::GetPlaylist() const
 {
   return m_playlist;
 }
@@ -444,25 +465,6 @@ VECSOURCES& CGUIViewState::GetSources()
   return m_sources;
 }
 
-void CGUIViewState::AddAddonsSource(const std::string &content, const std::string &label, const std::string &thumb)
-{
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bVirtualShares)
-    return;
-
-  CFileItemList items;
-  if (XFILE::CAddonsDirectory::GetScriptsAndPlugins(content, items))
-  { // add the plugin source
-    CMediaSource source;
-    source.strPath = "addons://sources/" + content + "/";
-    source.strName = label;
-    if (!thumb.empty() && CServiceBroker::GetGUI()->GetTextureManager().HasTexture(thumb))
-      source.m_strThumbnailImage = thumb;
-    source.m_iDriveType = CMediaSource::SOURCE_TYPE_LOCAL;
-    source.m_ignore = true;
-    m_sources.push_back(source);
-  }
-}
-
 void CGUIViewState::AddLiveTVSources()
 {
   VECSOURCES *sources = CMediaSourceSettings::GetInstance().GetSources("video");
@@ -494,7 +496,7 @@ void CGUIViewState::SetSortOrder(SortOrder sortOrder)
 
 bool CGUIViewState::AutoPlayNextVideoItem() const
 {
-  if (GetPlaylist() != PLAYLIST_VIDEO)
+  if (GetPlaylist() != PLAYLIST::TYPE_VIDEO)
     return false;
 
   int settingValue(-1);
@@ -509,7 +511,12 @@ bool CGUIViewState::AutoPlayNextVideoItem() const
   else
     settingValue = SETTING_AUTOPLAYNEXT_UNCATEGORIZED;
 
-  return settingValue >= 0 && CServiceBroker::GetSettingsComponent()->GetSettings()->FindIntInList(CSettings::SETTING_VIDEOPLAYER_AUTOPLAYNEXTITEM, settingValue);
+  const auto setting = std::dynamic_pointer_cast<CSettingList>(
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(
+          CSettings::SETTING_VIDEOPLAYER_AUTOPLAYNEXTITEM));
+
+  return settingValue >= 0 && setting != nullptr &&
+         CSettingUtils::FindIntInList(setting, settingValue);
 }
 
 void CGUIViewState::LoadViewState(const std::string &path, int windowID)
@@ -546,7 +553,7 @@ void CGUIViewState::SaveViewToDb(const std::string &path, int windowID, CViewSta
     settings->Save();
 }
 
-void CGUIViewState::AddPlaylistOrder(const CFileItemList &items, LABEL_MASKS label_masks)
+void CGUIViewState::AddPlaylistOrder(const CFileItemList& items, const LABEL_MASKS& label_masks)
 {
   SortBy sortBy = SortByPlaylistOrder;
   int sortLabel = 559;
@@ -578,7 +585,7 @@ CGUIViewStateFromItems::CGUIViewStateFromItems(const CFileItemList &items) : CGU
   const std::vector<GUIViewSortDetails> &details = items.GetSortDetails();
   for (unsigned int i = 0; i < details.size(); i++)
   {
-    const GUIViewSortDetails sort = details[i];
+    const GUIViewSortDetails& sort = details[i];
     AddSortMethod(sort.m_sortDescription, sort.m_buttonLabel, sort.m_labelMasks);
   }
   //! @todo Should default sort/view mode be specified?
@@ -590,13 +597,14 @@ CGUIViewStateFromItems::CGUIViewStateFromItems(const CFileItemList &items) : CGU
   {
     CURL url(items.GetPath());
     AddonPtr addon;
-    if (CServiceBroker::GetAddonMgr().GetAddon(url.GetHostName(), addon, ADDON_PLUGIN))
+    if (CServiceBroker::GetAddonMgr().GetAddon(url.GetHostName(), addon, AddonType::PLUGIN,
+                                               OnlyEnabled::CHOICE_YES))
     {
-      PluginPtr plugin = std::static_pointer_cast<CPluginSource>(addon);
+      const auto plugin = std::static_pointer_cast<CPluginSource>(addon);
       if (plugin->Provides(CPluginSource::AUDIO))
-        m_playlist = PLAYLIST_MUSIC;
+        m_playlist = PLAYLIST::TYPE_MUSIC;
       if (plugin->Provides(CPluginSource::VIDEO))
-        m_playlist = PLAYLIST_VIDEO;
+        m_playlist = PLAYLIST::TYPE_VIDEO;
     }
   }
 

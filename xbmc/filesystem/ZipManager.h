@@ -15,12 +15,14 @@
 #define ZIP_END_CENTRAL_HEADER 0x06054b50
 #define ZIP_SPLIT_ARCHIVE_HEADER 0x30304b50
 #define LHDR_SIZE 30
+#define DREC_SIZE 16
 #define CHDR_SIZE 46
 #define ECDREC_SIZE 22
 
+#include <cstring>
+#include <map>
 #include <string>
 #include <vector>
-#include <map>
 
 class CURL;
 
@@ -66,6 +68,14 @@ public:
 private:
   std::map<std::string,std::vector<SZipEntry> > mZipMap;
   std::map<std::string,int64_t> mZipDate;
+
+  template<typename T>
+  static T ReadUnaligned(const void* mem)
+  {
+    T var;
+    std::memcpy(&var, mem, sizeof(T));
+    return var;
+  }
 };
 
 extern CZipManager g_ZipManager;

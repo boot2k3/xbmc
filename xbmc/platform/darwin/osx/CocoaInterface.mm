@@ -10,8 +10,13 @@
 #include "CompileInfo.h"
 #import "DllPaths_generated.h"
 #include "ServiceBroker.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
+#if defined(HAS_SDL)
+#include "windowing/osx/SDL/WinSystemOSXSDL.h"
+#else
 #include "windowing/osx/WinSystemOSX.h"
+#endif
 
 #import <AudioToolbox/AudioToolbox.h>
 #import <AudioUnit/AudioUnit.h>
@@ -31,8 +36,12 @@ CGDirectDisplayID Cocoa_GetDisplayIDFromScreen(NSScreen *screen);
 
 NSOpenGLContext* Cocoa_GL_GetCurrentContext(void)
 {
+#if defined(HAS_SDL)
   CWinSystemOSX *winSystem = dynamic_cast<CWinSystemOSX*>(CServiceBroker::GetWinSystem());
   return winSystem->GetNSOpenGLContext();
+#else
+  return [NSOpenGLContext currentContext];
+#endif
 }
 
 uint32_t Cocoa_GL_GetCurrentDisplayID(void)
@@ -40,26 +49,18 @@ uint32_t Cocoa_GL_GetCurrentDisplayID(void)
   // Find which display we are on from the current context (default to main display)
   CGDirectDisplayID display_id = kCGDirectMainDisplay;
 
-  NSOpenGLContext* context = Cocoa_GL_GetCurrentContext();
-  if (context)
-  {
-    NSView* view;
+  NSNumber* __block screenID;
+  auto getScreenNumber = ^{
+    screenID = Cocoa_GL_GetCurrentContext().view.window.screen.deviceDescription[@"NSScreenNumber"];
+  };
+  if (NSThread.isMainThread)
+    getScreenNumber();
+  else
+    dispatch_sync(dispatch_get_main_queue(), getScreenNumber);
+  if (screenID)
+    display_id = static_cast<CGDirectDisplayID>(screenID.unsignedIntValue);
 
-    view = [context view];
-    if (view)
-    {
-      NSWindow* window;
-      window = [view window];
-      if (window)
-      {
-        NSDictionary* screenInfo = [[window screen] deviceDescription];
-        NSNumber* screenID = [screenInfo objectForKey:@"NSScreenNumber"];
-        display_id = (CGDirectDisplayID)[screenID longValue];
-      }
-    }
-  }
-
-  return((uint32_t)display_id);
+  return static_cast<uint32_t>(display_id);
 }
 
 bool Cocoa_CVDisplayLinkCreate(void *displayLinkcallback, void *displayLinkContext)
@@ -170,7 +171,7 @@ char* Cocoa_MountPoint2DeviceName(char *path)
   // path will get realloc'ed and replaced IF this is a physical DVD.
   char* strDVDDevice;
   strDVDDevice = strdup(path);
-  if (strncasecmp(strDVDDevice, "/Volumes/", 9) == 0)
+  if (StringUtils::CompareNoCase(strDVDDevice, "/Volumes/", 9) == 0)
   {
     struct statfs *mntbufp;
     int i, mounts;
@@ -179,7 +180,7 @@ char* Cocoa_MountPoint2DeviceName(char *path)
     mounts = getmntinfo(&mntbufp, MNT_WAIT);  // NOT THREAD SAFE!
     for (i = 0; i < mounts; i++)
     {
-      if( !strcasecmp(mntbufp[i].f_mntonname, strDVDDevice) )
+      if (!StringUtils::CompareNoCase(mntbufp[i].f_mntonname, strDVDDevice))
       {
         // Replace "/dev/" with "/dev/r"
         path = (char*)realloc(path, strlen(mntbufp[i].f_mntfromname) + 2 );

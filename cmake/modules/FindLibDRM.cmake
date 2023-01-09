@@ -15,7 +15,7 @@
 #   LibDRM::LibDRM   - The LibDRM library
 
 if(PKG_CONFIG_FOUND)
-  pkg_check_modules(PC_LIBDRM libdrm>=2.4.82 QUIET)
+  pkg_check_modules(PC_LIBDRM libdrm>=2.4.95 QUIET)
 endif()
 
 find_path(LIBDRM_INCLUDE_DIR NAMES drm.h
@@ -42,11 +42,18 @@ check_c_source_compiles("#include <drm_mode.h>
                          }
                          " LIBDRM_HAS_HDR_OUTPUT_METADATA)
 
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_LIBRARIES ${LIBDRM_LIBRARY})
+check_symbol_exists(drmGetFormatModifierName xf86drm.h LIBDRM_HAS_MODIFIER_NAME)
+
 if(LIBDRM_FOUND)
   set(LIBDRM_LIBRARIES ${LIBDRM_LIBRARY})
   set(LIBDRM_INCLUDE_DIRS ${LIBDRM_INCLUDE_DIR})
   if(LIBDRM_HAS_HDR_OUTPUT_METADATA)
     set(LIBDRM_DEFINITIONS -DHAVE_HDR_OUTPUT_METADATA=1)
+  endif()
+  if(LIBDRM_HAS_MODIFIER_NAME)
+    list(APPEND LIBDRM_DEFINITIONS -DHAVE_DRM_MODIFIER_NAME=1)
   endif()
 
   if(NOT TARGET LIBDRM::LIBDRM)

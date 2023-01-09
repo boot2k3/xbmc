@@ -8,16 +8,17 @@
 
 #include "RenderFactory.h"
 
-#include "threads/SingleLock.h"
+#include <mutex>
+
 
 using namespace VIDEOPLAYER;
 
 CCriticalSection renderSection;
 std::map<std::string, VIDEOPLAYER::CreateRenderer> CRendererFactory::m_renderers;
 
-CBaseRenderer* CRendererFactory::CreateRenderer(std::string id, CVideoBuffer *buffer)
+CBaseRenderer* CRendererFactory::CreateRenderer(const std::string& id, CVideoBuffer* buffer)
 {
-  CSingleLock lock(renderSection);
+  std::unique_lock<CCriticalSection> lock(renderSection);
 
   auto it = m_renderers.find(id);
   if (it != m_renderers.end())
@@ -30,9 +31,10 @@ CBaseRenderer* CRendererFactory::CreateRenderer(std::string id, CVideoBuffer *bu
 
 std::vector<std::string> CRendererFactory::GetRenderers()
 {
-  CSingleLock lock(renderSection);
+  std::unique_lock<CCriticalSection> lock(renderSection);
 
   std::vector<std::string> ret;
+  ret.reserve(m_renderers.size());
   for (auto &renderer : m_renderers)
   {
     ret.push_back(renderer.first);
@@ -40,16 +42,16 @@ std::vector<std::string> CRendererFactory::GetRenderers()
   return ret;
 }
 
-void CRendererFactory::RegisterRenderer(std::string id, ::CreateRenderer createFunc)
+void CRendererFactory::RegisterRenderer(const std::string& id, ::CreateRenderer createFunc)
 {
-  CSingleLock lock(renderSection);
+  std::unique_lock<CCriticalSection> lock(renderSection);
 
   m_renderers[id] = createFunc;
 }
 
 void CRendererFactory::ClearRenderer()
 {
-  CSingleLock lock(renderSection);
+  std::unique_lock<CCriticalSection> lock(renderSection);
 
   m_renderers.clear();
 }

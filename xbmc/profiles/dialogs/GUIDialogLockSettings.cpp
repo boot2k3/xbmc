@@ -13,6 +13,7 @@
 #include "dialogs/GUIDialogGamepad.h"
 #include "dialogs/GUIDialogNumeric.h"
 #include "dialogs/GUIDialogSelect.h"
+#include "favourites/FavouritesService.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
@@ -75,6 +76,11 @@ bool CGUIDialogLockSettings::ShowAndGetLock(CProfile::CLock &locks, int buttonLa
     return false;
 
   locks = dialog->m_locks;
+
+  // changed lock settings for certain sections (e.g. video, audio, or pictures)
+  // => refresh favourites due to possible visibility changes
+  CServiceBroker::GetFavouritesService().RefreshFavourites();
+
   return true;
 }
 
@@ -99,7 +105,7 @@ bool CGUIDialogLockSettings::ShowAndGetUserAndPassword(std::string &user, std::s
   return true;
 }
 
-void CGUIDialogLockSettings::OnSettingChanged(std::shared_ptr<const CSetting> setting)
+void CGUIDialogLockSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -131,7 +137,7 @@ void CGUIDialogLockSettings::OnSettingChanged(std::shared_ptr<const CSetting> se
   m_changed = true;
 }
 
-void CGUIDialogLockSettings::OnSettingAction(std::shared_ptr<const CSetting> setting)
+void CGUIDialogLockSettings::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -212,7 +218,7 @@ void CGUIDialogLockSettings::SetupView()
 
   // set the title
   if (m_getUser)
-    SetHeading(StringUtils::Format(g_localizeStrings.Get(20152).c_str(), CURL::Decode(m_url).c_str()));
+    SetHeading(StringUtils::Format(g_localizeStrings.Get(20152), CURL::Decode(m_url)));
   else
   {
     SetHeading(20066);
@@ -270,11 +276,11 @@ void CGUIDialogLockSettings::InitializeSettings()
     AddToggle(groupDetails, SETTING_LOCK_FILEMANAGER, 20042, SettingLevel::Basic, m_locks.files);
 
     TranslatableIntegerSettingOptions settingsLevelOptions;
-    settingsLevelOptions.push_back(std::make_pair(106, LOCK_LEVEL::NONE));
-    settingsLevelOptions.push_back(std::make_pair(593, LOCK_LEVEL::ALL));
-    settingsLevelOptions.push_back(std::make_pair(10037, LOCK_LEVEL::STANDARD));
-    settingsLevelOptions.push_back(std::make_pair(10038, LOCK_LEVEL::ADVANCED));
-    settingsLevelOptions.push_back(std::make_pair(10039, LOCK_LEVEL::EXPERT));
+    settingsLevelOptions.push_back(TranslatableIntegerSettingOption(106, LOCK_LEVEL::NONE));
+    settingsLevelOptions.push_back(TranslatableIntegerSettingOption(593, LOCK_LEVEL::ALL));
+    settingsLevelOptions.push_back(TranslatableIntegerSettingOption(10037, LOCK_LEVEL::STANDARD));
+    settingsLevelOptions.push_back(TranslatableIntegerSettingOption(10038, LOCK_LEVEL::ADVANCED));
+    settingsLevelOptions.push_back(TranslatableIntegerSettingOption(10039, LOCK_LEVEL::EXPERT));
     AddList(groupDetails, SETTING_LOCK_SETTINGS, 20043, SettingLevel::Basic, static_cast<int>(m_locks.settings), settingsLevelOptions, 20043);
 
     AddToggle(groupDetails, SETTING_LOCK_ADDONMANAGER, 24090, SettingLevel::Basic, m_locks.addonManager);

@@ -27,7 +27,9 @@
 #endif
 #endif
 #include "CDDAFile.h"
-#include "ISOFile.h"
+#if defined(HAS_ISO9660PP)
+#include "ISO9660File.h"
+#endif
 #if defined(TARGET_ANDROID)
 #include "platform/android/filesystem/APKFile.h"
 #endif
@@ -54,7 +56,9 @@
 #include "PluginFile.h"
 #include "SpecialProtocolFile.h"
 #include "MultiPathFile.h"
+#if defined(HAS_UDFREAD)
 #include "UDFFile.h"
+#endif
 #include "ImageFile.h"
 #include "ResourceFile.h"
 #include "URL.h"
@@ -82,7 +86,7 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
   if (!CWakeOnAccess::GetInstance().WakeUpHost(url))
     return NULL;
 
-  if (!url.GetProtocol().empty() && CServiceBroker::IsBinaryAddonCacheUp())
+  if (!url.GetProtocol().empty() && CServiceBroker::IsAddonInterfaceUp())
   {
     for (const auto& vfsAddon : CServiceBroker::GetVFSAddonCache().GetAddonInstances())
     {
@@ -128,8 +132,14 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
 #if defined(HAS_DVD_DRIVE)
   else if (url.IsProtocol("cdda")) return new CFileCDDA();
 #endif
-  else if (url.IsProtocol("iso9660")) return new CISOFile();
-  else if(url.IsProtocol("udf")) return new CUDFFile();
+#if defined(HAS_ISO9660PP)
+  else if (url.IsProtocol("iso9660"))
+    return new CISO9660File();
+#endif
+#if defined(HAS_UDFREAD)
+  else if(url.IsProtocol("udf"))
+    return new CUDFFile();
+#endif
 #if defined(TARGET_ANDROID)
   else if (url.IsProtocol("androidapp")) return new CFileAndroidApp();
 #endif
@@ -164,6 +174,7 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
   else if (url.IsProtocol("upnp")) return new CUPnPFile();
 #endif
 
-  CLog::Log(LOGWARNING, "%s - unsupported protocol(%s) in %s", __FUNCTION__, url.GetProtocol().c_str(), url.GetRedacted().c_str());
+  CLog::Log(LOGWARNING, "{} - unsupported protocol({}) in {}", __FUNCTION__, url.GetProtocol(),
+            url.GetRedacted());
   return NULL;
 }

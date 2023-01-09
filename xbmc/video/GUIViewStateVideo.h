@@ -18,9 +18,18 @@ public:
 protected:
   VECSOURCES& GetSources() override;
   std::string GetLockType() override;
-  int GetPlaylist() const override;
+  PLAYLIST::Id GetPlaylist() const override;
   std::string GetExtensions() override;
   bool AutoPlayNextItem() override;
+};
+
+class CGUIViewStateVideoPlaylist : public CGUIViewStateWindowVideo
+{
+public:
+  explicit CGUIViewStateVideoPlaylist(const CFileItemList& items);
+
+protected:
+  void SaveViewState() override;
 };
 
 class CGUIViewStateWindowVideoNav : public CGUIViewStateWindowVideo
@@ -44,6 +53,7 @@ protected:
   bool HideExtensions() override;
   bool HideParentDirItems() override;
   VECSOURCES& GetSources() override;
+  bool AutoPlayNextItem() override { return false; }
 };
 
 class CGUIViewStateVideoMovies : public CGUIViewStateWindowVideo

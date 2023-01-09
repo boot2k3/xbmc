@@ -30,16 +30,24 @@ public:
   ~CDVDStreamInfo();
 
   void Clear(); // clears current information
-  bool Equal(const CDVDStreamInfo &right, bool withextradata);
+  bool Equal(const CDVDStreamInfo& right, int compare);
   bool Equal(const CDemuxStream &right, bool withextradata);
 
   void Assign(const CDVDStreamInfo &right, bool withextradata);
   void Assign(const CDemuxStream &right, bool withextradata);
 
+  enum
+  {
+    COMPARE_EXTRADATA = 1,
+    COMPARE_ID = 2,
+    COMPARE_ALL = 3,
+  };
+
   AVCodecID codec;
   StreamType type;
   int uniqueId;
   int demuxerId = -1;
+  int source{STREAM_SOURCE_NONE};
   int flags;
   std::string filename;
   bool dvd;
@@ -59,6 +67,8 @@ public:
   bool forced_aspect; // aspect is forced from container
   int orientation; // orientation of the video in degrees counter clockwise
   int bitsperpixel;
+  int bitdepth;
+  StreamHdrType hdrType;
   AVColorSpace colorSpace;
   AVColorRange colorRange;
   AVColorPrimaries colorPrimaries;
@@ -86,8 +96,8 @@ public:
   std::shared_ptr<DemuxCryptoSession> cryptoSession;
   std::shared_ptr<ADDON::IAddonProvider> externalInterfaces;
 
-  bool operator==(const CDVDStreamInfo& right)      { return Equal(right, true);}
-  bool operator!=(const CDVDStreamInfo& right)      { return !Equal(right, true);}
+  bool operator==(const CDVDStreamInfo& right) { return Equal(right, COMPARE_ALL); }
+  bool operator!=(const CDVDStreamInfo& right) { return !Equal(right, COMPARE_ALL); }
 
   CDVDStreamInfo& operator=(const CDVDStreamInfo& right)
   {
@@ -97,8 +107,14 @@ public:
     return *this;
   }
 
-  bool operator==(const CDemuxStream& right)      { return Equal( CDVDStreamInfo(right, true), true);}
-  bool operator!=(const CDemuxStream& right)      { return !Equal( CDVDStreamInfo(right, true), true);}
+  bool operator==(const CDemuxStream& right)
+  {
+    return Equal(CDVDStreamInfo(right, true), COMPARE_ALL);
+  }
+  bool operator!=(const CDemuxStream& right)
+  {
+    return !Equal(CDVDStreamInfo(right, true), COMPARE_ALL);
+  }
 
   CDVDStreamInfo& operator=(const CDemuxStream& right)
   {

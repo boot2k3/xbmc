@@ -7,11 +7,10 @@
  */
 
 #include "XMLUtils.h"
-#include "URL.h"
+
 #include "StringUtils.h"
-#ifdef TARGET_WINDOWS
-#include "PlatformDefs.h" //for strcasecmp
-#endif
+#include "URL.h"
+#include "XBDateTime.h"
 
 bool XMLUtils::GetHex(const TiXmlNode* pRootNode, const char* strTag, uint32_t& hexValue)
 {
@@ -67,7 +66,7 @@ bool XMLUtils::GetInt(const TiXmlNode* pRootNode, const char* strTag, int &value
   return false;
 }
 
-bool XMLUtils::GetDouble(const TiXmlNode *root, const char *tag, double &value)
+bool XMLUtils::GetDouble(const TiXmlNode* root, const char* tag, double& value)
 {
   const TiXmlNode* node = root->FirstChild(tag);
   if (!node || !node->FirstChild()) return false;
@@ -121,7 +120,7 @@ bool XMLUtils::GetString(const TiXmlNode* pRootNode, const char* strTag, std::st
   if (pNode != NULL)
   {
     strStringValue = pNode->ValueStr();
-    if (encoded && strcasecmp(encoded,"yes") == 0)
+    if (encoded && StringUtils::CompareNoCase(encoded, "yes") == 0)
       strStringValue = CURL::Decode(strStringValue);
     return true;
   }
@@ -160,7 +159,7 @@ bool XMLUtils::GetAdditiveString(const TiXmlNode* pRootNode, const char* strTag,
       bResult = true;
       strTemp = node->FirstChild()->Value();
       const char* clear=node->Attribute("clear");
-      if (strStringValue.empty() || (clear && strcasecmp(clear,"true")==0))
+      if (strStringValue.empty() || (clear && StringUtils::CompareNoCase(clear, "true") == 0))
         strStringValue = strTemp;
       else
         strStringValue += strSeparator+strTemp;
@@ -190,7 +189,7 @@ bool XMLUtils::GetStringArray(const TiXmlNode* pRootNode, const char* strTag, st
       strTemp = node->FirstChild()->ValueStr();
 
       const char* clearAttr = node->Attribute("clear");
-      if (clearAttr && strcasecmp(clearAttr, "true") == 0)
+      if (clearAttr && StringUtils::CompareNoCase(clearAttr, "true") == 0)
         arrayValue.clear();
 
       if (strTemp.empty())
@@ -220,7 +219,7 @@ bool XMLUtils::GetPath(const TiXmlNode* pRootNode, const char* strTag, std::stri
   if (pNode != NULL)
   {
     strStringValue = pNode->Value();
-    if (encoded && strcasecmp(encoded,"yes") == 0)
+    if (encoded && StringUtils::CompareNoCase(encoded, "yes") == 0)
       strStringValue = CURL::Decode(strStringValue);
     return true;
   }
@@ -290,19 +289,25 @@ TiXmlNode* XMLUtils::SetString(TiXmlNode* pRootNode, const char *strTag, const s
 
 TiXmlNode* XMLUtils::SetInt(TiXmlNode* pRootNode, const char *strTag, int value)
 {
-  std::string strValue = StringUtils::Format("%i", value);
+  std::string strValue = std::to_string(value);
   return SetString(pRootNode, strTag, strValue);
 }
 
 void XMLUtils::SetLong(TiXmlNode* pRootNode, const char *strTag, long value)
 {
-  std::string strValue = StringUtils::Format("%ld", value);
+  std::string strValue = std::to_string(value);
   SetString(pRootNode, strTag, strValue);
 }
 
 TiXmlNode* XMLUtils::SetFloat(TiXmlNode* pRootNode, const char *strTag, float value)
 {
-  std::string strValue = StringUtils::Format("%f", value);
+  std::string strValue = StringUtils::Format("{:f}", value);
+  return SetString(pRootNode, strTag, strValue);
+}
+
+TiXmlNode* XMLUtils::SetDouble(TiXmlNode* pRootNode, const char* strTag, double value)
+{
+  std::string strValue = StringUtils::Format("{:f}", value);
   return SetString(pRootNode, strTag, strValue);
 }
 
@@ -313,7 +318,7 @@ void XMLUtils::SetBoolean(TiXmlNode* pRootNode, const char *strTag, bool value)
 
 void XMLUtils::SetHex(TiXmlNode* pRootNode, const char *strTag, uint32_t value)
 {
-  std::string strValue = StringUtils::Format("%x", value);
+  std::string strValue = StringUtils::Format("{:x}", value);
   SetString(pRootNode, strTag, strValue);
 }
 

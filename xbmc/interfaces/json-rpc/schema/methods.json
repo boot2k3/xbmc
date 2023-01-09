@@ -145,6 +145,11 @@
           },
           { "type": "object", "required": true, "additionalProperties": false,
             "properties": {
+              "broadcastid": { "$ref": "Library.Id", "required": true }
+            }
+          },
+          { "type": "object", "required": true, "additionalProperties": false,
+            "properties": {
               "channelid": { "$ref": "Library.Id", "required": true }
             }
           },
@@ -266,6 +271,61 @@
     ],
     "returns": "string"
   },
+  "Player.GetAudioDelay": {
+    "type": "method",
+    "description": "Get the audio delay for the current playback",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "number",
+          "description": "The offset value used in the current playback.",
+          "required": true
+        }
+      }
+    }
+  },
+  "Player.SetAudioDelay": {
+    "type": "method",
+    "description": "Set the audio delay for the current playback",
+    "transport": "Response",
+    "permission": "ControlPlayback",
+    "params": [
+      {
+        "name": "playerid",
+        "$ref": "Player.Id",
+        "required": true
+      },
+      {
+        "name": "offset",
+        "type": [
+          {
+            "type": "number",
+            "description": "The value should be a multiple of 0.025 in a range of +/-10 (the default range can be overriden by advancedsettings.xml).",
+            "required": true
+          },
+          {
+            "$ref": "Global.IncrementDecrement",
+            "required": true
+          }
+        ],
+        "required": true
+      }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "number",
+          "description": "The offset value used in the current playback.",
+          "required": true
+        }
+      }
+    }
+  },
   "Player.SetSpeed": {
     "type": "method",
     "description": "Set the speed of the current playback",
@@ -290,9 +350,6 @@
     "params": [
       { "name": "playerid", "$ref": "Player.Id", "required": true },
       { "name": "value", "required": true, "type": [
-          { "$ref": "Player.Position.Percentage", "required": true, "description": "Percentage value to seek to" },
-          { "$ref": "Player.Position.Time", "required": true, "description": "Time to seek to" },
-          { "type": "string", "enum": [ "smallforward", "smallbackward", "bigforward", "bigbackward" ], "required": true, "description": "Seek by predefined jumps" },
           { "type": "object", "properties": { "percentage": { "$ref": "Player.Position.Percentage", "required": true, "description": "Percentage value to seek to" } }, "additionalProperties": false, "required": true },
           { "type": "object", "properties": { "time": { "$ref": "Player.Position.Time", "required": true, "description": "Time to seek to" } }, "additionalProperties": false, "required": true },
           { "type": "object", "properties": { "step": { "type": "string", "enum": [ "smallforward", "smallbackward", "bigforward", "bigbackward" ], "required": true, "description": "Seek by predefined jumps" } }, "additionalProperties": false, "required": true },
@@ -362,7 +419,7 @@
         "zoom": { "type": "number", "required": true },
         "pixelratio": { "type": "number", "required": true },
         "verticalshift": { "type": "number", "required": true },
-        "nonlinearstretch": { "type": "boolean", "required": true }		
+        "nonlinearstretch": { "type": "boolean", "required": true }
         }
       }
   },
@@ -457,6 +514,17 @@
           { "type": "integer", "minimum": 0, "description": "Index of the video stream to play" }
         ]
       }
+    ],
+    "returns": "string"
+  },
+  "Player.AddSubtitle": {
+    "type": "method",
+    "description": "Add subtitle to the player",
+    "transport": "Response",
+    "permission": "ControlPlayback",
+    "params": [
+      { "name": "playerid", "$ref": "Player.Id", "required": true },
+      { "name": "subtitle", "type": "string", "required": true, "description": "Local path or remote URL to the subtitle file to load" }
     ],
     "returns": "string"
   },
@@ -697,7 +765,7 @@
   },
   "AudioLibrary.GetArtists": {
     "type": "method",
-    "description": "Retrieve all artists. For backward compatibility by default this implicity does not include those that only contribute other roles, however absolutely all artists can be returned using allroles=true",
+    "description": "Retrieve all artists. For backward compatibility by default this implicitly does not include those that only contribute other roles, however absolutely all artists can be returned using allroles=true",
     "transport": "Response",
     "permission": "ReadData",
     "params": [
@@ -840,9 +908,9 @@
           { "$ref": "List.Filter.Songs" }
         ]
       },
-      { "name": "includesingles", "type": "boolean", "default": true, "description": "Only songs from albums are returned when false, but overidden when singlesonly parameter is true" },
+      { "name": "includesingles", "type": "boolean", "default": true, "description": "Only songs from albums are returned when false, but overridden when singlesonly parameter is true" },
       { "name": "allroles", "type": "boolean", "default":false, "description": "Whether or not to include all roles when filtering by artist, rather than default of excluding other contributors. When true it overrides any role filter value." },
-      { "name": "singlesonly", "type": "boolean", "default": false, "description": "Only singles are returned when true, and overides includesingles parameter" }
+      { "name": "singlesonly", "type": "boolean", "default": false, "description": "Only singles are returned when true, and overrides includesingles parameter" }
     ],
     "returns": {
       "type": "object",
@@ -1010,6 +1078,60 @@
       }
     }
   },
+  "AudioLibrary.GetAvailableArtTypes": {
+    "type": "method",
+    "description": "Retrieve a list of potential art types for a media item",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      {
+        "name": "item", "required": true,
+        "type": [
+          { "type": "object", "properties": { "albumid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "artistid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false }
+        ]
+      }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "availablearttypes": { "type": "array", "required": true,
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "AudioLibrary.GetAvailableArt": {
+    "type": "method",
+    "description": "Retrieve all potential art URLs for a media item by art type",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      {
+        "name": "item", "required": true,
+        "type": [
+          { "type": "object", "properties": { "albumid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "artistid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false }
+        ]
+      },
+      { "name": "arttype", "type": "string" }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "availableart": { "type": "array", "required": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "description": "URL to the original image", "required": true },
+              "arttype": { "type": "string", "required": true },
+              "previewurl": { "type": "string", "description": "URL to a preview thumbnail of the image" }
+            }
+          }
+        }
+      }
+    }
+  },
   "AudioLibrary.SetArtistDetails": {
     "type": "method",
     "description": "Update the given artist with the given details",
@@ -1063,7 +1185,9 @@
       { "name": "displayartist", "$ref": "Optional.String" },
       { "name": "musicbrainzalbumartistid", "type": [ "null", { "$ref": "Array.String", "required": true } ], "default": null },
       { "name": "art", "type": [ "null", { "$ref": "Media.Artwork.Set", "required": true } ], "default": null },
-      { "name": "isboxset", "$ref": "Optional.Boolean" }
+      { "name": "isboxset", "$ref": "Optional.Boolean" },
+      { "name": "releasedate", "$ref": "Optional.String" },
+      { "name": "originaldate", "$ref": "Optional.String" }
     ],
     "returns": "string"
   },
@@ -1093,7 +1217,10 @@
       { "name": "sortartist", "$ref": "Optional.String" },
       { "name": "mood", "$ref": "Optional.String" },
       { "name": "art", "type": [ "null", { "$ref": "Media.Artwork.Set", "required": true } ], "default": null },
-      { "name": "disctitle", "$ref": "Optional.String" }
+      { "name": "disctitle", "$ref": "Optional.String" },
+      { "name": "releasedate", "$ref": "Optional.String" },
+      { "name": "originaldate", "$ref": "Optional.String" },
+      { "name": "bpm", "$ref": "Optional.Integer" }
     ],
     "returns": "string"
   },
@@ -1522,6 +1649,68 @@
       }
     }
   },
+  "VideoLibrary.GetAvailableArtTypes": {
+    "type": "method",
+    "description": "Retrieve a list of potential art types for a media item",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      {
+        "name": "item", "required": true,
+        "type": [
+          { "type": "object", "properties": { "episodeid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "tvshowid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "seasonid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "movieid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "setid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "musicvideoid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false }
+        ]
+      }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "availablearttypes": { "type": "array", "required": true,
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "VideoLibrary.GetAvailableArt": {
+    "type": "method",
+    "description": "Retrieve all potential art URLs for a media item by art type",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      {
+        "name": "item", "required": true,
+        "type": [
+          { "type": "object", "properties": { "episodeid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "tvshowid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "seasonid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "movieid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "setid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false },
+          { "type": "object", "properties": { "musicvideoid": { "$ref": "Library.Id", "required": true } }, "additionalProperties": false }
+        ]
+      },
+      { "name": "arttype", "type": "string" }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "availableart": { "type": "array", "required": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "description": "URL to the original image", "required": true },
+              "arttype": { "type": "string", "required": true },
+              "previewurl": { "type": "string", "description": "URL to a preview thumbnail of the image" }
+            }
+          }
+        }
+      }
+    }
+  },
   "VideoLibrary.SetMovieDetails": {
     "type": "method",
     "description": "Update the given movie with the given details",
@@ -1684,7 +1873,8 @@
       { "name": "rating", "$ref": "Optional.Number" },
       { "name": "userrating", "$ref": "Optional.Integer" },
       { "name": "dateadded", "$ref": "Optional.String" },
-      { "name": "premiered", "$ref": "Optional.String", "description": "linked with year. Overrides year" }
+      { "name": "premiered", "$ref": "Optional.String", "description": "linked with year. Overrides year" },
+      { "name": "uniqueid", "type": [ "null", { "$ref": "Media.UniqueID.Set", "required": true } ], "default": null }
     ],
     "returns": "string"
   },
@@ -1819,7 +2009,8 @@
     "permission": "RemoveData",
     "params": [
       { "name": "showdialogs", "type": "boolean", "default": true, "description": "Whether or not to show the progress bar or any other GUI dialog" },
-      { "name": "content", "type": "string", "default": "video", "enum": [ "video", "movies", "tvshows", "musicvideos" ], "description": "Content type to clean for" }
+      { "name": "content", "type": "string", "default": "video", "enum": [ "video", "movies", "tvshows", "musicvideos" ], "description": "Content type to clean for" },
+      { "name": "directory", "type": "string", "default": "", "description": "Path to the directory to clean up; performs a global cleanup if not specified" }
     ],
     "returns": "string"
   },
@@ -2021,7 +2212,8 @@
     "params": [
       { "name": "channelgroupid", "$ref": "PVR.ChannelGroup.Id", "required": true },
       { "name": "properties", "$ref": "PVR.Fields.Channel" },
-      { "name": "limits", "$ref": "List.Limits" }
+      { "name": "limits", "$ref": "List.Limits" },
+      { "name": "sort", "$ref": "List.Sort" }
     ],
     "returns": { "type": "object",
       "properties": {
@@ -2044,6 +2236,23 @@
     "returns": { "type": "object",
       "properties": {
         "channeldetails": { "$ref": "PVR.Details.Channel" }
+      }
+    }
+  },
+  "PVR.GetClients": {
+    "type": "method",
+    "description": "Retrieves the enabled PVR clients and their capabilities",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      { "name": "limits", "$ref": "List.Limits" }
+    ],
+    "returns": { "type": "object",
+      "properties": {
+        "limits": { "$ref": "List.LimitsReturned", "required": true },
+        "clients": { "type": "array", "required": true,
+          "items": { "$ref": "PVR.Details.Client" }
+        }
       }
     }
   },
@@ -2081,6 +2290,16 @@
       }
     }
   },
+  "PVR.GetBroadcastIsPlayable": {
+    "type": "method",
+    "description": "Retrieves whether or not a broadcast is playable",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      { "name": "broadcastid", "$ref": "Library.Id", "required": true, "description": "the id of the broadcast to check for playability" }
+    ],
+    "returns":  "boolean"
+  },
   "PVR.GetTimers": {
     "type": "method",
     "description": "Retrieves the timers",
@@ -2088,7 +2307,8 @@
     "permission": "ReadData",
     "params": [
       { "name": "properties", "$ref": "PVR.Fields.Timer" },
-      { "name": "limits", "$ref": "List.Limits" }
+      { "name": "limits", "$ref": "List.Limits" },
+      { "name": "sort", "$ref": "List.Sort" }
     ],
     "returns": { "type": "object",
       "properties": {
@@ -2116,12 +2336,13 @@
   },
   "PVR.AddTimer": {
     "type": "method",
-    "description": "Adds a timer to record the given show one times or a timer rule to record all showings of the given show",
+    "description": "Adds a timer to record the given show one times or a timer rule to record all showings of the given show or adds a reminder timer or reminder timer rule",
     "transport": "Response",
     "permission": "ControlPVR",
     "params": [
       { "name": "broadcastid", "$ref": "Library.Id", "required": true, "description": "the broadcast id of the item to record" },
-      { "name": "timerrule", "type": "boolean", "default": false, "description": "controls whether to create a timer rule or a onetime timer" }
+      { "name": "timerrule", "type": "boolean", "default": false, "description": "controls whether to create a timer rule or a onetime timer" },
+      { "name": "reminder", "type": "boolean", "default": false, "description": "controls whether to create a reminder timer or a recording timer" }
     ],
     "returns":  "string"
   },
@@ -2153,7 +2374,8 @@
     "permission": "ReadData",
     "params": [
       { "name": "properties", "$ref": "PVR.Fields.Recording" },
-      { "name": "limits", "$ref": "List.Limits" }
+      { "name": "limits", "$ref": "List.Limits" },
+      { "name": "sort", "$ref": "List.Sort" }
     ],
     "returns": { "type": "object",
       "properties": {
@@ -2200,7 +2422,9 @@
     "description": "Starts a channel scan",
     "transport": "Response",
     "permission": "ControlPVR",
-    "params": [ ],
+    "params": [
+      { "name": "clientid", "$ref": "Library.Id", "description": "Specify a PVR client id to avoid UI dialog, optional in kodi 19, required in kodi 20" }
+    ],
     "returns":  "string"
   },
   "Textures.GetTextures": {
@@ -2550,7 +2774,7 @@
     "params": [
       { "name": "title", "type": "string", "required": true },
       { "name": "type", "$ref": "Favourite.Type", "required": true },
-      { "name": "path", "$ref": "Optional.String", "description": "Required for media and script favourites types" },
+      { "name": "path", "$ref": "Optional.String", "description": "Required for media, script and androidapp favourites types" },
       { "name": "window", "$ref": "Optional.String", "description": "Required for window favourite type" },
       { "name": "windowparameter", "$ref": "Optional.String" },
       { "name": "thumbnail", "$ref": "Optional.String" }
@@ -2666,5 +2890,52 @@
       { "name": "setting", "type": "string", "required": true, "minLength": 1 }
     ],
     "returns": "string"
+  },
+  "Settings.GetSkinSettingValue": {
+    "type": "method",
+    "description": "Retrieves the value of the specified skin setting",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      { "name": "setting", "type": "string", "required": true, "minLength": 1 }
+    ],
+    "returns": {
+      "type": "object",
+      "properties": {
+        "value": { "type": [ "boolean", "string" ], "required": true }
+      }
+    }
+  },
+  "Settings.SetSkinSettingValue": {
+    "type": "method",
+    "description": "Changes the value of the specified skin setting",
+    "transport": "Response",
+    "permission": "WriteSetting",
+    "params": [
+      { "name": "setting", "type": "string", "required": true, "minLength": 1 },
+      { "name": "value", "type": [ "boolean", "string" ], "required": true }
+    ],
+    "returns": "boolean"
+  },
+  "Settings.GetSkinSettings": {
+    "type": "method",
+    "description": "Retrieves all skin settings of the currently used skin",
+    "transport": "Response",
+    "permission": "ReadData",
+    "returns": {
+      "type": "object",
+      "properties": {
+        "skin": { "type": "string", "required": true, "minLength": 1 },
+        "settings": { "type": "array",
+          "items": { "type": "object",
+            "properties": {
+              "id": { "type": "string", "required": true, "minLength": 1 },
+              "type": { "type": "string", "enum": [ "boolean", "string" ], "required": true },
+              "value": { "type": [ "boolean", "string" ], "required": true }
+            }
+          }
+        }
+      }
+    }
   }
 }

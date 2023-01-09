@@ -8,16 +8,19 @@
 
 #pragma once
 
-#include "threads/CriticalSection.h"
 #include "guilib/DirtyRegion.h"
-#include "utils/Color.h"
+#include "threads/CriticalSection.h"
+#include "utils/ColorUtils.h"
+
 #include <string>
 #ifdef HAS_DX
 #include "guilib/GUIShaderDX.h"
 #include <wrl/client.h>
 #endif
 
-class CBaseTexture;
+#include <memory>
+
+class CTexture;
 
 class CSlideShowPic
 {
@@ -35,11 +38,14 @@ public:
   CSlideShowPic();
   ~CSlideShowPic();
 
-  void SetTexture(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSITION_EFFECT transEffect = FADEIN_FADEOUT);
-  void UpdateTexture(CBaseTexture* pTexture);
+  void SetTexture(int iSlideNumber,
+                  std::unique_ptr<CTexture> pTexture,
+                  DISPLAY_EFFECT dispEffect = EFFECT_RANDOM,
+                  TRANSITION_EFFECT transEffect = FADEIN_FADEOUT);
+  void UpdateTexture(std::unique_ptr<CTexture> pTexture);
 
-  bool IsLoaded() const { return m_bIsLoaded;};
-  void UnLoad() {m_bIsLoaded = false;};
+  bool IsLoaded() const { return m_bIsLoaded; }
+  void UnLoad() { m_bIsLoaded = false; }
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions);
   void Render();
   void Close();
@@ -47,39 +53,42 @@ public:
   DISPLAY_EFFECT DisplayEffect() const { return m_displayEffect; }
   bool DisplayEffectNeedChange(DISPLAY_EFFECT newDispEffect) const;
   bool IsStarted() const { return m_iCounter > 0; }
-  bool IsFinished() const { return m_bIsFinished;};
-  bool DrawNextImage() const { return m_bDrawNextImage;};
+  bool IsFinished() const { return m_bIsFinished; }
+  bool DrawNextImage() const { return m_bDrawNextImage; }
 
-  int GetWidth() const { return (int)m_fWidth;};
-  int GetHeight() const { return (int)m_fHeight;};
+  int GetWidth() const { return (int)m_fWidth; }
+  int GetHeight() const { return (int)m_fHeight; }
 
   void Keep();
   bool StartTransition();
   int GetTransitionTime(int iType) const;
   void SetTransitionTime(int iType, int iTime);
 
-  int SlideNumber() const { return m_iSlideNumber;};
+  int SlideNumber() const { return m_iSlideNumber; }
 
   void Zoom(float fZoomAmount, bool immediate = false);
   void Rotate(float fRotateAngle, bool immediate = false);
   void Pause(bool bPause);
   void SetInSlideshow(bool slideshow);
   void SetOriginalSize(int iOriginalWidth, int iOriginalHeight, bool bFullSize);
-  bool FullSize() const { return m_bFullSize;};
+  bool FullSize() const { return m_bFullSize; }
   int GetOriginalWidth();
   int GetOriginalHeight();
 
   void Move(float dX, float dY);
-  float GetZoom() const { return m_fZoomAmount;};
+  float GetZoom() const { return m_fZoomAmount; }
 
   bool m_bIsComic;
   bool m_bCanMoveHorizontally;
   bool m_bCanMoveVertically;
 private:
-  void SetTexture_Internal(int iSlideNumber, CBaseTexture* pTexture, DISPLAY_EFFECT dispEffect = EFFECT_RANDOM, TRANSITION_EFFECT transEffect = FADEIN_FADEOUT);
+  void SetTexture_Internal(int iSlideNumber,
+                           std::unique_ptr<CTexture> pTexture,
+                           DISPLAY_EFFECT dispEffect = EFFECT_RANDOM,
+                           TRANSITION_EFFECT transEffect = FADEIN_FADEOUT);
   void UpdateVertices(float cur_x[4], float cur_y[4], const float new_x[4], const float new_y[4], CDirtyRegionList &dirtyregions);
-  void Render(float *x, float *y, CBaseTexture* pTexture, UTILS::Color color);
-  CBaseTexture *m_pImage;
+  void Render(float* x, float* y, CTexture* pTexture, UTILS::COLOR::Color color);
+  std::unique_ptr<CTexture> m_pImage;
 
   int m_iOriginalWidth;
   int m_iOriginalHeight;
@@ -91,7 +100,7 @@ private:
   std::string m_strFileName;
   float m_fWidth;
   float m_fHeight;
-  UTILS::Color m_alpha = 0;
+  UTILS::COLOR::Color m_alpha = 0;
   // stuff relative to middle position
   float m_fPosX;
   float m_fPosY;

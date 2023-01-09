@@ -8,12 +8,14 @@
 
 #include "GUIWindowHome.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/WindowIDs.h"
-#include "input/Key.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "interfaces/AnnouncementManager.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
@@ -22,6 +24,8 @@
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 CGUIWindowHome::CGUIWindowHome(void) : CGUIWindow(WINDOW_HOME, "Home.xml")
 {
@@ -39,12 +43,18 @@ CGUIWindowHome::~CGUIWindowHome(void)
 bool CGUIWindowHome::OnAction(const CAction &action)
 {
   static unsigned int min_hold_time = 1000;
-  if (action.GetID() == ACTION_NAV_BACK &&
-      action.GetHoldTime() < min_hold_time &&
-      g_application.GetAppPlayer().IsPlaying())
+  if (action.GetID() == ACTION_NAV_BACK && action.GetHoldTime() < min_hold_time)
   {
-    g_application.SwitchToFullScreen();
-    return true;
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPlaying())
+    {
+      CGUIComponent* gui = CServiceBroker::GetGUI();
+      if (gui)
+        gui->GetWindowManager().SwitchToFullScreen();
+
+      return true;
+    }
   }
   return CGUIWindow::OnAction(action);
 }
@@ -61,7 +71,10 @@ void CGUIWindowHome::OnInitWindow()
   CGUIWindow::OnInitWindow();
 }
 
-void CGUIWindowHome::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void CGUIWindowHome::Announce(ANNOUNCEMENT::AnnouncementFlag flag,
+                              const std::string& sender,
+                              const std::string& message,
+                              const CVariant& data)
 {
   int ra_flag = 0;
 
@@ -74,11 +87,10 @@ void CGUIWindowHome::Announce(ANNOUNCEMENT::AnnouncementFlag flag, const char *s
   if (data.isMember("transaction") && data["transaction"].asBoolean())
     return;
 
-  if (strcmp(message, "OnScanStarted") == 0 ||
-      strcmp(message, "OnCleanStarted") == 0)
+  if (message == "OnScanStarted" || message == "OnCleanStarted")
     return;
 
-  bool onUpdate = strcmp(message, "OnUpdate") == 0;
+  bool onUpdate = message == "OnUpdate";
   // always update Totals except on an OnUpdate with no playcount update
   if (!onUpdate || data.isMember("playcount"))
     ra_flag |= Totals;
@@ -103,7 +115,7 @@ void CGUIWindowHome::AddRecentlyAddedJobs(int flag)
   // this block checks to see if another one is running
   // and keeps track of the flag
   {
-    CSingleLock lockMe(*this);
+    std::unique_lock<CCriticalSection> lockMe(*this);
     if (!m_recentlyAddedRunning)
     {
       getAJob = true;
@@ -123,7 +135,7 @@ void CGUIWindowHome::AddRecentlyAddedJobs(int flag)
   }
 
   if (flag && getAJob)
-    CJobManager::GetInstance().AddJob(new CRecentlyAddedJob(flag), this);
+    CServiceBroker::GetJobManager()->AddJob(new CRecentlyAddedJob(flag), this);
 
   m_updateRA = 0;
 }
@@ -133,10 +145,10 @@ void CGUIWindowHome::OnJobComplete(unsigned int jobID, bool success, CJob *job)
   int flag = 0;
 
   {
-    CSingleLock lockMe(*this);
+    std::unique_lock<CCriticalSection> lockMe(*this);
 
     // the job is finished.
-    // did one come in in the meantime?
+    // did one come in the meantime?
     flag = m_cumulativeUpdateFlag;
     m_recentlyAddedRunning = false; /// we're done.
   }

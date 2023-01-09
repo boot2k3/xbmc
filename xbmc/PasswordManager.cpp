@@ -10,13 +10,15 @@
 
 #include "ServiceBroker.h"
 #include "URL.h"
-#include "filesystem/File.h"
 #include "profiles/ProfileManager.h"
 #include "profiles/dialogs/GUIDialogLockSettings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
+#include "utils/FileUtils.h"
+#include "utils/StringUtils.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 CPasswordManager &CPasswordManager::GetInstance()
 {
@@ -31,7 +33,7 @@ CPasswordManager::CPasswordManager()
 
 bool CPasswordManager::AuthenticateURL(CURL &url)
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   if (!m_loaded)
     Load();
@@ -54,7 +56,7 @@ bool CPasswordManager::AuthenticateURL(CURL &url)
 
 bool CPasswordManager::PromptToAuthenticateURL(CURL &url)
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   std::string passcode;
   std::string username = url.GetUserName();
@@ -95,7 +97,7 @@ void CPasswordManager::SaveAuthenticatedURL(const CURL &url, bool saveToProfile)
   if (url.GetUserName().empty())
     return;
 
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   std::string path = GetLookupPath(url);
   std::string authenticatedPath = url.Get();
@@ -118,7 +120,13 @@ bool CPasswordManager::IsURLSupported(const CURL &url)
 {
   return url.IsProtocol("smb")
     || url.IsProtocol("nfs")
-    || url.IsProtocol("sftp");
+    || url.IsProtocol("ftp")
+    || url.IsProtocol("ftps")
+    || url.IsProtocol("sftp")
+    || url.IsProtocol("http")
+    || url.IsProtocol("https")
+    || url.IsProtocol("dav")
+    || url.IsProtocol("davs");
 }
 
 void CPasswordManager::Clear()
@@ -135,13 +143,13 @@ void CPasswordManager::Load()
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
   std::string passwordsFile = profileManager->GetUserDataItem("passwords.xml");
-  if (XFILE::CFile::Exists(passwordsFile))
+  if (CFileUtils::Exists(passwordsFile))
   {
     CXBMCTinyXML doc;
     if (!doc.LoadFile(passwordsFile))
     {
-      CLog::Log(LOGERROR, "%s - Unable to load: %s, Line %d\n%s",
-        __FUNCTION__, passwordsFile.c_str(), doc.ErrorRow(), doc.ErrorDesc());
+      CLog::Log(LOGERROR, "{} - Unable to load: {}, Line {}\n{}", __FUNCTION__, passwordsFile,
+                doc.ErrorRow(), doc.ErrorDesc());
       return;
     }
     const TiXmlElement *root = doc.RootElement();

@@ -1,13 +1,15 @@
 include ../../Makefile.include
 PREFIX=$(NATIVEPREFIX)
 PLATFORM=$(NATIVEPLATFORM)
-DEPS= ../../Makefile.include Makefile 01-gettext-tools-stpncpy.patch
+DEPS = ../../Makefile.include Makefile 01-gettext-tools-stpncpy.patch 02-disable-test-doc.patch ../../download-files.include
 
 # lib name, version
 LIBNAME=gettext
-VERSION=0.19.8
+VERSION=0.21
 SOURCE=$(LIBNAME)-$(VERSION)
-ARCHIVE=$(SOURCE).tar.gz
+ARCHIVE=$(SOURCE).tar.xz
+SHA512=f7e2968651879f8444d43a176a149db9f9411f4a03132a7f3b37c2ed97e3978ae6888169c995c1953cb78943b6e3573811abcbb8661b6631edbbe067b2699ddf
+include ../../download-files.include
 
 # configuration settings
 CONFIGURE=./configure --prefix=$(PREFIX) \
@@ -24,20 +26,19 @@ LIBDYLIB=$(PLATFORM)/gettext-tools/src/.libs/libgettextsrc.a
 
 all: .installed-$(PLATFORM)
 
-$(TARBALLS_LOCATION)/$(ARCHIVE):
-	cd $(TARBALLS_LOCATION); $(RETRIEVE_TOOL) $(RETRIEVE_TOOL_FLAGS) $(BASE_URL)/$(ARCHIVE)
 
-$(PLATFORM): $(TARBALLS_LOCATION)/$(ARCHIVE) $(DEPS)
+$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	cd $(PLATFORM); sed -ie '/gets is a security hole/d' gettext-tools/gnulib-lib/stdio.in.h
 	cd $(PLATFORM); sed -ie '/gets is a security hole/d' gettext-tools/libgettextpo/stdio.in.h
 	cd $(PLATFORM); sed -ie '/gets is a security hole/d' gettext-runtime/gnulib-lib/stdio.in.h
-	cd $(PLATFORM); sed -ie 's/SUBDIRS = doc intl gnulib-lib libgrep src libgettextpo po projects styles misc man m4 tests gnulib-tests examples/SUBDIRS = doc intl gnulib-lib libgrep src libgettextpo po projects styles misc man m4/' gettext-tools/Makefile.in
 	cd $(PLATFORM); patch -p1 -i ../01-gettext-tools-stpncpy.patch
+	cd $(PLATFORM); patch -p1 -i ../02-disable-test-doc.patch
 	cd $(PLATFORM); $(CONFIGURE)
 
 $(LIBDYLIB): $(PLATFORM)
+	$(MAKE) -C $(PLATFORM)/libtextstyle
 	$(MAKE) -C $(PLATFORM)/gettext-tools
 
 .installed-$(PLATFORM): $(LIBDYLIB)

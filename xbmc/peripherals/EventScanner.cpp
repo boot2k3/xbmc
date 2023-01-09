@@ -9,25 +9,22 @@
 #include "EventScanner.h"
 
 #include "IEventScannerCallback.h"
-#include "threads/SingleLock.h"
-#include "threads/SystemClock.h"
 #include "utils/log.h"
 
 #include <algorithm>
+#include <mutex>
 
 using namespace PERIPHERALS;
-using namespace XbmcThreads;
 
 // Default event scan rate when no polling handles are held
-#define DEFAULT_SCAN_RATE_HZ  60
+#define DEFAULT_SCAN_RATE_HZ 60
 
 // Timeout when a polling handle is held but doesn't trigger scan. This reduces
 // input latency when the game is running at < 1/4 speed.
-#define WATCHDOG_TIMEOUT_MS   80
+#define WATCHDOG_TIMEOUT_MS 80
 
-CEventScanner::CEventScanner(IEventScannerCallback &callback) :
-  CThread("PeripEventScanner"),
-  m_callback(callback)
+CEventScanner::CEventScanner(IEventScannerCallback& callback)
+  : CThread("PeripEventScan"), m_callback(callback)
 {
 }
 
@@ -48,7 +45,7 @@ EventPollHandlePtr CEventScanner::RegisterPollHandle()
   EventPollHandlePtr handle(new CEventPollHandle(*this));
 
   {
-    CSingleLock lock(m_handleMutex);
+    std::unique_lock<CCriticalSection> lock(m_handleMutex);
     m_activeHandles.insert(handle.get());
   }
 
@@ -57,20 +54,20 @@ EventPollHandlePtr CEventScanner::RegisterPollHandle()
   return handle;
 }
 
-void CEventScanner::Activate(CEventPollHandle &handle)
+void CEventScanner::Activate(CEventPollHandle& handle)
 {
   {
-    CSingleLock lock(m_handleMutex);
+    std::unique_lock<CCriticalSection> lock(m_handleMutex);
     m_activeHandles.insert(&handle);
   }
 
   CLog::Log(LOGDEBUG, "PERIPHERALS: Event poll handle activated");
 }
 
-void CEventScanner::Deactivate(CEventPollHandle &handle)
+void CEventScanner::Deactivate(CEventPollHandle& handle)
 {
   {
-    CSingleLock lock(m_handleMutex);
+    std::unique_lock<CCriticalSection> lock(m_handleMutex);
     m_activeHandles.erase(&handle);
   }
 
@@ -81,7 +78,7 @@ void CEventScanner::HandleEvents(bool bWait)
 {
   if (bWait)
   {
-    CSingleLock lock(m_pollMutex);
+    std::unique_lock<CCriticalSection> lock(m_pollMutex);
 
     m_scanFinishedEvent.Reset();
     m_scanEvent.Set();
@@ -93,10 +90,10 @@ void CEventScanner::HandleEvents(bool bWait)
   }
 }
 
-void CEventScanner::Release(CEventPollHandle &handle)
+void CEventScanner::Release(CEventPollHandle& handle)
 {
   {
-    CSingleLock lock(m_handleMutex);
+    std::unique_lock<CCriticalSection> lock(m_handleMutex);
     m_activeHandles.erase(&handle);
   }
 
@@ -108,7 +105,7 @@ EventLockHandlePtr CEventScanner::RegisterLock()
   EventLockHandlePtr handle(new CEventLockHandle(*this));
 
   {
-    CSingleLock lock(m_lockMutex);
+    std::unique_lock<CCriticalSection> lock(m_lockMutex);
     m_activeLocks.insert(handle.get());
   }
 
@@ -117,10 +114,10 @@ EventLockHandlePtr CEventScanner::RegisterLock()
   return handle;
 }
 
-void CEventScanner::ReleaseLock(CEventLockHandle &handle)
+void CEventScanner::ReleaseLock(CEventLockHandle& handle)
 {
   {
-    CSingleLock lock(m_lockMutex);
+    std::unique_lock<CCriticalSection> lock(m_lockMutex);
     m_activeLocks.erase(&handle);
   }
 
@@ -129,46 +126,49 @@ void CEventScanner::ReleaseLock(CEventLockHandle &handle)
 
 void CEventScanner::Process()
 {
-  double nextScanMs = static_cast<double>(SystemClockMillis());
+  auto nextScan = std::chrono::steady_clock::now();
 
   while (!m_bStop)
   {
     {
-      CSingleLock lock(m_lockMutex);
+      std::unique_lock<CCriticalSection> lock(m_lockMutex);
       if (m_activeLocks.empty())
         m_callback.ProcessEvents();
     }
 
     m_scanFinishedEvent.Set();
 
-    const double nowMs = static_cast<double>(SystemClockMillis());
-    const double scanIntervalMs = GetScanIntervalMs();
+    auto now = std::chrono::steady_clock::now();
+    auto scanIntervalMs = GetScanIntervalMs();
 
     // Handle wrap-around
-    if (nowMs < nextScanMs)
-      nextScanMs = nowMs;
+    if (now < nextScan)
+      nextScan = now;
 
-    while (nextScanMs <= nowMs)
-      nextScanMs += scanIntervalMs;
+    while (nextScan <= now)
+      nextScan += scanIntervalMs;
 
-    unsigned int waitTimeMs = static_cast<unsigned int>(nextScanMs - nowMs);
+    auto waitTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(nextScan - now);
 
-    if (!m_bStop && waitTimeMs > 0)
-      m_scanEvent.WaitMSec(waitTimeMs);
+    if (!m_bStop && waitTimeMs.count() > 0)
+      m_scanEvent.Wait(waitTimeMs);
   }
 }
 
-double CEventScanner::GetScanIntervalMs() const
+std::chrono::milliseconds CEventScanner::GetScanIntervalMs() const
 {
   bool bHasActiveHandle;
 
   {
-    CSingleLock lock(m_handleMutex);
+    std::unique_lock<CCriticalSection> lock(m_handleMutex);
     bHasActiveHandle = !m_activeHandles.empty();
   }
 
   if (!bHasActiveHandle)
-    return 1000.0 / DEFAULT_SCAN_RATE_HZ;
+  {
+    // this truncates to 16 (from 16.666) should it round up to 17 using std::nearbyint or should we use nanoseconds?
+    return std::chrono::milliseconds(static_cast<uint32_t>(1000.0 / DEFAULT_SCAN_RATE_HZ));
+  }
   else
-    return WATCHDOG_TIMEOUT_MS;
+    return std::chrono::milliseconds(WATCHDOG_TIMEOUT_MS);
 }

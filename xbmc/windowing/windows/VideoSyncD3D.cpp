@@ -17,6 +17,10 @@
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 
+#include <mutex>
+
+using namespace std::chrono_literals;
+
 void CVideoSyncD3D::OnLostDisplay()
 {
   if (!m_displayLost)
@@ -39,7 +43,7 @@ void CVideoSyncD3D::RefreshChanged()
 bool CVideoSyncD3D::Setup(PUPDATECLOCK func)
 {
   CLog::Log(LOGDEBUG, "CVideoSyncD3D: Setting up Direct3d");
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   DX::Windowing()->Register(this);
   m_displayLost = false;
   m_displayReset = false;
@@ -102,7 +106,7 @@ void CVideoSyncD3D::Run(CEvent& stopEvent)
   m_lostEvent.Set();
   while (!stopEvent.Signaled() && m_displayLost && !m_displayReset)
   {
-    KODI::TIME::Sleep(10);
+    KODI::TIME::Sleep(10ms);
   }
 }
 
@@ -116,7 +120,7 @@ void CVideoSyncD3D::Cleanup()
 
 float CVideoSyncD3D::GetFps()
 {
-  DXGI_MODE_DESC DisplayMode;
+  DXGI_MODE_DESC DisplayMode = {};
   DX::DeviceResources::Get()->GetDisplayMode(&DisplayMode);
 
   m_fps = (DisplayMode.RefreshRate.Denominator != 0) ? (float)DisplayMode.RefreshRate.Numerator / (float)DisplayMode.RefreshRate.Denominator : 0.0f;

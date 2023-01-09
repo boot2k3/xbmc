@@ -13,13 +13,23 @@
 
 #include <atomic>
 
+
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
 class CWinSystemX11GLContext;
 
 class CVideoSyncOML : public CVideoSync, IDispResource
 {
 public:
-  explicit CVideoSyncOML(void *clock, CWinSystemX11GLContext& winSystem) :
-    CVideoSync(clock), m_winSystem(winSystem) {};
+  explicit CVideoSyncOML(void* clock, CWinSystemX11GLContext& winSystem)
+    : CVideoSync(clock), m_winSystem(winSystem)
+  {
+  }
   bool Setup(PUPDATECLOCK func) override;
   void Run(CEvent& stopEvent) override;
   void Cleanup() override;
@@ -31,3 +41,6 @@ private:
   CWinSystemX11GLContext &m_winSystem;
 };
 
+}
+}
+}

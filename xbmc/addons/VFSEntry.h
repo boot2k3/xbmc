@@ -7,35 +7,40 @@
 
 #pragma once
 
+#include "FileItem.h"
 #include "addons/binary-addons/AddonDll.h"
 #include "addons/binary-addons/AddonInstanceHandler.h"
-#include "addons/kodi-addon-dev-kit/include/kodi/addon-instance/VFS.h"
+#include "addons/kodi-dev-kit/include/kodi/addon-instance/VFS.h"
 #include "filesystem/IDirectory.h"
 #include "filesystem/IFile.h"
 #include "filesystem/IFileDirectory.h"
 
+#include <utility>
+
 namespace ADDON
 {
+struct AddonEvent;
 
-  class CVFSEntry;
-  typedef std::shared_ptr<CVFSEntry> VFSEntryPtr;
+class CVFSEntry;
+typedef std::shared_ptr<CVFSEntry> VFSEntryPtr;
 
-  class CVFSAddonCache
-  {
-  public:
-    virtual ~CVFSAddonCache();
-    void Init();
-    void Deinit();
-    const std::vector<VFSEntryPtr> GetAddonInstances();
-    VFSEntryPtr GetAddonInstance(const std::string& strId);
+class CVFSAddonCache : public CAddonDllInformer
+{
+public:
+  virtual ~CVFSAddonCache();
+  void Init();
+  void Deinit();
+  const std::vector<VFSEntryPtr> GetAddonInstances();
+  VFSEntryPtr GetAddonInstance(const std::string& strId);
 
-  protected:
-    void Update();
-    void OnEvent(const AddonEvent& event);
+protected:
+  void Update(const std::string& id);
+  void OnEvent(const AddonEvent& event);
+  bool IsInUse(const std::string& id) override;
 
-    CCriticalSection m_critSection;
-    std::vector<VFSEntryPtr> m_addonsInstances;
-  };
+  CCriticalSection m_critSection;
+  std::vector<VFSEntryPtr> m_addonsInstances;
+};
 
   //! \brief A virtual filesystem entry add-on.
   class CVFSEntry : public IAddonInstanceHandler
@@ -55,12 +60,12 @@ namespace ADDON
       int label;             //!< String ID to use as label in dialog
 
       //! \brief The constructor reads the info from an add-on info structure.
-      ProtocolInfo(BinaryAddonBasePtr addonInfo);
+      ProtocolInfo(const AddonInfoPtr& addonInfo);
     };
 
     //! \brief Construct from add-on properties.
     //! \param addonInfo General addon properties
-    explicit CVFSEntry(BinaryAddonBasePtr addonInfo);
+    explicit CVFSEntry(const AddonInfoPtr& addonInfo);
     ~CVFSEntry() override;
 
     // Things that MUST be supplied by the child classes
@@ -104,7 +109,6 @@ namespace ADDON
     bool m_directories;       //!< VFS entry can list directories.
     bool m_filedirectories;   //!< VFS entry contains file directories.
     ProtocolInfo m_protocolInfo; //!< Info about protocol for network dialog.
-    AddonInstance_VFSEntry m_struct; //!< VFS callback table
   };
 
   //! \brief Wrapper equipping a CVFSEntry with an IFile interface.
@@ -256,7 +260,10 @@ namespace ADDON
   public:
     //! \brief The constructor initializes the reference to the wrapped CVFSEntry.
     //! \param ptr The CVFSEntry to wrap.
-    explicit CVFSEntryIFileDirectoryWrapper(VFSEntryPtr ptr) : CVFSEntryIDirectoryWrapper(ptr) {}
+    explicit CVFSEntryIFileDirectoryWrapper(VFSEntryPtr ptr)
+      : CVFSEntryIDirectoryWrapper(std::move(ptr))
+    {
+    }
 
     //! \brief Empty destructor.
     ~CVFSEntryIFileDirectoryWrapper() override = default;

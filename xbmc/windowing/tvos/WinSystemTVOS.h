@@ -30,6 +30,9 @@ public:
   CWinSystemTVOS();
   virtual ~CWinSystemTVOS();
 
+  static void Register();
+  static std::unique_ptr<CWinSystemBase> CreateWinSystem();
+
   // ITimerCallback interface
   virtual void OnTimeout() override {}
 
@@ -71,12 +74,13 @@ public:
 
   //virtual std::unique_ptr<CVideoSync> GetVideoSync(void* clock) override;
 
+  std::vector<std::string> GetConnectedOutputs() override;
+
   bool InitDisplayLink(CVideoSyncTVos* syncImpl);
   void DeinitDisplayLink(void);
   void OnAppFocusChange(bool focus);
   bool IsBackgrounded() const { return m_bIsBackgrounded; }
   CVEAGLContext GetEAGLContextObj();
-  void GetConnectedOutputs(std::vector<std::string>* outputs);
 
   // winevents override
   bool MessagePump() override;

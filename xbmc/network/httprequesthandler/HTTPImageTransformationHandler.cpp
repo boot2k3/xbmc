@@ -105,19 +105,10 @@ bool CHTTPImageTransformationHandler::CanHandleRequest(const HTTPRequest &reques
           options.find(TRANSFORMATION_OPTION_HEIGHT) != options.end());
 }
 
-int CHTTPImageTransformationHandler::HandleRequest()
+MHD_RESULT CHTTPImageTransformationHandler::HandleRequest()
 {
   if (m_response.type == HTTPError)
     return MHD_YES;
-
-  // nothing else to do if this is a HEAD request
-  if (m_request.method == HEAD)
-  {
-    m_response.status = MHD_HTTP_OK;
-    m_response.type = HTTPMemoryDownloadNoFreeNoCopy;
-
-    return MHD_YES;
-  }
 
   // get the transformation options
   std::map<std::string, std::string> options;

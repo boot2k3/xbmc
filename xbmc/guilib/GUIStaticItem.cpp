@@ -64,14 +64,23 @@ CGUIStaticItem::CGUIStaticItem(const CFileItem &item)
   m_visState = false;
 }
 
+CGUIStaticItem::CGUIStaticItem(const CGUIStaticItem& other)
+  : CFileItem(other),
+    m_info(other.m_info),
+    m_visCondition(other.m_visCondition),
+    m_visState(other.m_visState),
+    m_clickActions(other.m_clickActions)
+{
+}
+
 void CGUIStaticItem::UpdateProperties(int contextWindow)
 {
   for (const auto& i : m_info)
   {
     const GUIINFO::CGUIInfoLabel& info = i.first;
     const std::string& name = i.second;
-    bool preferTexture = strnicmp("label", name.c_str(), 5) != 0;
-    std::string value(info.GetLabel(contextWindow, preferTexture));
+    bool preferTexture = StringUtils::CompareNoCase("label", name, 5) != 0;
+    const std::string& value(info.GetLabel(contextWindow, preferTexture));
     if (StringUtils::EqualsNoCase(name, "label"))
       SetLabel(value);
     else if (StringUtils::EqualsNoCase(name, "label2"))
@@ -89,7 +98,7 @@ bool CGUIStaticItem::UpdateVisibility(int contextWindow)
 {
   if (!m_visCondition)
     return false;
-  bool state = m_visCondition->Get();
+  bool state = m_visCondition->Get(contextWindow);
   if (state != m_visState)
   {
     m_visState = state;

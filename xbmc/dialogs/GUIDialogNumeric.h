@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include "XBDateTime.h"
 #include "guilib/GUIDialog.h"
+#include "utils/XTimeUtils.h"
 
 #include <cstdint>
 
@@ -34,7 +34,7 @@ public:
 
   bool IsConfirmed() const;
   bool IsCanceled() const;
-  bool IsInputHidden() const { return m_mode == INPUT_PASSWORD; };
+  bool IsInputHidden() const { return m_mode == INPUT_PASSWORD; }
 
   static bool ShowAndVerifyNewPassword(std::string& strNewPassword);
   static int ShowAndVerifyPassword(std::string& strPassword, const std::string& strHeading, int iRetries);
@@ -49,7 +49,7 @@ public:
   static bool ShowAndGetTime(KODI::TIME::SystemTime& time, const std::string& heading);
   static bool ShowAndGetDate(KODI::TIME::SystemTime& date, const std::string& heading);
   static bool ShowAndGetIPAddress(std::string &IPAddress, const std::string &heading);
-  static bool ShowAndGetNumber(std::string& strInput, const std::string &strHeading, unsigned int iAutoCloseTimeoutMs = 0);
+  static bool ShowAndGetNumber(std::string& strInput, const std::string &strHeading, unsigned int iAutoCloseTimeoutMs = 0, bool bSetHidden = false);
   static bool ShowAndGetSeconds(std::string& timeString, const std::string &heading);
 
 protected:

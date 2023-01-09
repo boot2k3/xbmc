@@ -11,7 +11,7 @@
 #include "DVDVideoCodec.h"
 #include "addons/AddonProvider.h"
 #include "addons/binary-addons/AddonInstanceHandler.h"
-#include "addons/kodi-addon-dev-kit/include/kodi/addon-instance/VideoCodec.h"
+#include "addons/kodi-dev-kit/include/kodi/addon-instance/VideoCodec.h"
 
 class BufferPool;
 
@@ -21,7 +21,7 @@ class CAddonVideoCodec
 {
 public:
   CAddonVideoCodec(CProcessInfo& processInfo,
-                   ADDON::BinaryAddonBasePtr& addonInfo,
+                   ADDON::AddonInfoPtr& addonInfo,
                    KODI_HANDLE parentInstance);
   ~CAddonVideoCodec() override;
 
@@ -38,18 +38,17 @@ private:
 
   /*!
    * @brief All picture members can be expected to be set correctly except decodedData and pts.
-   * GetFrameBuffer has to set decodedData to a valid memory adress and return true.
+   * GetFrameBuffer has to set decodedData to a valid memory address and return true.
    * In case buffer allocation fails, return false.
    */
   bool GetFrameBuffer(VIDEOCODEC_PICTURE &picture);
-  void ReleaseFrameBuffer(void *buffer);
+  void ReleaseFrameBuffer(KODI_HANDLE videoBufferHandle);
 
   static bool get_frame_buffer(void* kodiInstance, VIDEOCODEC_PICTURE *picture);
-  static void release_frame_buffer(void* kodiInstance, void *buffer);
+  static void release_frame_buffer(void* kodiInstance, KODI_HANDLE videoBufferHandle);
 
-  AddonInstance_VideoCodec m_struct;
   int m_codecFlags;
-  VIDEOCODEC_FORMAT m_formats[VIDEOCODEC_FORMAT::MaxVideoFormats + 1];
+  VIDEOCODEC_FORMAT m_formats[VIDEOCODEC_FORMAT_MAXFORMATS + 1];
   float m_displayAspect;
   unsigned int m_width, m_height;
 };

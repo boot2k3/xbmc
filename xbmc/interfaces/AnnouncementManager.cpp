@@ -9,9 +9,9 @@
 #include "AnnouncementManager.h"
 
 #include "FileItem.h"
-#include "PlayListPlayer.h"
 #include "music/MusicDatabase.h"
 #include "music/tags/MusicInfoTag.h"
+#include "playlists/PlayListTypes.h"
 #include "pvr/channels/PVRChannel.h"
 #include "threads/SingleLock.h"
 #include "utils/StringUtils.h"
@@ -19,11 +19,14 @@
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
 
+#include <mutex>
 #include <stdio.h>
 
 #define LOOKUP_PROPERTY "database-lookup"
 
 using namespace ANNOUNCEMENT;
+
+const std::string CAnnouncementManager::ANNOUNCEMENT_SENDER = "xbmc";
 
 CAnnouncementManager::CAnnouncementManager() : CThread("Announce")
 {
@@ -44,7 +47,7 @@ void CAnnouncementManager::Deinitialize()
   m_bStop = true;
   m_queueEvent.Set();
   StopThread();
-  CSingleLock lock (m_announcersCritSection);
+  std::unique_lock<CCriticalSection> lock(m_announcersCritSection);
   m_announcers.clear();
 }
 
@@ -53,7 +56,7 @@ void CAnnouncementManager::AddAnnouncer(IAnnouncer *listener)
   if (!listener)
     return;
 
-  CSingleLock lock (m_announcersCritSection);
+  std::unique_lock<CCriticalSection> lock(m_announcersCritSection);
   m_announcers.push_back(listener);
 }
 
@@ -62,7 +65,7 @@ void CAnnouncementManager::RemoveAnnouncer(IAnnouncer *listener)
   if (!listener)
     return;
 
-  CSingleLock lock (m_announcersCritSection);
+  std::unique_lock<CCriticalSection> lock(m_announcersCritSection);
   for (unsigned int i = 0; i < m_announcers.size(); i++)
   {
     if (m_announcers[i] == listener)
@@ -73,24 +76,57 @@ void CAnnouncementManager::RemoveAnnouncer(IAnnouncer *listener)
   }
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message)
+void CAnnouncementManager::Announce(AnnouncementFlag flag, const std::string& message)
+{
+  CVariant data;
+  Announce(flag, ANNOUNCEMENT_SENDER, message, CFileItemPtr(), data);
+}
+
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& message,
+                                    const CVariant& data)
+{
+  Announce(flag, ANNOUNCEMENT_SENDER, message, CFileItemPtr(), data);
+}
+
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& message,
+                                    const std::shared_ptr<const CFileItem>& item)
+{
+  CVariant data;
+  Announce(flag, ANNOUNCEMENT_SENDER, message, item, data);
+}
+
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& message,
+                                    const std::shared_ptr<const CFileItem>& item,
+                                    const CVariant& data)
+{
+  Announce(flag, ANNOUNCEMENT_SENDER, message, item, data);
+}
+
+
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& sender,
+                                    const std::string& message)
 {
   CVariant data;
   Announce(flag, sender, message, CFileItemPtr(), data);
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& sender,
+                                    const std::string& message,
+                                    const CVariant& data)
 {
   Announce(flag, sender, message, CFileItemPtr(), data);
 }
 
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const std::shared_ptr<const CFileItem>& item)
-{
-  CVariant data;
-  Announce(flag, sender, message, item, data);
-}
-
-void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, const char *message, const std::shared_ptr<const CFileItem>& item, const CVariant &data)
+void CAnnouncementManager::Announce(AnnouncementFlag flag,
+                                    const std::string& sender,
+                                    const std::string& message,
+                                    const std::shared_ptr<const CFileItem>& item,
+                                    const CVariant& data)
 {
   CAnnounceData announcement;
   announcement.flag = flag;
@@ -102,17 +138,20 @@ void CAnnouncementManager::Announce(AnnouncementFlag flag, const char *sender, c
     announcement.item = CFileItemPtr(new CFileItem(*item));
 
   {
-    CSingleLock lock (m_queueCritSection);
+    std::unique_lock<CCriticalSection> lock(m_queueCritSection);
     m_announcementQueue.push_back(announcement);
   }
   m_queueEvent.Set();
 }
 
-void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data)
+void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag,
+                                      const std::string& sender,
+                                      const std::string& message,
+                                      const CVariant& data)
 {
   CLog::Log(LOGDEBUG, LOGANNOUNCE, "CAnnouncementManager - Announcement: {} from {}", message, sender);
 
-  CSingleLock lock(m_announcersCritSection);
+  std::unique_lock<CCriticalSection> lock(m_announcersCritSection);
 
   // Make a copy of announcers. They may be removed or even remove themselves during execution of IAnnouncer::Announce()!
 
@@ -121,7 +160,11 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
     announcers[i]->Announce(flag, sender, message, data);
 }
 
-void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, const CVariant &data)
+void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag,
+                                      const std::string& sender,
+                                      const std::string& message,
+                                      const std::shared_ptr<CFileItem>& item,
+                                      const CVariant& data)
 {
   if (item == nullptr)
   {
@@ -144,7 +187,10 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
     object["item"]["channeltype"] = channel->IsRadio() ? "radio" : "tv";
 
     if (data.isMember("player") && data["player"].isMember("playerid"))
-      object["player"]["playerid"] = channel->IsRadio() ? PLAYLIST_MUSIC : PLAYLIST_VIDEO;
+    {
+      object["player"]["playerid"] =
+          channel->IsRadio() ? PLAYLIST::TYPE_MUSIC : PLAYLIST::TYPE_VIDEO;
+    }
   }
   else if (item->HasVideoInfoTag() && !item->HasPVRRecordingInfoTag())
   {
@@ -171,7 +217,7 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
     if (!item->GetVideoInfoTag()->m_type.empty())
       type = item->GetVideoInfoTag()->m_type;
     else
-      CVideoDatabase::VideoContentTypeToString((VIDEODB_CONTENT_TYPE)item->GetVideoContentType(), type);
+      CVideoDatabase::VideoContentTypeToString(item->GetVideoContentType(), type);
 
     if (id <= 0)
     {
@@ -185,24 +231,26 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
 
       switch (item->GetVideoContentType())
       {
-      case VIDEODB_CONTENT_MOVIES:
-        if (item->GetVideoInfoTag()->HasYear())
-          object["item"]["year"] = item->GetVideoInfoTag()->GetYear();
-        break;
-      case VIDEODB_CONTENT_EPISODES:
-        if (item->GetVideoInfoTag()->m_iEpisode >= 0)
-          object["item"]["episode"] = item->GetVideoInfoTag()->m_iEpisode;
-        if (item->GetVideoInfoTag()->m_iSeason >= 0)
-          object["item"]["season"] = item->GetVideoInfoTag()->m_iSeason;
-        if (!item->GetVideoInfoTag()->m_strShowTitle.empty())
-          object["item"]["showtitle"] = item->GetVideoInfoTag()->m_strShowTitle;
-        break;
-      case VIDEODB_CONTENT_MUSICVIDEOS:
-        if (!item->GetVideoInfoTag()->m_strAlbum.empty())
-          object["item"]["album"] = item->GetVideoInfoTag()->m_strAlbum;
-        if (!item->GetVideoInfoTag()->m_artist.empty())
-          object["item"]["artist"] = StringUtils::Join(item->GetVideoInfoTag()->m_artist, " / ");
-        break;
+        case VideoDbContentType::MOVIES:
+          if (item->GetVideoInfoTag()->HasYear())
+            object["item"]["year"] = item->GetVideoInfoTag()->GetYear();
+          break;
+        case VideoDbContentType::EPISODES:
+          if (item->GetVideoInfoTag()->m_iEpisode >= 0)
+            object["item"]["episode"] = item->GetVideoInfoTag()->m_iEpisode;
+          if (item->GetVideoInfoTag()->m_iSeason >= 0)
+            object["item"]["season"] = item->GetVideoInfoTag()->m_iSeason;
+          if (!item->GetVideoInfoTag()->m_strShowTitle.empty())
+            object["item"]["showtitle"] = item->GetVideoInfoTag()->m_strShowTitle;
+          break;
+        case VideoDbContentType::MUSICVIDEOS:
+          if (!item->GetVideoInfoTag()->m_strAlbum.empty())
+            object["item"]["album"] = item->GetVideoInfoTag()->m_strAlbum;
+          if (!item->GetVideoInfoTag()->m_artist.empty())
+            object["item"]["artist"] = StringUtils::Join(item->GetVideoInfoTag()->m_artist, " / ");
+          break;
+        default:
+          break;
       }
     }
   }
@@ -219,7 +267,7 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
       if (musicdatabase.Open())
       {
         CSong song;
-        if (musicdatabase.GetSongByFileName(item->GetPath(), song, item->m_lStartOffset))
+        if (musicdatabase.GetSongByFileName(item->GetPath(), song, item->GetStartOffset()))
         {
           item->GetMusicInfoTag()->SetSong(song);
           id = item->GetMusicInfoTag()->GetDatabaseId();
@@ -270,18 +318,19 @@ void CAnnouncementManager::DoAnnounce(AnnouncementFlag flag, const char *sender,
 
 void CAnnouncementManager::Process()
 {
-  SetPriority(GetMinPriority());
+  SetPriority(ThreadPriority::LOWEST);
 
   while (!m_bStop)
   {
-    CSingleLock lock (m_queueCritSection);
+    std::unique_lock<CCriticalSection> lock(m_queueCritSection);
     if (!m_announcementQueue.empty())
     {
       auto announcement = m_announcementQueue.front();
       m_announcementQueue.pop_front();
       {
         CSingleExit ex(m_queueCritSection);
-        DoAnnounce(announcement.flag, announcement.sender.c_str(), announcement.message.c_str(), announcement.item, announcement.data);
+        DoAnnounce(announcement.flag, announcement.sender, announcement.message, announcement.item,
+                   announcement.data);
       }
     }
     else

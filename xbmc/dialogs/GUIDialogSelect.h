@@ -33,11 +33,15 @@ public:
   int GetSelectedItem() const;
   const std::vector<int>& GetSelectedItems() const;
   void EnableButton(bool enable, int label);
+  void EnableButton(bool enable, const std::string& label);
+  void EnableButton2(bool enable, int label);
+  void EnableButton2(bool enable, const std::string& label);
   bool IsButtonPressed();
+  bool IsButton2Pressed();
   void Sort(bool bSortOrder = true);
   void SetSelected(int iSelected);
   void SetSelected(const std::string &strSelectedLabel);
-  void SetSelected(std::vector<int> selectedIndexes);
+  void SetSelected(const std::vector<int>& selectedIndexes);
   void SetSelected(const std::vector<std::string> &selectedLabels);
   void SetUseDetails(bool useDetails);
   void SetMultiSelection(bool multiSelection);
@@ -53,16 +57,20 @@ protected:
 
   virtual void OnSelect(int idx);
 
+  CFileItemPtr m_selectedItem;
+  std::unique_ptr<CFileItemList> m_vecList;
+  CGUIViewControl m_viewControl;
+
 private:
   bool m_bButtonEnabled;
+  bool m_bButton2Enabled;
   bool m_bButtonPressed;
-  int m_buttonLabel;
-  CFileItemPtr m_selectedItem;
+  bool m_bButton2Pressed;
+  std::string m_buttonLabel;
+  std::string m_button2Label;
   bool m_useDetails;
   bool m_multiSelection;
   bool m_focusToButton{};
 
   std::vector<int> m_selectedItems;
-  std::unique_ptr<CFileItemList> m_vecList;
-  CGUIViewControl m_viewControl;
 };

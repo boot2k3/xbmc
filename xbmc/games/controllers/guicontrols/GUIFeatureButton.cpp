@@ -8,6 +8,7 @@
 
 #include "GUIFeatureButton.h"
 
+#include "ServiceBroker.h"
 #include "games/controllers/windows/GUIControllerDefines.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/WindowIDs.h"
@@ -17,14 +18,13 @@
 
 using namespace KODI;
 using namespace GAME;
+using namespace std::chrono_literals;
 
 CGUIFeatureButton::CGUIFeatureButton(const CGUIButtonControl& buttonTemplate,
                                      IConfigurationWizard* wizard,
-                                     const CControllerFeature& feature,
-                                     unsigned int index) :
-  CGUIButtonControl(buttonTemplate),
-  m_feature(feature),
-  m_wizard(wizard)
+                                     const CPhysicalFeature& feature,
+                                     unsigned int index)
+  : CGUIButtonControl(buttonTemplate), m_feature(feature), m_wizard(wizard)
 {
   // Initialize CGUIButtonControl
   SetLabel(m_feature.Label());
@@ -39,7 +39,10 @@ void CGUIFeatureButton::OnUnFocus(void)
   m_wizard->OnUnfocus(this);
 }
 
-bool CGUIFeatureButton::DoPrompt(const std::string& strPrompt, const std::string& strWarn, const std::string& strFeature, CEvent& waitEvent)
+bool CGUIFeatureButton::DoPrompt(const std::string& strPrompt,
+                                 const std::string& strWarn,
+                                 const std::string& strFeature,
+                                 CEvent& waitEvent)
 {
   using namespace MESSAGING;
 
@@ -48,7 +51,7 @@ bool CGUIFeatureButton::DoPrompt(const std::string& strPrompt, const std::string
   if (!HasFocus())
   {
     CGUIMessage msgFocus(GUI_MSG_SETFOCUS, GetID(), GetID());
-    CApplicationMessenger::GetInstance().SendGUIMessage(msgFocus, WINDOW_INVALID, false);
+    CServiceBroker::GetAppMessenger()->SendGUIMessage(msgFocus, WINDOW_INVALID, false);
   }
 
   CGUIMessage msgLabel(GUI_MSG_LABEL_SET, GetID(), GetID());
@@ -63,15 +66,15 @@ bool CGUIFeatureButton::DoPrompt(const std::string& strPrompt, const std::string
     std::string strLabel;
 
     if (bWarn)
-      strLabel = StringUtils::Format(strWarn.c_str(), strFeature.c_str(), secondsRemaining);
+      strLabel = StringUtils::Format(strWarn, strFeature, secondsRemaining);
     else
-      strLabel = StringUtils::Format(strPrompt.c_str(), strFeature.c_str(), secondsRemaining);
+      strLabel = StringUtils::Format(strPrompt, strFeature, secondsRemaining);
 
     msgLabel.SetLabel(strLabel);
-    CApplicationMessenger::GetInstance().SendGUIMessage(msgLabel, WINDOW_INVALID, false);
+    CServiceBroker::GetAppMessenger()->SendGUIMessage(msgLabel, WINDOW_INVALID, false);
 
     waitEvent.Reset();
-    bInterrupted = waitEvent.WaitMSec(1000); // Wait 1 second
+    bInterrupted = waitEvent.Wait(1000ms); // Wait 1 second
 
     if (bInterrupted)
       break;
@@ -79,7 +82,7 @@ bool CGUIFeatureButton::DoPrompt(const std::string& strPrompt, const std::string
 
   // Reset label
   msgLabel.SetLabel(m_feature.Label());
-  CApplicationMessenger::GetInstance().SendGUIMessage(msgLabel, WINDOW_INVALID, false);
+  CServiceBroker::GetAppMessenger()->SendGUIMessage(msgLabel, WINDOW_INVALID, false);
 
   return bInterrupted;
 }

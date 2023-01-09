@@ -10,19 +10,26 @@
 
 #include <cassert>
 #include <cmath>
+#include <mutex>
 #include <set>
 #include <stdexcept>
+#include <utility>
 
 using namespace KODI::WINDOWING::WAYLAND;
 
-COutput::COutput(std::uint32_t globalName, wayland::output_t const & output, std::function<void()> doneHandler)
-: m_globalName{globalName}, m_output{output}, m_doneHandler{doneHandler}
+COutput::COutput(std::uint32_t globalName,
+                 wayland::output_t const& output,
+                 std::function<void()> doneHandler)
+  : m_globalName{globalName}, m_output{output}, m_doneHandler{std::move(doneHandler)}
 {
   assert(m_output);
 
-  m_output.on_geometry() = [this](std::int32_t x, std::int32_t y, std::int32_t physWidth, std::int32_t physHeight, wayland::output_subpixel, std::string const& make, std::string const& model, wayland::output_transform)
+  m_output.on_geometry() = [this](std::int32_t x, std::int32_t y, std::int32_t physWidth,
+                                  std::int32_t physHeight, wayland::output_subpixel,
+                                  std::string const& make, std::string const& model,
+                                  const wayland::output_transform&)
   {
-    CSingleLock lock(m_geometryCriticalSection);
+    std::unique_lock<CCriticalSection> lock(m_geometryCriticalSection);
     m_position = {x, y};
     // Some monitors report invalid (negative) values that would cause an exception
     // with CSizeInt
@@ -33,13 +40,13 @@ COutput::COutput(std::uint32_t globalName, wayland::output_t const & output, std
     m_make = make;
     m_model = model;
   };
-  m_output.on_mode() = [this](wayland::output_mode flags, std::int32_t width, std::int32_t height, std::int32_t refresh)
-  {
+  m_output.on_mode() = [this](const wayland::output_mode& flags, std::int32_t width,
+                              std::int32_t height, std::int32_t refresh) {
     // std::set.emplace returns pair of iterator to the (possibly) inserted
     // element and boolean information whether the element was actually added
     // which we do not need
     auto modeIterator = m_modes.emplace(CSizeInt{width, height}, refresh).first;
-    CSingleLock lock(m_iteratorCriticalSection);
+    std::unique_lock<CCriticalSection> lock(m_iteratorCriticalSection);
     // Remember current and preferred mode
     // Current mode is the last one that was sent with current flag set
     if (flags & wayland::output_mode::current)
@@ -74,7 +81,7 @@ COutput::~COutput() noexcept
 
 const COutput::Mode& COutput::GetCurrentMode() const
 {
-  CSingleLock lock(m_iteratorCriticalSection);
+  std::unique_lock<CCriticalSection> lock(m_iteratorCriticalSection);
   if (m_currentMode == m_modes.end())
   {
     throw std::runtime_error("Current mode not set");
@@ -84,7 +91,7 @@ const COutput::Mode& COutput::GetCurrentMode() const
 
 const COutput::Mode& COutput::GetPreferredMode() const
 {
-  CSingleLock lock(m_iteratorCriticalSection);
+  std::unique_lock<CCriticalSection> lock(m_iteratorCriticalSection);
   if (m_preferredMode == m_modes.end())
   {
     throw std::runtime_error("Preferred mode not set");
@@ -94,7 +101,7 @@ const COutput::Mode& COutput::GetPreferredMode() const
 
 float COutput::GetPixelRatioForMode(const Mode& mode) const
 {
-  CSingleLock lock(m_geometryCriticalSection);
+  std::unique_lock<CCriticalSection> lock(m_geometryCriticalSection);
   if (m_physicalSize.IsZero() || mode.size.IsZero())
   {
     return 1.0f;
@@ -111,7 +118,7 @@ float COutput::GetPixelRatioForMode(const Mode& mode) const
 
 float COutput::GetDpiForMode(const Mode& mode) const
 {
-  CSingleLock lock(m_geometryCriticalSection);
+  std::unique_lock<CCriticalSection> lock(m_geometryCriticalSection);
   if (m_physicalSize.IsZero())
   {
     // We really have no idea, so use a "sane" default
@@ -123,7 +130,10 @@ float COutput::GetDpiForMode(const Mode& mode) const
 
     float diagonalPixels = std::sqrt(mode.size.Width() * mode.size.Width() + mode.size.Height() * mode.size.Height());
     // physicalWidth/physicalHeight is in millimeters
-    float diagonalInches = std::sqrt(m_physicalSize.Width() * m_physicalSize.Width() + m_physicalSize.Height() * m_physicalSize.Height()) / INCH_MM_RATIO;
+    float diagonalInches =
+        std::sqrt(static_cast<float>(m_physicalSize.Width() * m_physicalSize.Width() +
+                                     m_physicalSize.Height() * m_physicalSize.Height())) /
+        INCH_MM_RATIO;
 
     return diagonalPixels / diagonalInches;
   }

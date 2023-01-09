@@ -15,6 +15,7 @@
 #include "guilib/GUIWindowManager.h"
 #include "guilib/WindowIDs.h"
 #include "music/MusicDatabase.h"
+#include "music/MusicDbUrl.h"
 #include "music/MusicThumbLoader.h"
 #include "music/tags/MusicInfoTag.h"
 #include "settings/AdvancedSettings.h"
@@ -59,8 +60,9 @@ bool CRecentlyAddedJob::UpdateVideo()
     for (; i < items.Size(); ++i)
     {
       auto item = items.Get(i);
-      std::string   value = StringUtils::Format("%i", i + 1);
-      std::string   strRating = StringUtils::Format("%.1f", item->GetVideoInfoTag()->GetRating().rating);
+      std::string value = std::to_string(i + 1);
+      std::string strRating =
+          StringUtils::Format("{:.1f}", item->GetVideoInfoTag()->GetRating().rating);
 
       home->SetProperty("LatestMovie." + value + ".Title"       , item->GetLabel());
       home->SetProperty("LatestMovie." + value + ".Rating"      , strRating);
@@ -75,11 +77,12 @@ bool CRecentlyAddedJob::UpdateVideo()
 
       home->SetProperty("LatestMovie." + value + ".Thumb"       , item->GetArt("thumb"));
       home->SetProperty("LatestMovie." + value + ".Fanart"      , item->GetArt("fanart"));
+      home->SetProperty("LatestMovie." + value + ".Poster"      , item->GetArt("poster"));
     }
   }
   for (; i < NUM_ITEMS; ++i)
   {
-    std::string value = StringUtils::Format("%i", i + 1);
+    std::string value = std::to_string(i + 1);
     home->SetProperty("LatestMovie." + value + ".Title"       , "");
     home->SetProperty("LatestMovie." + value + ".Thumb"       , "");
     home->SetProperty("LatestMovie." + value + ".Rating"      , "");
@@ -89,6 +92,7 @@ bool CRecentlyAddedJob::UpdateVideo()
     home->SetProperty("LatestMovie." + value + ".Path"        , "");
     home->SetProperty("LatestMovie." + value + ".Trailer"     , "");
     home->SetProperty("LatestMovie." + value + ".Fanart"      , "");
+    home->SetProperty("LatestMovie." + value + ".Poster"      , "");
   }
 
   i = 0;
@@ -101,9 +105,10 @@ bool CRecentlyAddedJob::UpdateVideo()
       auto item          = TVShowItems.Get(i);
       int          EpisodeSeason = item->GetVideoInfoTag()->m_iSeason;
       int          EpisodeNumber = item->GetVideoInfoTag()->m_iEpisode;
-      std::string   EpisodeNo = StringUtils::Format("s%02de%02d", EpisodeSeason, EpisodeNumber);
-      std::string   value = StringUtils::Format("%i", i + 1);
-      std::string   strRating = StringUtils::Format("%.1f", item->GetVideoInfoTag()->GetRating().rating);
+      std::string EpisodeNo = StringUtils::Format("s{:02}e{:02}", EpisodeSeason, EpisodeNumber);
+      std::string value = std::to_string(i + 1);
+      std::string strRating =
+          StringUtils::Format("{:.1f}", item->GetVideoInfoTag()->GetRating().rating);
 
       home->SetProperty("LatestEpisode." + value + ".ShowTitle"     , item->GetVideoInfoTag()->m_strShowTitle);
       home->SetProperty("LatestEpisode." + value + ".EpisodeTitle"  , item->GetVideoInfoTag()->m_strTitle);
@@ -129,7 +134,7 @@ bool CRecentlyAddedJob::UpdateVideo()
   }
   for (; i < NUM_ITEMS; ++i)
   {
-    std::string value = StringUtils::Format("%i", i + 1);
+    std::string value = std::to_string(i + 1);
     home->SetProperty("LatestEpisode." + value + ".ShowTitle"     , "");
     home->SetProperty("LatestEpisode." + value + ".EpisodeTitle"  , "");
     home->SetProperty("LatestEpisode." + value + ".Rating"        , "");
@@ -145,8 +150,9 @@ bool CRecentlyAddedJob::UpdateVideo()
   }
 
 #if defined(TARGET_DARWIN_TVOS)
-  // send recently added Movies and TvShows to TopShelf
-  CTVOSTopShelf::GetInstance().SetTopShelfItems(items, TVShowItems);
+  // Add recently added Movies and TvShows items on tvOS Kodi TopShelf
+  CTVOSTopShelf::GetInstance().SetTopShelfItems(items, TVOSTopShelfItemsCategory::MOVIES);
+  CTVOSTopShelf::GetInstance().SetTopShelfItems(TVShowItems, TVOSTopShelfItemsCategory::TV_SHOWS);
 #endif
 
   i = 0;
@@ -157,7 +163,7 @@ bool CRecentlyAddedJob::UpdateVideo()
     for (; i < MusicVideoItems.Size(); ++i)
     {
       auto item = MusicVideoItems.Get(i);
-      std::string   value = StringUtils::Format("%i", i + 1);
+      std::string value = std::to_string(i + 1);
 
       home->SetProperty("LatestMusicVideo." + value + ".Title"       , item->GetLabel());
       home->SetProperty("LatestMusicVideo." + value + ".Year"        , item->GetVideoInfoTag()->GetYear());
@@ -175,7 +181,7 @@ bool CRecentlyAddedJob::UpdateVideo()
   }
   for (; i < NUM_ITEMS; ++i)
   {
-    std::string value = StringUtils::Format("%i", i + 1);
+    std::string value = std::to_string(i + 1);
     home->SetProperty("LatestMusicVideo." + value + ".Title"       , "");
     home->SetProperty("LatestMusicVideo." + value + ".Thumb"       , "");
     home->SetProperty("LatestMusicVideo." + value + ".Year"        , "");
@@ -209,13 +215,13 @@ bool CRecentlyAddedJob::UpdateMusic()
 
   if (musicdatabase.GetRecentlyAddedAlbumSongs("musicdb://songs/", musicItems, NUM_ITEMS))
   {
-    long idAlbum = -1;
+    int idAlbum = -1;
     std::string strAlbumThumb;
     std::string strAlbumFanart;
     for (; i < musicItems.Size(); ++i)
     {
       auto item = musicItems.Get(i);
-      std::string   value = StringUtils::Format("%d", i + 1);
+      std::string value = std::to_string(i + 1);
 
       std::string   strRating;
       std::string   strAlbum  = item->GetMusicInfoTag()->GetAlbum();
@@ -234,7 +240,7 @@ bool CRecentlyAddedJob::UpdateMusic()
         }
       }
 
-      strRating = StringUtils::Format("%c", item->GetMusicInfoTag()->GetUserrating());
+      strRating = std::to_string(item->GetMusicInfoTag()->GetUserrating());
 
       home->SetProperty("LatestSong." + value + ".Title"   , item->GetMusicInfoTag()->GetTitle());
       home->SetProperty("LatestSong." + value + ".Year"    , item->GetMusicInfoTag()->GetYear());
@@ -248,7 +254,7 @@ bool CRecentlyAddedJob::UpdateMusic()
   }
   for (; i < NUM_ITEMS; ++i)
   {
-    std::string value = StringUtils::Format("%i", i + 1);
+    std::string value = std::to_string(i + 1);
     home->SetProperty("LatestSong." + value + ".Title"   , "");
     home->SetProperty("LatestSong." + value + ".Year"    , "");
     home->SetProperty("LatestSong." + value + ".Artist"  , "");
@@ -268,7 +274,7 @@ bool CRecentlyAddedJob::UpdateMusic()
     for (; j < albums.size(); ++j)
     {
       auto& album=albums[j];
-      std::string value = StringUtils::Format("%lu", j + 1);
+      std::string value = std::to_string(j + 1);
       std::string strThumb;
       std::string strFanart;
       bool artfound = false;
@@ -277,7 +283,7 @@ bool CRecentlyAddedJob::UpdateMusic()
       artfound = musicdatabase.GetArtForItem(-1, album.idAlbum, -1, true, art);
       if (artfound)
       {
-        for (auto artitem : art)
+        for (const auto& artitem : art)
         {
           if (artitem.mediaType == MediaTypeAlbum && artitem.artType == "thumb")
             strThumb = artitem.url;
@@ -286,10 +292,10 @@ bool CRecentlyAddedJob::UpdateMusic()
         }
       }
 
-      std::string strDBpath = StringUtils::Format("musicdb://albums/%li/", album.idAlbum);
+      std::string strDBpath = StringUtils::Format("musicdb://albums/{}/", album.idAlbum);
 
       home->SetProperty("LatestAlbum." + value + ".Title"   , album.strAlbum);
-      home->SetProperty("LatestAlbum." + value + ".Year"    , album.iYear);
+      home->SetProperty("LatestAlbum." + value + ".Year"    , album.strReleaseDate);
       home->SetProperty("LatestAlbum." + value + ".Artist"  , album.GetAlbumArtistString());
       home->SetProperty("LatestAlbum." + value + ".Rating"  , album.fRating);
       home->SetProperty("LatestAlbum." + value + ".Path"    , strDBpath);
@@ -300,7 +306,7 @@ bool CRecentlyAddedJob::UpdateMusic()
   }
   for (; i < NUM_ITEMS; ++i)
   {
-    std::string value = StringUtils::Format("%i", i + 1);
+    std::string value = std::to_string(i + 1);
     home->SetProperty("LatestAlbum." + value + ".Title"   , "");
     home->SetProperty("LatestAlbum." + value + ".Year"    , "");
     home->SetProperty("LatestAlbum." + value + ".Artist"  , "");
@@ -337,7 +343,7 @@ bool CRecentlyAddedJob::UpdateTotal()
   musicdatabase.GetArtistsByWhere(musicUrl.ToString(), filter, items, SortDescription(), true);
   int MusArtistTotals = 0;
   if (items.Size() == 1 && items.Get(0)->HasProperty("total"))
-    MusArtistTotals = items.Get(0)->GetProperty("total").asInteger();
+    MusArtistTotals = static_cast<int>(items.Get(0)->GetProperty("total").asInteger());
 
   int MusSongTotals   = atoi(musicdatabase.GetSingleValue("songview"       , "count(1)").c_str());
   int MusAlbumTotals  = atoi(musicdatabase.GetSingleValue("songview"       , "count(distinct strAlbum)").c_str());

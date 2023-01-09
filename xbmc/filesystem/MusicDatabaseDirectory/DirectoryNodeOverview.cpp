@@ -31,6 +31,7 @@ namespace XFILE
                                 { NODE_TYPE_ROLE,                  "roles",              38033 },
                                 { NODE_TYPE_SOURCE,                "sources",            39031 },
                                 { NODE_TYPE_DISC,                  "discs",              14087 },
+                                { NODE_TYPE_YEAR,                  "originalyears",      38078 },
                               };
   };
 };
@@ -75,7 +76,7 @@ bool CDirectoryNodeOverview::GetContent(CFileItemList& items) const
       continue;
 
     CFileItemPtr pItem(new CFileItem(g_localizeStrings.Get(OverviewChildren[i].label)));
-    std::string strDir = StringUtils::Format("%s/", OverviewChildren[i].id.c_str());
+    std::string strDir = StringUtils::Format("{}/", OverviewChildren[i].id);
     pItem->SetPath(BuildPath() + strDir);
     pItem->m_bIsFolder = true;
     pItem->SetCanQueue(false);

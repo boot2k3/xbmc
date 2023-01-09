@@ -9,7 +9,8 @@
 #include "DVDOverlayContainer.h"
 
 #include "DVDInputStreams/DVDInputStreamNavigator.h"
-#include "threads/SingleLock.h"
+
+#include <mutex>
 
 CDVDOverlayContainer::CDVDOverlayContainer() = default;
 
@@ -18,11 +19,11 @@ CDVDOverlayContainer::~CDVDOverlayContainer()
   Clear();
 }
 
-void CDVDOverlayContainer::Add(CDVDOverlay* pOverlay)
+void CDVDOverlayContainer::ProcessAndAddOverlayIfValid(CDVDOverlay* pOverlay)
 {
   pOverlay->Acquire();
 
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   // markup any non ending overlays, to finish
   // when this new one starts, there can be
@@ -39,12 +40,12 @@ void CDVDOverlayContainer::Add(CDVDOverlay* pOverlay)
       if(m_overlays[i]->iPTSStopTime <= pOverlay->iPTSStartTime)
         break;
     }
-    if(m_overlays[i]->iPTSStartTime != pOverlay->iPTSStartTime)
+
+    if (m_overlays[i]->iPTSStartTime != pOverlay->iPTSStartTime)
       m_overlays[i]->iPTSStopTime = pOverlay->iPTSStartTime;
   }
 
-  m_overlays.push_back(pOverlay);
-
+  m_overlays.emplace_back(pOverlay);
 }
 
 VecOverlays* CDVDOverlayContainer::GetOverlays()
@@ -58,7 +59,7 @@ VecOverlaysIter CDVDOverlayContainer::Remove(VecOverlaysIter itOverlay)
   CDVDOverlay* pOverlay = *itOverlay;
 
   {
-    CSingleLock lock(*this);
+    std::unique_lock<CCriticalSection> lock(*this);
     itNext = m_overlays.erase(itOverlay);
   }
 
@@ -69,7 +70,7 @@ VecOverlaysIter CDVDOverlayContainer::Remove(VecOverlaysIter itOverlay)
 
 void CDVDOverlayContainer::CleanUp(double pts)
 {
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   VecOverlaysIter it = m_overlays.begin();
   while (it != m_overlays.end())
@@ -82,8 +83,8 @@ void CDVDOverlayContainer::CleanUp(double pts)
     // which means we cannot delete overlays with stoptime 0
     if (!pOverlay->bForced && pOverlay->iPTSStopTime <= pts && pOverlay->iPTSStopTime != 0)
     {
-      //CLog::Log(LOGDEBUG,"CDVDOverlay::CleanUp, removing %d", (int)(pts / 1000));
-      //CLog::Log(LOGDEBUG,"CDVDOverlay::CleanUp, remove, start : %d, stop : %d", (int)(pOverlay->iPTSStartTime / 1000), (int)(pOverlay->iPTSStopTime / 1000));
+      //CLog::Log(LOGDEBUG,"CDVDOverlay::CleanUp, removing {}", (int)(pts / 1000));
+      //CLog::Log(LOGDEBUG,"CDVDOverlay::CleanUp, remove, start : {}, stop : {}", (int)(pOverlay->iPTSStartTime / 1000), (int)(pOverlay->iPTSStopTime / 1000));
       it = Remove(it);
       continue;
     }
@@ -109,9 +110,24 @@ void CDVDOverlayContainer::CleanUp(double pts)
 
 }
 
+void CDVDOverlayContainer::Flush()
+{
+  std::unique_lock<CCriticalSection> lock(*this);
+
+  // Flush only the overlays marked as flushable
+  m_overlays.erase(std::remove_if(m_overlays.begin(), m_overlays.end(),
+                                  [](CDVDOverlay* ov) {
+                                    bool isFlushable = ov->IsOverlayContainerFlushable();
+                                    if (isFlushable)
+                                      ov->Release();
+                                    return isFlushable;
+                                  }),
+                   m_overlays.end());
+}
+
 void CDVDOverlayContainer::Clear()
 {
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
   for (auto &overlay : m_overlays)
   {
     overlay->Release();
@@ -119,7 +135,7 @@ void CDVDOverlayContainer::Clear()
   m_overlays.clear();
 }
 
-int CDVDOverlayContainer::GetSize()
+size_t CDVDOverlayContainer::GetSize()
 {
   return m_overlays.size();
 }
@@ -128,7 +144,7 @@ bool CDVDOverlayContainer::ContainsOverlayType(DVDOverlayType type)
 {
   bool result = false;
 
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   VecOverlaysIter it = m_overlays.begin();
   while (!result && it != m_overlays.end())
@@ -143,9 +159,10 @@ bool CDVDOverlayContainer::ContainsOverlayType(DVDOverlayType type)
 /*
  * iAction should be LIBDVDNAV_BUTTON_NORMAL or LIBDVDNAV_BUTTON_CLICKED
  */
-void CDVDOverlayContainer::UpdateOverlayInfo(std::shared_ptr<CDVDInputStreamNavigator> pStream, CDVDDemuxSPU *pSpu, int iAction)
+void CDVDOverlayContainer::UpdateOverlayInfo(
+    const std::shared_ptr<CDVDInputStreamNavigator>& pStream, CDVDDemuxSPU* pSpu, int iAction)
 {
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   pStream->CheckButtons();
 

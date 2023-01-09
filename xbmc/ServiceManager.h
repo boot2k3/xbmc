@@ -12,31 +12,35 @@
 
 #include <memory>
 
-class CAppParamParser;
-
 namespace ADDON
 {
-  class CAddonMgr;
-  class CBinaryAddonManager;
-  class CBinaryAddonCache;
-  class CVFSAddonCache;
-  class CServiceAddonManager;
-  class CRepositoryUpdater;
-}
+class CAddonMgr;
+class CBinaryAddonManager;
+class CBinaryAddonCache;
+class CVFSAddonCache;
+class CServiceAddonManager;
+class CRepositoryUpdater;
+} // namespace ADDON
 
 namespace PVR
 {
-  class CPVRManager;
+class CPVRManager;
 }
 
 namespace PLAYLIST
 {
-  class CPlayListPlayer;
+class CPlayListPlayer;
 }
 
 class CContextMenuManager;
 #ifdef HAS_PYTHON
 class XBPython;
+#endif
+#if defined(HAS_FILESYSTEM_SMB)
+namespace WSDiscovery
+{
+class IWSDiscovery;
+}
 #endif
 class CDataCacheCore;
 class CFavouritesService;
@@ -47,21 +51,31 @@ class CWeatherManager;
 
 namespace KODI
 {
+namespace ADDONS
+{
+class CExtsMimeSupportList;
+}
+
 namespace GAME
 {
-  class CControllerManager;
-  class CGameServices;
-}
+class CControllerManager;
+class CGameServices;
+} // namespace GAME
 
 namespace RETRO
 {
-  class CGUIGameRenderManager;
+class CGUIGameRenderManager;
 }
+} // namespace KODI
+
+namespace MEDIA_DETECT
+{
+class CDetectDVDMedia;
 }
 
 namespace PERIPHERALS
 {
-  class CPeripherals;
+class CPeripherals;
 }
 
 class CInputManager;
@@ -80,7 +94,7 @@ public:
 
   bool InitForTesting();
   bool InitStageOne();
-  bool InitStageTwo(const CAppParamParser &params, const std::string& profilesUserDataFolder);
+  bool InitStageTwo(const std::string& profilesUserDataFolder);
   bool InitStageThree(const std::shared_ptr<CProfileManager>& profileManager);
   void DeinitTesting();
   void DeinitStageThree();
@@ -90,12 +104,16 @@ public:
   ADDON::CAddonMgr& GetAddonMgr();
   ADDON::CBinaryAddonManager& GetBinaryAddonManager();
   ADDON::CBinaryAddonCache& GetBinaryAddonCache();
+  KODI::ADDONS::CExtsMimeSupportList& GetExtsMimeSupportList();
   ADDON::CVFSAddonCache& GetVFSAddonCache();
   ADDON::CServiceAddonManager& GetServiceAddons();
   ADDON::CRepositoryUpdater& GetRepositoryUpdater();
   CNetworkBase& GetNetwork();
 #ifdef HAS_PYTHON
   XBPython& GetXBPython();
+#endif
+#if defined(HAS_FILESYSTEM_SMB)
+  WSDiscovery::IWSDiscovery& GetWSDiscovery();
 #endif
   PVR::CPVRManager& GetPVRManager();
   CContextMenuManager& GetContextMenuManager();
@@ -112,41 +130,49 @@ public:
   int init_level = 0;
 
   CFavouritesService& GetFavouritesService();
-  CInputManager &GetInputManager();
-  CFileExtensionProvider &GetFileExtensionProvider();
+  CInputManager& GetInputManager();
+  CFileExtensionProvider& GetFileExtensionProvider();
 
-  CPowerManager &GetPowerManager();
+  CPowerManager& GetPowerManager();
 
-  CWeatherManager &GetWeatherManager();
+  CWeatherManager& GetWeatherManager();
 
-  CPlayerCoreFactory &GetPlayerCoreFactory();
+  CPlayerCoreFactory& GetPlayerCoreFactory();
 
-  CDatabaseManager &GetDatabaseManager();
+  CDatabaseManager& GetDatabaseManager();
 
   CMediaManager& GetMediaManager();
+
+#if !defined(TARGET_WINDOWS) && defined(HAS_DVD_DRIVE)
+  MEDIA_DETECT::CDetectDVDMedia& GetDetectDVDMedia();
+#endif
 
 protected:
   struct delete_dataCacheCore
   {
-    void operator()(CDataCacheCore *p) const;
+    void operator()(CDataCacheCore* p) const;
   };
 
   struct delete_contextMenuManager
   {
-    void operator()(CContextMenuManager *p) const;
+    void operator()(CContextMenuManager* p) const;
   };
 
   struct delete_favouritesService
   {
-    void operator()(CFavouritesService *p) const;
+    void operator()(CFavouritesService* p) const;
   };
 
   std::unique_ptr<ADDON::CAddonMgr> m_addonMgr;
   std::unique_ptr<ADDON::CBinaryAddonManager> m_binaryAddonManager;
   std::unique_ptr<ADDON::CBinaryAddonCache> m_binaryAddonCache;
+  std::unique_ptr<KODI::ADDONS::CExtsMimeSupportList> m_extsMimeSupportList;
   std::unique_ptr<ADDON::CVFSAddonCache> m_vfsAddonCache;
   std::unique_ptr<ADDON::CServiceAddonManager> m_serviceAddons;
   std::unique_ptr<ADDON::CRepositoryUpdater> m_repositoryUpdater;
+#if defined(HAS_FILESYSTEM_SMB)
+  std::unique_ptr<WSDiscovery::IWSDiscovery> m_WSDiscovery;
+#endif
 #ifdef HAS_PYTHON
   std::unique_ptr<XBPython> m_XBPython;
 #endif
@@ -168,4 +194,7 @@ protected:
   std::unique_ptr<CPlayerCoreFactory> m_playerCoreFactory;
   std::unique_ptr<CDatabaseManager> m_databaseManager;
   std::unique_ptr<CMediaManager> m_mediaManager;
+#if !defined(TARGET_WINDOWS) && defined(HAS_DVD_DRIVE)
+  std::unique_ptr<MEDIA_DETECT::CDetectDVDMedia> m_DetectDVDType;
+#endif
 };

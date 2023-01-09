@@ -25,6 +25,7 @@
 #define SETTING_XML_ELM_VISIBLE "visible"
 #define SETTING_XML_ELM_REQUIREMENT "requirement"
 #define SETTING_XML_ELM_CONDITION "condition"
+#define SETTING_XML_ELM_ENABLED "enable"
 #define SETTING_XML_ELM_LEVEL "level"
 #define SETTING_XML_ELM_DEFAULT "default"
 #define SETTING_XML_ELM_VALUE "value"
@@ -36,6 +37,7 @@
 #define SETTING_XML_ELM_STEP "step"
 #define SETTING_XML_ELM_MAXIMUM "maximum"
 #define SETTING_XML_ELM_ALLOWEMPTY "allowempty"
+#define SETTING_XML_ELM_ALLOWNEWOPTION "allownewoption"
 #define SETTING_XML_ELM_DEPENDENCIES "dependencies"
 #define SETTING_XML_ELM_DEPENDENCY "dependency"
 #define SETTING_XML_ELM_UPDATES "updates"
@@ -47,6 +49,7 @@
 #define SETTING_XML_ELM_DATA "data"
 
 #define SETTING_XML_ATTR_ID "id"
+#define SETTING_XML_ATTR_REFERENCE "ref"
 #define SETTING_XML_ATTR_LABEL "label"
 #define SETTING_XML_ATTR_HELP "help"
 #define SETTING_XML_ATTR_TYPE "type"
@@ -65,11 +68,16 @@ struct IntegerSettingOption
   IntegerSettingOption(const std::string& _label, int _value)
   : label(_label), value(_value) {}
 
-  IntegerSettingOption(const std::string& _label, int _value,
+  IntegerSettingOption(const std::string& _label,
+                       const std::string& _label2,
+                       int _value,
                        const std::vector<std::pair<std::string, CVariant>>& props)
-  : label(_label), value(_value), properties(props) {}
+    : label(_label), label2(_label2), value(_value), properties(props)
+  {
+  }
 
   std::string label;
+  std::string label2;
   int value = 0;
   std::vector<std::pair<std::string, CVariant>> properties;
 };
@@ -79,16 +87,33 @@ struct StringSettingOption
   StringSettingOption(const std::string& _label, const std::string& _value)
   : label(_label), value(_value) {}
 
-  StringSettingOption(const std::string& _label, const std::string& _value,
+  StringSettingOption(const std::string& _label,
+                      const std::string& _label2,
+                      const std::string& _value,
                       const std::vector<std::pair<std::string, CVariant>>& props)
-  : label(_label), value(_value), properties(props) {}
+    : label(_label), label2(_label2), value(_value), properties(props)
+  {
+  }
 
   std::string label;
+  std::string label2;
   std::string value;
   std::vector<std::pair<std::string, CVariant>> properties;
 };
 
-using TranslatableIntegerSettingOption = std::pair<int, int>;
+struct TranslatableIntegerSettingOption
+{
+  TranslatableIntegerSettingOption() = default;
+  TranslatableIntegerSettingOption(int _label, int _value, const std::string& _addonId = "")
+    : label(_label), value(_value), addonId(_addonId)
+  {
+  }
+
+  int label = 0;
+  int value = 0;
+  std::string addonId; // Leaved empty for Kodi labels
+};
+
 using TranslatableIntegerSettingOptions = std::vector<TranslatableIntegerSettingOption>;
 using IntegerSettingOptions = std::vector<IntegerSettingOption>;
 using TranslatableStringSettingOption = std::pair<int, std::string>;
@@ -96,8 +121,14 @@ using TranslatableStringSettingOptions = std::vector<TranslatableStringSettingOp
 using StringSettingOptions = std::vector<StringSettingOption>;
 
 class CSetting;
-using IntegerSettingOptionsFiller = void (*)(std::shared_ptr<const CSetting> setting, IntegerSettingOptions &list, int &current, void *data);
-using StringSettingOptionsFiller = void (*)(std::shared_ptr<const CSetting> setting, StringSettingOptions &list, std::string &current, void *data);
+using IntegerSettingOptionsFiller = void (*)(const std::shared_ptr<const CSetting>& setting,
+                                             IntegerSettingOptions& list,
+                                             int& current,
+                                             void* data);
+using StringSettingOptionsFiller = void (*)(const std::shared_ptr<const CSetting>& setting,
+                                            StringSettingOptions& list,
+                                            std::string& current,
+                                            void* data);
 
 enum class SettingOptionsSort
 {

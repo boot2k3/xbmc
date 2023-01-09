@@ -7,13 +7,16 @@
  */
 #include "AESinkPULSE.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
-#include "Util.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationVolumeHandling.h"
 #include "cores/AudioEngine/AESinkFactory.h"
-#include "guilib/LocalizeStrings.h"
+#include "threads/SingleLock.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
+
+#include <array>
+#include <mutex>
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -145,7 +148,11 @@ static pa_encoding AEFormatToPulseEncoding(AEDataFormat format)
   }
 }
 
-static AEDataFormat defaultDataFormats[] = {
+namespace
+{
+
+// clang-format off
+constexpr std::array<AEDataFormat, 6> defaultDataFormats = {
   AE_FMT_U8,
   AE_FMT_S16NE,
   AE_FMT_S24NE3,
@@ -154,7 +161,7 @@ static AEDataFormat defaultDataFormats[] = {
   AE_FMT_FLOAT
 };
 
-static unsigned int defaultSampleRates[] = {
+constexpr std::array<unsigned int, 14> defaultSampleRates = {
   5512,
   8000,
   11025,
@@ -170,6 +177,9 @@ static unsigned int defaultSampleRates[] = {
   192000,
   384000
 };
+// clang-format on
+
+} // namespace
 
 /* Static callback functions */
 
@@ -244,7 +254,7 @@ static void SinkCallback(pa_context* c,
   if (!p)
     return;
 
-  CSingleLock lock(p->m_sec);
+  std::unique_lock<CCriticalSection> lock(p->m_sec);
   if (p->IsInitialized())
   {
     if ((t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) == PA_SUBSCRIPTION_EVENT_SINK)
@@ -266,7 +276,7 @@ static void SinkCallback(pa_context* c,
     }
     else
     {
-      CLog::Log(LOGDEBUG, "Not subscribed to Event: %d", static_cast<int>(t));
+      CLog::Log(LOGDEBUG, "Not subscribed to Event: {}", static_cast<int>(t));
     }
   }
 }
@@ -277,7 +287,7 @@ static void SinkChangedCallback(pa_context *c, pa_subscription_event_type_t t, u
   if(!p)
     return;
 
-  CSingleLock lock(p->m_sec);
+  std::unique_lock<CCriticalSection> lock(p->m_sec);
   if (p->IsInitialized())
   {
     if ((t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) == PA_SUBSCRIPTION_EVENT_SINK_INPUT)
@@ -299,7 +309,7 @@ static void SinkChangedCallback(pa_context *c, pa_subscription_event_type_t t, u
     }
     else
     {
-      CLog::Log(LOGDEBUG, "Not subscribed to Event: %d", static_cast<int>(t));
+      CLog::Log(LOGDEBUG, "Not subscribed to Event: {}", static_cast<int>(t));
     }
   }
 }
@@ -357,7 +367,7 @@ static void SinkInfoCallback(pa_context *c, const pa_sink_info *i, int eol, void
       sinkStruct->isBTDevice =
           StringUtils::EndsWithNoCase(std::string(i->name), std::string("a2dp_sink"));
       if (sinkStruct->isBTDevice)
-        CLog::Log(LOGNOTICE, "Found BT Device - will adjust buffers to larger values");
+        CLog::Log(LOGINFO, "Found BT Device - will adjust buffers to larger values");
 
       sinkStruct->samplerate = i->sample_spec.rate;
       sinkStruct->device_found = true;
@@ -454,7 +464,6 @@ static CAEChannelInfo PAChannelToAEChannelMap(const pa_channel_map& channels)
   return info;
 }
 
-#if PA_CHECK_VERSION(10,0,0)
 static void ModuleInfoCallback(pa_context* c, const pa_module_info *i, int eol, void *userdata)
 {
   ModuleInfoStruct *mis = static_cast<ModuleInfoStruct*>(userdata);
@@ -468,7 +477,7 @@ static void ModuleInfoCallback(pa_context* c, const pa_module_info *i, int eol, 
   }
   pa_threaded_mainloop_signal(mis->mainloop, 0);
 }
-#endif
+
 static void SinkInfoRequestCallback(pa_context *c, const pa_sink_info *i, int eol, void *userdata)
 {
 
@@ -483,9 +492,10 @@ static void SinkInfoRequestCallback(pa_context *c, const pa_sink_info *i, int eo
     defaultDevice.m_deviceName = std::string("Default");
     defaultDevice.m_displayName = std::string("Default");
     defaultDevice.m_displayNameExtra = std::string("Default Output Device (PULSEAUDIO)");
-    defaultDevice.m_dataFormats.insert(defaultDevice.m_dataFormats.end(), defaultDataFormats, defaultDataFormats + ARRAY_SIZE(defaultDataFormats));
+    defaultDevice.m_dataFormats.insert(defaultDevice.m_dataFormats.end(),
+                                       defaultDataFormats.begin(), defaultDataFormats.end());
     defaultDevice.m_channels = CAEChannelInfo(AE_CH_LAYOUT_2_0);
-    defaultDevice.m_sampleRates.assign(defaultSampleRates, defaultSampleRates + ARRAY_SIZE(defaultSampleRates));
+    defaultDevice.m_sampleRates.assign(defaultSampleRates.begin(), defaultSampleRates.end());
     defaultDevice.m_deviceType = AE_DEVTYPE_PCM;
     defaultDevice.m_wantsIECPassthrough = true;
     sinkStruct->list->push_back(defaultDevice);
@@ -508,7 +518,7 @@ static void SinkInfoRequestCallback(pa_context *c, const pa_sink_info *i, int eo
     if(device.m_channels.Count() == 0)
       valid = false;
 
-    device.m_sampleRates.assign(defaultSampleRates, defaultSampleRates + ARRAY_SIZE(defaultSampleRates));
+    device.m_sampleRates.assign(defaultSampleRates.begin(), defaultSampleRates.end());
 
     for (unsigned int j = 0; j < i->n_formats; j++)
     {
@@ -530,7 +540,8 @@ static void SinkInfoRequestCallback(pa_context *c, const pa_sink_info *i, int eo
           device_type = AE_DEVTYPE_IEC958;
           break;
         case PA_ENCODING_PCM:
-          device.m_dataFormats.insert(device.m_dataFormats.end(), defaultDataFormats, defaultDataFormats + ARRAY_SIZE(defaultDataFormats));
+          device.m_dataFormats.insert(device.m_dataFormats.end(), defaultDataFormats.begin(),
+                                      defaultDataFormats.end());
           break;
         default:
           break;
@@ -549,12 +560,14 @@ static void SinkInfoRequestCallback(pa_context *c, const pa_sink_info *i, int eo
 
     if(valid)
     {
-      CLog::Log(LOGDEBUG, "PulseAudio: Found %s with devicestring %s", device.m_displayName.c_str(), device.m_deviceName.c_str());
+      CLog::Log(LOGDEBUG, "PulseAudio: Found {} with devicestring {}", device.m_displayName,
+                device.m_deviceName);
       sinkStruct->list->push_back(device);
     }
     else
     {
-      CLog::Log(LOGDEBUG, "PulseAudio: Skipped %s with devicestring %s", device.m_displayName.c_str(), device.m_deviceName.c_str());
+      CLog::Log(LOGDEBUG, "PulseAudio: Skipped {} with devicestring {}", device.m_displayName,
+                device.m_deviceName);
     }
   }
   pa_threaded_mainloop_signal(sinkStruct->mainloop, 0);
@@ -597,7 +610,7 @@ static bool SetupContext(const char* host,
   do
   {
     pa_threaded_mainloop_wait(*mainloop);
-    CLog::Log(LOGDEBUG, "PulseAudio: Context %s",
+    CLog::Log(LOGDEBUG, "PulseAudio: Context {}",
               ContextStateToString(pa_context_get_state(*context)));
   } while (pa_context_get_state(*context) != PA_CONTEXT_READY &&
            pa_context_get_state(*context) != PA_CONTEXT_FAILED);
@@ -646,7 +659,7 @@ bool CDriverMonitor::Start()
 {
   if (!SetupContext(nullptr, "KodiDriver", &m_pContext, &m_pMainLoop))
   {
-    CLog::Log(LOGNOTICE, "PulseAudio might not be running. Context was not created.");
+    CLog::Log(LOGINFO, "PulseAudio might not be running. Context was not created.");
     return false;
   }
 
@@ -654,7 +667,7 @@ bool CDriverMonitor::Start()
 
   m_isInit = true;
 
-  CSingleLock lock(m_sec);
+  std::unique_lock<CCriticalSection> lock(m_sec);
   // Register Callback for Sink changes
   pa_context_set_subscribe_callback(m_pContext, SinkCallback, this);
   const pa_subscription_mask_t mask = pa_subscription_mask_t(PA_SUBSCRIPTION_MASK_SINK);
@@ -684,12 +697,12 @@ bool CAESinkPULSE::Register()
   s = pa_simple_new(NULL, "Kodi-Tester", PA_STREAM_PLAYBACK, NULL, "Test", &ss, NULL, NULL, NULL);
   if (!s)
   {
-    CLog::Log(LOGNOTICE, "PulseAudio: Server not running");
+    CLog::Log(LOGINFO, "PulseAudio: Server not running");
     return false;
   }
   else
   {
-    CLog::Log(LOGNOTICE, "PulseAudio: Server found running - will try to use Pulse");
+    CLog::Log(LOGINFO, "PulseAudio: Server found running - will try to use Pulse");
     pa_simple_free(s);
   }
 
@@ -728,7 +741,6 @@ CAESinkPULSE::CAESinkPULSE()
   m_IsStreamPaused = false;
   m_volume_needs_update = false;
   m_periodSize = 0;
-  m_requestedBytes = 0;
   pa_cvolume_init(&m_Volume);
 }
 
@@ -740,7 +752,7 @@ CAESinkPULSE::~CAESinkPULSE()
 bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
 {
   {
-    CSingleLock lock(m_sec);
+    std::unique_lock<CCriticalSection> lock(m_sec);
     m_IsAllocated = false;
   }
   m_passthrough = false;
@@ -754,7 +766,7 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
 
   if (!SetupContext(NULL, "KodiSink", &m_Context, &m_MainLoop))
   {
-    CLog::Log(LOGNOTICE, "PulseAudio might not be running. Context was not created.");
+    CLog::Log(LOGINFO, "PulseAudio might not be running. Context was not created.");
     Deinitialize();
     return false;
   }
@@ -778,7 +790,8 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
 
    if (pa_fmt == PA_SAMPLE_INVALID)
    {
-     CLog::Log(LOGDEBUG, "PULSE does not support format: %s - will fallback to AE_FMT_FLOAT", CAEUtil::DataFormatToStr(format.m_dataFormat));
+     CLog::Log(LOGDEBUG, "PULSE does not support format: {} - will fallback to AE_FMT_FLOAT",
+               CAEUtil::DataFormatToStr(format.m_dataFormat));
      format.m_dataFormat = AE_FMT_FLOAT;
      pa_fmt = PA_SAMPLE_FLOAT32;
      m_passthrough = false;
@@ -797,13 +810,11 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   // only check if the device is existing - don't alter the sample rate
   if (!sinkStruct.device_found)
   {
-    CLog::Log(LOGERROR, "PulseAudio: Sink %s not found", device.c_str());
+    CLog::Log(LOGERROR, "PulseAudio: Sink {} not found", device);
     pa_threaded_mainloop_unlock(m_MainLoop);
     Deinitialize();
     return false;
   }
-
-  bool use_pa_mixing = false;
 
   if(m_passthrough)
   {
@@ -812,42 +823,13 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   }
   else
   {
-    // version 11 got the new option "remixing-use-all-sink-channels" which
-    // can be set to "no". Therefore we give the choice back to user and let
-    // him configure the soundserver the way he likes - this makes the pre 11
-    // workaround obsolete
-#if PA_CHECK_VERSION(11,0,0)
-    use_pa_mixing = true;
     map = AEChannelMapToPAChannel(format.m_channelLayout);
-#else
-    // as we mix for PA now to avoid default upmixing, we need to care for
-    // channel resolving
-    CAEChannelInfo target_layout = format.m_channelLayout;
-    CAEChannelInfo available_layout = PAChannelToAEChannelMap(sinkStruct.map);
-    target_layout.ResolveChannels(available_layout);
-
-    // if we cannot map all requested channels - tell PA to mix for us
-    if (target_layout.Count() != format.m_channelLayout.Count())
-    {
-      use_pa_mixing = true;
-      map = AEChannelMapToPAChannel(format.m_channelLayout);
-    }
-    else
-    {
-      // use our layout to update AE
-      map = AEChannelMapToPAChannel(target_layout);
-    }
-#endif
     format.m_channelLayout = PAChannelToAEChannelMap(map);
   }
   m_Channels = format.m_channelLayout.Count();
 
-  // Pulse can resample everything between 1 hz and 192000 hz / 384000 hz (starting with 9.0)
-  // Make sure we are in the range that we originally added
-  unsigned int max_pulse_sample_rate = 192000U;
-#if PA_CHECK_VERSION(9,0,0)
-  max_pulse_sample_rate = 384000U;
-#endif
+  // Pulse can resample everything between 5 khz and 384 khz (since 9.0)
+  unsigned int max_pulse_sample_rate = 384000U;
   format.m_sampleRate = std::max(5512U, std::min(format.m_sampleRate, max_pulse_sample_rate));
 
   pa_format_info *info[1];
@@ -942,12 +924,6 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   buffer_attr.tlength = latency;
   int flags = (PA_STREAM_INTERPOLATE_TIMING | PA_STREAM_AUTO_TIMING_UPDATE | PA_STREAM_ADJUST_LATENCY);
 
-  // by default PA will upmix / remix everything when multi channel layout is configured
-  // if we have enough channels in the target layout ask PA not to remix to related channels
-  // 1:1 remapping is allowed though
-  if (!m_passthrough && !use_pa_mixing)
-    flags |= PA_STREAM_NO_REMIX_CHANNELS;
-
   if (m_passthrough)
     flags |= PA_STREAM_PASSTHROUGH;
 
@@ -963,7 +939,8 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   do
   {
     pa_threaded_mainloop_wait(m_MainLoop);
-    CLog::Log(LOGDEBUG, "PulseAudio: Stream %s", StreamStateToString(pa_stream_get_state(m_Stream)));
+    CLog::Log(LOGDEBUG, "PulseAudio: Stream {}",
+              StreamStateToString(pa_stream_get_state(m_Stream)));
   }
   while (pa_stream_get_state(m_Stream) != PA_STREAM_READY && pa_stream_get_state(m_Stream) != PA_STREAM_FAILED);
 
@@ -979,7 +956,7 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
 
   if (!(a = pa_stream_get_buffer_attr(m_Stream)))
   {
-    CLog::Log(LOGERROR, "PulseAudio: %s", pa_strerror(pa_context_errno(m_Context)));
+    CLog::Log(LOGERROR, "PulseAudio: {}", pa_strerror(pa_context_errno(m_Context)));
     pa_threaded_mainloop_unlock(m_MainLoop);
     Deinitialize();
     return false;
@@ -995,7 +972,7 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   }
 
   {
-    CSingleLock lock(m_sec);
+    std::unique_lock<CCriticalSection> lock(m_sec);
     // Register Callback for Sink changes
     pa_context_set_subscribe_callback(m_Context, SinkChangedCallback, this);
     const pa_subscription_mask_t mask = pa_subscription_mask_t(PA_SUBSCRIPTION_MASK_SINK_INPUT);
@@ -1010,16 +987,16 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
   m_format = format;
   format.m_dataFormat = m_passthrough ? AE_FMT_S16NE : format.m_dataFormat;
 
-  CLog::Log(LOGNOTICE,
-            "PulseAudio: Opened device %s in %s mode with Buffersize %u ms Periodsize %u ms",
-            device.c_str(), m_passthrough ? "passthrough" : "pcm",
+  CLog::Log(LOGINFO,
+            "PulseAudio: Opened device {} in {} mode with Buffersize {} ms Periodsize {} ms",
+            device, m_passthrough ? "passthrough" : "pcm",
             static_cast<unsigned int>(1000.0 * m_BufferSize / m_BytesPerSecond),
             static_cast<unsigned int>(1000.0 * m_periodSize / m_BytesPerSecond));
 
   // Cork stream will resume when adding first package
   Pause(true);
   {
-    CSingleLock lock(m_sec);
+    std::unique_lock<CCriticalSection> lock(m_sec);
     m_IsAllocated = true;
   }
   return true;
@@ -1027,7 +1004,7 @@ bool CAESinkPULSE::Initialize(AEAudioFormat &format, std::string &device)
 
 void CAESinkPULSE::Deinitialize()
 {
-  CSingleLock lock(m_sec);
+  std::unique_lock<CCriticalSection> lock(m_sec);
   m_IsAllocated = false;
   m_passthrough = false;
   m_periodSize = 0;
@@ -1113,20 +1090,21 @@ unsigned int CAESinkPULSE::AddPackets(uint8_t **data, unsigned int frames, unsig
   unsigned int available = frames * m_format.m_frameSize;
   unsigned int length = m_periodSize;
   void *buffer = data[0]+offset*m_format.m_frameSize;
-  unsigned int wait_time = static_cast<unsigned int>(1000.0 * m_BufferSize / m_BytesPerSecond);
-  m_extTimer.Set(wait_time);
+  auto wait_time =
+      std::chrono::duration<double>(static_cast<double>(m_BufferSize) / m_BytesPerSecond);
+  XbmcThreads::EndTime<std::chrono::duration<double>> timer(wait_time);
   // we don't want to block forever - if timer expires pa_stream_write will
   // fail - therefore we don't care and just return 0;
-  while (!m_extTimer.IsTimePast())
+  while (!timer.IsTimePast())
   {
     if (m_requestedBytes > 0)
       break;
     pa_threaded_mainloop_wait(m_MainLoop);
   }
 
-  if (m_extTimer.IsTimePast())
+  if (timer.IsTimePast())
   {
-    CLog::Log(LOGERROR, "Sink Timer expired for more than buffer time: %ul", wait_time);
+    CLog::Log(LOGERROR, "Sink Timer expired for more than buffer time: {}s", wait_time.count());
     pa_threaded_mainloop_unlock(m_MainLoop);
     return 0;
   }
@@ -1136,7 +1114,7 @@ unsigned int CAESinkPULSE::AddPackets(uint8_t **data, unsigned int frames, unsig
   pa_threaded_mainloop_unlock(m_MainLoop);
   if (error)
   {
-    CLog::Log(LOGERROR, "CAESinkPULSE::AddPackets - pa_stream_write failed: %d", error);
+    CLog::Log(LOGERROR, "CAESinkPULSE::AddPackets - pa_stream_write failed: {}", error);
     return 0;
   }
 
@@ -1203,10 +1181,12 @@ void CAESinkPULSE::SetVolume(float volume)
        m_volume_needs_update = false;
        pa_volume_t n_vol = pa_cvolume_avg(&m_Volume);
        n_vol = std::min(n_vol, PA_VOLUME_NORM);
-       per_cent_volume = (float) n_vol / PA_VOLUME_NORM;
+       per_cent_volume = static_cast<float>(n_vol) / PA_VOLUME_NORM;
        // only update internal volume
        pa_threaded_mainloop_unlock(m_MainLoop);
-       g_application.SetVolume(per_cent_volume, false);
+       auto& components = CServiceBroker::GetAppComponents();
+       const auto appVolume = components.GetComponent<CApplicationVolumeHandling>();
+       appVolume->SetVolume(per_cent_volume, false);
        return;
     }
 
@@ -1235,7 +1215,7 @@ void CAESinkPULSE::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 
   if (!SetupContext(NULL, "KodiSink", &context, &mainloop))
   {
-    CLog::Log(LOGNOTICE, "PulseAudio might not be running. Context was not created.");
+    CLog::Log(LOGINFO, "PulseAudio might not be running. Context was not created.");
     return;
   }
 
@@ -1248,9 +1228,7 @@ void CAESinkPULSE::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
   ModuleInfoStruct mis;
   mis.mainloop = mainloop;
 
-#if PA_CHECK_VERSION(10,0,0)
   WaitForOperation(pa_context_get_module_info_list(context, ModuleInfoCallback, &mis), mainloop, "Check PA Modules");
-#endif
   if (!mis.hasAllowPT)
   {
     CLog::Log(LOGWARNING, "Pulseaudio module module-allow-passthrough not loaded - opening PT devices might fail");
@@ -1278,8 +1256,8 @@ void CAESinkPULSE::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 
 bool CAESinkPULSE::IsInitialized()
 {
- CSingleLock lock(m_sec);
- return m_IsAllocated;
+  std::unique_lock<CCriticalSection> lock(m_sec);
+  return m_IsAllocated;
 }
 
 void CAESinkPULSE::Pause(bool pause)
@@ -1305,7 +1283,7 @@ inline bool CAESinkPULSE::WaitForOperation(pa_operation *op, pa_threaded_mainloo
 
   if (pa_operation_get_state(op) != PA_OPERATION_DONE)
   {
-    CLog::Log(LOGERROR, "PulseAudio: %s Operation failed", LogEntry);
+    CLog::Log(LOGERROR, "PulseAudio: {} Operation failed", LogEntry);
     success = false;
   }
 

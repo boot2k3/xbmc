@@ -10,8 +10,9 @@
 
 #include "IRenderBuffer.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPBaseRenderer.h"
-#include "threads/SingleLock.h"
 #include "utils/log.h"
+
+#include <mutex>
 
 using namespace KODI;
 using namespace RETRO;
@@ -21,23 +22,24 @@ CBaseRenderBufferPool::~CBaseRenderBufferPool()
   Flush();
 }
 
-void CBaseRenderBufferPool::RegisterRenderer(CRPBaseRenderer *renderer)
+void CBaseRenderBufferPool::RegisterRenderer(CRPBaseRenderer* renderer)
 {
-  CSingleLock lock(m_rendererMutex);
+  std::unique_lock<CCriticalSection> lock(m_rendererMutex);
 
   m_renderers.push_back(renderer);
 }
 
-void CBaseRenderBufferPool::UnregisterRenderer(CRPBaseRenderer *renderer)
+void CBaseRenderBufferPool::UnregisterRenderer(CRPBaseRenderer* renderer)
 {
-  CSingleLock lock(m_rendererMutex);
+  std::unique_lock<CCriticalSection> lock(m_rendererMutex);
 
-  m_renderers.erase(std::remove(m_renderers.begin(), m_renderers.end(), renderer), m_renderers.end());
+  m_renderers.erase(std::remove(m_renderers.begin(), m_renderers.end(), renderer),
+                    m_renderers.end());
 }
 
 bool CBaseRenderBufferPool::HasVisibleRenderer() const
 {
-  CSingleLock lock(m_rendererMutex);
+  std::unique_lock<CCriticalSection> lock(m_rendererMutex);
 
   for (auto renderer : m_renderers)
   {
@@ -58,22 +60,22 @@ bool CBaseRenderBufferPool::Configure(AVPixelFormat format)
   return m_bConfigured;
 }
 
-IRenderBuffer *CBaseRenderBufferPool::GetBuffer(unsigned int width, unsigned int height)
+IRenderBuffer* CBaseRenderBufferPool::GetBuffer(unsigned int width, unsigned int height)
 {
   if (!m_bConfigured)
     return nullptr;
 
-  IRenderBuffer *renderBuffer = nullptr;
+  IRenderBuffer* renderBuffer = nullptr;
 
-  void *header = nullptr;
+  void* header = nullptr;
 
   if (GetHeaderWithTimeout(header))
   {
-    CSingleLock lock(m_bufferMutex);
+    std::unique_lock<CCriticalSection> lock(m_bufferMutex);
 
     for (auto it = m_free.begin(); it != m_free.end(); ++it)
     {
-      std::unique_ptr<IRenderBuffer> &buffer = *it;
+      std::unique_ptr<IRenderBuffer>& buffer = *it;
 
       // Only return buffers of the same dimensions
       const unsigned int bufferWidth = buffer->GetWidth();
@@ -90,8 +92,8 @@ IRenderBuffer *CBaseRenderBufferPool::GetBuffer(unsigned int width, unsigned int
 
     if (renderBuffer == nullptr)
     {
-      CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: Creating render buffer of size %ux%u for buffer pool",
-                width,
+      CLog::Log(LOGDEBUG,
+                "RetroPlayer[RENDER]: Creating render buffer of size {}x{} for buffer pool", width,
                 height);
 
       std::unique_ptr<IRenderBuffer> renderBufferPtr(CreateRenderBuffer(header));
@@ -111,9 +113,9 @@ IRenderBuffer *CBaseRenderBufferPool::GetBuffer(unsigned int width, unsigned int
   return renderBuffer;
 }
 
-void CBaseRenderBufferPool::Return(IRenderBuffer *buffer)
+void CBaseRenderBufferPool::Return(IRenderBuffer* buffer)
 {
-  CSingleLock lock(m_bufferMutex);
+  std::unique_lock<CCriticalSection> lock(m_bufferMutex);
 
   buffer->SetLoaded(false);
   buffer->SetRendered(false);
@@ -124,7 +126,7 @@ void CBaseRenderBufferPool::Return(IRenderBuffer *buffer)
 
 void CBaseRenderBufferPool::Prime(unsigned int width, unsigned int height)
 {
-  CSingleLock lock(m_bufferMutex);
+  std::unique_lock<CCriticalSection> lock(m_bufferMutex);
 
   // Allocate two buffers for double buffering
   unsigned int bufferCount = 2;
@@ -133,7 +135,7 @@ void CBaseRenderBufferPool::Prime(unsigned int width, unsigned int height)
 
   for (unsigned int i = 0; i < bufferCount; i++)
   {
-    IRenderBuffer *buffer = GetBuffer(width, height);
+    IRenderBuffer* buffer = GetBuffer(width, height);
     if (buffer == nullptr)
       break;
 
@@ -147,7 +149,7 @@ void CBaseRenderBufferPool::Prime(unsigned int width, unsigned int height)
 
 void CBaseRenderBufferPool::Flush()
 {
-  CSingleLock lock(m_bufferMutex);
+  std::unique_lock<CCriticalSection> lock(m_bufferMutex);
 
   m_free.clear();
   m_bConfigured = false;

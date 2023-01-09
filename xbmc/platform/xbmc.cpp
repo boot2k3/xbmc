@@ -6,11 +6,8 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include "Application.h"
-
-#ifdef TARGET_RASPBERRY_PI
-#include "platform/linux/RBP.h"
-#endif
+#include "application/Application.h"
+#include "platform/MessagePrinter.h"
 
 #ifdef TARGET_WINDOWS_DESKTOP
 #include "platform/win32/IMMNotificationClient.h"
@@ -22,33 +19,25 @@
 #include "platform/android/activity/XBMCApp.h"
 #endif
 
-#include "platform/MessagePrinter.h"
-#include "utils/log.h"
-#include "commons/Exception.h"
-
-extern "C" int XBMC_Run(bool renderGUI, const CAppParamParser &params)
+extern "C" int XBMC_Run(bool renderGUI)
 {
   int status = -1;
 
-  if (!g_application.Create(params))
+  if (!g_application.Create())
   {
     CMessagePrinter::DisplayError("ERROR: Unable to create application. Exiting");
     return status;
   }
 
-#ifdef TARGET_RASPBERRY_PI
-  if(!g_RBP.Initialize())
-    return false;
-  g_RBP.LogFirmwareVersion();
-#elif defined(TARGET_ANDROID)
-  CXBMCApp::get()->Initialize();
+#if defined(TARGET_ANDROID)
+  CXBMCApp::Get().Initialize();
 #endif
 
   if (renderGUI && !g_application.CreateGUI())
   {
     CMessagePrinter::DisplayError("ERROR: Unable to create GUI. Exiting");
-    g_application.Stop(EXITCODE_QUIT);
-    g_application.Cleanup();
+    if (g_application.Stop(EXITCODE_QUIT))
+      g_application.Cleanup();
     return status;
   }
   if (!g_application.Initialize())
@@ -69,7 +58,7 @@ extern "C" int XBMC_Run(bool renderGUI, const CAppParamParser &params)
   }
 #endif
 
-  status = g_application.Run(params);
+  status = g_application.Run();
 
 #ifdef TARGET_WINDOWS_DESKTOP
   // the end
@@ -82,10 +71,8 @@ extern "C" int XBMC_Run(bool renderGUI, const CAppParamParser &params)
   }
 #endif
 
-#ifdef TARGET_RASPBERRY_PI
-  g_RBP.Deinitialize();
-#elif defined(TARGET_ANDROID)
-  CXBMCApp::get()->Deinitialize();
+#if defined(TARGET_ANDROID)
+  CXBMCApp::Get().Deinitialize();
 #endif
 
   return status;

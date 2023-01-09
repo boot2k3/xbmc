@@ -8,8 +8,9 @@ set(SOURCES AudioSinkAE.cpp
             DVDStreamInfo.cpp
             PTSTracker.cpp
             Edl.cpp
-            VideoPlayerAudio.cpp
             VideoPlayer.cpp
+            VideoPlayerAudio.cpp
+            VideoPlayerAudioID3.cpp
             VideoPlayerRadioRDS.cpp
             VideoPlayerSubtitle.cpp
             VideoPlayerTeletext.cpp
@@ -30,15 +31,16 @@ set(HEADERS AudioSinkAE.h
             PTSTracker.h
             VideoPlayer.h
             VideoPlayerAudio.h
+            VideoPlayerAudioID3.h
             VideoPlayerRadioRDS.h
             VideoPlayerSubtitle.h
             VideoPlayerTeletext.h
             VideoPlayerVideo.h
             VideoReferenceClock.h
             Interface/StreamInfo.h
-            Interface/Addon/DemuxPacket.h
-            Interface/Addon/DemuxCrypto.h
-            Interface/Addon/InputStreamConstants.h
-            Interface/Addon/TimingConstants.h)
+            Interface/DemuxPacket.h
+            Interface/DemuxCrypto.h
+            Interface/InputStreamConstants.h
+            Interface/TimingConstants.h)
 
 core_add_library(VideoPlayer)

@@ -22,6 +22,10 @@ testMain
 # Created in vs2017 when using open folder with cmake tools
 CMakeSettings.json
 
+# Created in vscode when using cmake-tools
+cmake-variants.yaml
+cmake-kits.json
+
 # generated files etc
 .last_success_revision
 *.d
@@ -42,9 +46,12 @@ CMakeSettings.json
 *.apk
 *.class
 *.dwo
+*.wget-hsts
 
 # Windows specific generated files
 *.appx
+*.appxsym
+*.msix
 *.cer
 *.exp
 *.ilk
@@ -97,8 +104,9 @@ cmake_install.cmake
 /kodi.bin
 /kodi-test
 /kodi-xrandr
+/*.diff
 /*.patch
-/kodi-build/
+/kodi-build*/
 /gtestresults.xml
 
 # /addons/
@@ -118,6 +126,7 @@ cmake_install.cmake
 /addons/kodi.binary.global.gui/addon.xml
 /addons/kodi.binary.global.main/addon.xml
 /addons/kodi.binary.global.network/addon.xml
+/addons/kodi.binary.global.tools/addon.xml
 /addons/kodi.binary.instance.audiodecoder/addon.xml
 /addons/kodi.binary.instance.audioencoder/addon.xml
 /addons/kodi.binary.instance.game/addon.xml
@@ -208,6 +217,7 @@ cmake_install.cmake
 /project/BuildDependencies/build
 /project/BuildDependencies/scripts/tmp
 /project/BuildDependencies/src
+/project/BuildDependencies/tools
 /project/BuildDependencies/bin/swig
 /project/BuildDependencies/bin/doxygen
 /project/BuildDependencies/bin/json-rpc
@@ -258,6 +268,7 @@ cmake_install.cmake
 /tools/depends/target/ffmpeg/ffmpeg-*-*/
 /tools/depends/target/ffmpeg/ffmpeg-install/
 /tools/depends/target/ffmpeg/ffmpeg-release/
+/tools/depends/target/dav1d/dav1d-*.tar.*
 /tools/depends/target/libdvdcss/dvdcss-install/
 /tools/depends/target/libdvdcss/libdvdcss-*.tar.gz
 /tools/depends/target/libdvdcss/native/
@@ -284,7 +295,6 @@ cmake_install.cmake
 /tools/darwin/packaging/darwin_embedded/mkdeb-darwin_embedded.sh
 /tools/darwin/packaging/osx/mkdmg-osx.sh
 /tools/darwin/packaging/osx/VolumeIcon.icns
-/tools/darwin/packaging/darwin_embedded/migrate_to_kodi.sh
 /tools/darwin/packaging/seatbeltunlock/mkdeb-seatbeltunlock.sh
 /tools/darwin/runtime/XBMCHelper
 
@@ -325,3 +335,6 @@ exclude_dll.txt
 # VS git tools doesn't work for true out of tree builds and it's
 # useful to be able to work on multiple configs
 /build*/
+
+# clangd index
+.cache/

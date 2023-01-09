@@ -15,7 +15,6 @@
 #include <string>
 #include <vector>
 
-
 class CFavouritesService
 {
 public:
@@ -27,10 +26,12 @@ public:
 
   bool IsFavourited(const CFileItem& item, int contextWindow) const;
   void GetAll(CFileItemList& items) const;
-  std::string GetExecutePath(const CFileItem &item, int contextWindow) const;
-  std::string GetExecutePath(const CFileItem &item, const std::string &contextWindow) const;
   bool AddOrRemove(const CFileItem& item, int contextWindow);
   bool Save(const CFileItemList& items);
+
+  /*! \brief Refresh favourites for directory providers, e.g. the GUI needs to be updated
+   */
+  void RefreshFavourites();
 
   struct FavouritesUpdated { };
 

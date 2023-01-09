@@ -16,12 +16,20 @@
 #include "utils/Variant.h"
 #include "utils/log.h"
 
+#include <mutex>
+
 using namespace PERIPHERALS;
+using namespace std::chrono_literals;
 
-#define PERIPHERAL_DEFAULT_RESCAN_INTERVAL 5000
+namespace
+{
+constexpr auto PERIPHERAL_DEFAULT_RESCAN_INTERVAL = 5000ms;
+}
 
-CPeripheralBus::CPeripheralBus(const std::string &threadname, CPeripherals& manager, PeripheralBusType type) :
-    CThread(threadname.c_str()),
+CPeripheralBus::CPeripheralBus(const std::string& threadname,
+                               CPeripherals& manager,
+                               PeripheralBusType type)
+  : CThread(threadname.c_str()),
     m_iRescanTime(PERIPHERAL_DEFAULT_RESCAN_INTERVAL),
     m_bNeedsPolling(true),
     m_manager(manager),
@@ -35,17 +43,17 @@ bool CPeripheralBus::InitializeProperties(CPeripheral& peripheral)
   return true;
 }
 
-void CPeripheralBus::OnDeviceAdded(const std::string &strLocation)
+void CPeripheralBus::OnDeviceAdded(const std::string& strLocation)
 {
   ScanForDevices();
 }
 
-void CPeripheralBus::OnDeviceChanged(const std::string &strLocation)
+void CPeripheralBus::OnDeviceChanged(const std::string& strLocation)
 {
   ScanForDevices();
 }
 
-void CPeripheralBus::OnDeviceRemoved(const std::string &strLocation)
+void CPeripheralBus::OnDeviceRemoved(const std::string& strLocation)
 {
   ScanForDevices();
 }
@@ -59,18 +67,18 @@ void CPeripheralBus::Clear(void)
     StopThread(true);
   }
 
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
 
   m_peripherals.clear();
 }
 
-void CPeripheralBus::UnregisterRemovedDevices(const PeripheralScanResults &results)
+void CPeripheralBus::UnregisterRemovedDevices(const PeripheralScanResults& results)
 {
   PeripheralVector removedPeripherals;
 
   {
-    CSingleLock lock(m_critSection);
-    for (int iDevicePtr = (int) m_peripherals.size() - 1; iDevicePtr >= 0; iDevicePtr--)
+    std::unique_lock<CCriticalSection> lock(m_critSection);
+    for (int iDevicePtr = (int)m_peripherals.size() - 1; iDevicePtr >= 0; iDevicePtr--)
     {
       const PeripheralPtr& peripheral = m_peripherals.at(iDevicePtr);
       PeripheralScanResult updatedDevice(m_type);
@@ -88,10 +96,14 @@ void CPeripheralBus::UnregisterRemovedDevices(const PeripheralScanResults &resul
   {
     std::vector<PeripheralFeature> features;
     peripheral->GetFeatures(features);
-    bool peripheralHasFeatures = features.size() > 1 || (features.size() == 1 && features.at(0) != FEATURE_UNKNOWN);
+    bool peripheralHasFeatures =
+        features.size() > 1 || (features.size() == 1 && features.at(0) != FEATURE_UNKNOWN);
     if (peripheral->Type() != PERIPHERAL_UNKNOWN || peripheralHasFeatures)
     {
-      CLog::Log(LOGNOTICE, "%s - device removed from %s/%s: %s (%s:%s)", __FUNCTION__, PeripheralTypeTranslator::TypeToString(peripheral->Type()), peripheral->Location().c_str(), peripheral->DeviceName().c_str(), peripheral->VendorIdAsString(), peripheral->ProductIdAsString());
+      CLog::Log(LOGINFO, "{} - device removed from {}/{}: {} ({}:{})", __FUNCTION__,
+                PeripheralTypeTranslator::TypeToString(peripheral->Type()), peripheral->Location(),
+                peripheral->DeviceName(), peripheral->VendorIdAsString(),
+                peripheral->ProductIdAsString());
       peripheral->OnDeviceRemoved();
     }
 
@@ -99,7 +111,7 @@ void CPeripheralBus::UnregisterRemovedDevices(const PeripheralScanResults &resul
   }
 }
 
-void CPeripheralBus::RegisterNewDevices(const PeripheralScanResults &results)
+void CPeripheralBus::RegisterNewDevices(const PeripheralScanResults& results)
 {
   for (unsigned int iResultPtr = 0; iResultPtr < results.m_results.size(); iResultPtr++)
   {
@@ -130,7 +142,7 @@ bool CPeripheralBus::ScanForDevices(void)
 bool CPeripheralBus::HasFeature(const PeripheralFeature feature) const
 {
   bool bReturn(false);
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (unsigned int iPeripheralPtr = 0; iPeripheralPtr < m_peripherals.size(); iPeripheralPtr++)
   {
     if (m_peripherals.at(iPeripheralPtr)->HasFeature(feature))
@@ -142,17 +154,17 @@ bool CPeripheralBus::HasFeature(const PeripheralFeature feature) const
   return bReturn;
 }
 
-void CPeripheralBus::GetFeatures(std::vector<PeripheralFeature> &features) const
+void CPeripheralBus::GetFeatures(std::vector<PeripheralFeature>& features) const
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (unsigned int iPeripheralPtr = 0; iPeripheralPtr < m_peripherals.size(); iPeripheralPtr++)
     m_peripherals.at(iPeripheralPtr)->GetFeatures(features);
 }
 
-PeripheralPtr CPeripheralBus::GetPeripheral(const std::string &strLocation) const
+PeripheralPtr CPeripheralBus::GetPeripheral(const std::string& strLocation) const
 {
   PeripheralPtr result;
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (auto& peripheral : m_peripherals)
   {
     if (peripheral->Location() == strLocation)
@@ -164,10 +176,11 @@ PeripheralPtr CPeripheralBus::GetPeripheral(const std::string &strLocation) cons
   return result;
 }
 
-unsigned int CPeripheralBus::GetPeripheralsWithFeature(PeripheralVector &results, const PeripheralFeature feature) const
+unsigned int CPeripheralBus::GetPeripheralsWithFeature(PeripheralVector& results,
+                                                       const PeripheralFeature feature) const
 {
   unsigned int iReturn = 0;
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (auto& peripheral : m_peripherals)
   {
     if (peripheral->HasFeature(feature))
@@ -180,14 +193,14 @@ unsigned int CPeripheralBus::GetPeripheralsWithFeature(PeripheralVector &results
   return iReturn;
 }
 
-unsigned int CPeripheralBus::GetNumberOfPeripheralsWithId(const int iVendorId, const int iProductId) const
+unsigned int CPeripheralBus::GetNumberOfPeripheralsWithId(const int iVendorId,
+                                                          const int iProductId) const
 {
   unsigned int iReturn = 0;
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (const auto& peripheral : m_peripherals)
   {
-    if (peripheral->VendorId() == iVendorId &&
-        peripheral->ProductId() == iProductId)
+    if (peripheral->VendorId() == iVendorId && peripheral->ProductId() == iProductId)
       iReturn++;
   }
 
@@ -211,7 +224,7 @@ void CPeripheralBus::Process(void)
       break;
 
     if (!m_bStop)
-      m_triggerEvent.WaitMSec(m_iRescanTime);
+      m_triggerEvent.Wait(m_iRescanTime);
   }
 }
 
@@ -221,7 +234,7 @@ void CPeripheralBus::Initialise(void)
 
   if (!IsRunning())
   {
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     bNeedsPolling = m_bNeedsPolling;
   }
 
@@ -229,7 +242,7 @@ void CPeripheralBus::Initialise(void)
   {
     m_triggerEvent.Reset();
     Create();
-    SetPriority(-1);
+    SetPriority(ThreadPriority::BELOW_NORMAL);
   }
 }
 
@@ -241,7 +254,7 @@ void CPeripheralBus::Register(const PeripheralPtr& peripheral)
   bool bPeripheralAdded = false;
 
   {
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     if (!HasPeripheral(peripheral->Location()))
     {
       m_peripherals.push_back(peripheral);
@@ -251,7 +264,11 @@ void CPeripheralBus::Register(const PeripheralPtr& peripheral)
 
   if (bPeripheralAdded)
   {
-    CLog::Log(LOGNOTICE, "%s - new %s device registered on %s->%s: %s (%s:%s)", __FUNCTION__, PeripheralTypeTranslator::TypeToString(peripheral->Type()), PeripheralTypeTranslator::BusTypeToString(m_type), peripheral->Location().c_str(), peripheral->DeviceName().c_str(), peripheral->VendorIdAsString(), peripheral->ProductIdAsString());
+    CLog::Log(LOGINFO, "{} - new {} device registered on {}->{}: {} ({}:{})", __FUNCTION__,
+              PeripheralTypeTranslator::TypeToString(peripheral->Type()),
+              PeripheralTypeTranslator::BusTypeToString(m_type), peripheral->Location(),
+              peripheral->DeviceName(), peripheral->VendorIdAsString(),
+              peripheral->ProductIdAsString());
     m_manager.OnDeviceAdded(*this, *peripheral);
   }
 }
@@ -261,7 +278,7 @@ void CPeripheralBus::TriggerDeviceScan(void)
   bool bNeedsPolling;
 
   {
-    CSingleLock lock(m_critSection);
+    std::unique_lock<CCriticalSection> lock(m_critSection);
     bNeedsPolling = m_bNeedsPolling;
   }
 
@@ -271,15 +288,14 @@ void CPeripheralBus::TriggerDeviceScan(void)
     ScanForDevices();
 }
 
-bool CPeripheralBus::HasPeripheral(const std::string &strLocation) const
+bool CPeripheralBus::HasPeripheral(const std::string& strLocation) const
 {
   return (GetPeripheral(strLocation) != NULL);
 }
 
-void CPeripheralBus::GetDirectory(const std::string &strPath, CFileItemList &items) const
+void CPeripheralBus::GetDirectory(const std::string& strPath, CFileItemList& items) const
 {
-  std::string strDevPath;
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (const auto& peripheral : m_peripherals)
   {
     if (peripheral->IsHidden())
@@ -289,17 +305,20 @@ void CPeripheralBus::GetDirectory(const std::string &strPath, CFileItemList &ite
     peripheralFile->SetPath(peripheral->FileLocation());
     peripheralFile->SetProperty("vendor", peripheral->VendorIdAsString());
     peripheralFile->SetProperty("product", peripheral->ProductIdAsString());
-    peripheralFile->SetProperty("bus", PeripheralTypeTranslator::BusTypeToString(peripheral->GetBusType()));
+    peripheralFile->SetProperty(
+        "bus", PeripheralTypeTranslator::BusTypeToString(peripheral->GetBusType()));
     peripheralFile->SetProperty("location", peripheral->Location());
-    peripheralFile->SetProperty("class", PeripheralTypeTranslator::TypeToString(peripheral->Type()));
+    peripheralFile->SetProperty("class",
+                                PeripheralTypeTranslator::TypeToString(peripheral->Type()));
 
     std::string strVersion(peripheral->GetVersionInfo());
     if (strVersion.empty())
       strVersion = g_localizeStrings.Get(13205);
 
-    std::string strDetails = StringUtils::Format("%s %s", g_localizeStrings.Get(24051).c_str(), strVersion.c_str());
+    std::string strDetails = StringUtils::Format("{} {}", g_localizeStrings.Get(24051), strVersion);
     if (peripheral->GetBusType() == PERIPHERAL_BUS_CEC && !peripheral->GetSettingBool("enabled"))
-      strDetails = StringUtils::Format("%s: %s", g_localizeStrings.Get(126).c_str(), g_localizeStrings.Get(13106).c_str());
+      strDetails =
+          StringUtils::Format("{}: {}", g_localizeStrings.Get(126), g_localizeStrings.Get(13106));
 
     peripheralFile->SetProperty("version", strVersion);
     peripheralFile->SetLabel2(strDetails);
@@ -308,12 +327,11 @@ void CPeripheralBus::GetDirectory(const std::string &strPath, CFileItemList &ite
   }
 }
 
-PeripheralPtr CPeripheralBus::GetByPath(const std::string &strPath) const
+PeripheralPtr CPeripheralBus::GetByPath(const std::string& strPath) const
 {
   PeripheralPtr result;
 
-  std::string strDevPath;
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   for (auto& peripheral : m_peripherals)
   {
     if (StringUtils::EqualsNoCase(strPath, peripheral->FileLocation()))
@@ -328,6 +346,6 @@ PeripheralPtr CPeripheralBus::GetByPath(const std::string &strPath) const
 
 unsigned int CPeripheralBus::GetNumberOfPeripherals() const
 {
-  CSingleLock lock(m_critSection);
+  std::unique_lock<CCriticalSection> lock(m_critSection);
   return static_cast<unsigned int>(m_peripherals.size());
 }

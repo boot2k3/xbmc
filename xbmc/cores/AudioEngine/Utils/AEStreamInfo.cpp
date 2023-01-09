@@ -61,7 +61,7 @@ CAEStreamParser::CAEStreamParser() :
   av_crc_init(m_crcTrueHD, 0, 16, 0x2D, sizeof(m_crcTrueHD));
 }
 
-double CAEStreamInfo::GetDuration() const
+double CAEStreamInfo::GetDuration(bool paPlayer /*= false*/) const
 {
   double duration = 0;
   switch (m_type)
@@ -81,6 +81,8 @@ double CAEStreamInfo::GetDuration() const
       else
         rate = 176400;
       duration = 3840.0 / rate;
+      if (paPlayer)
+        duration /= 2;
       break;
     case STREAM_TYPE_DTS_512:
     case STREAM_TYPE_DTSHD_CORE:
@@ -111,8 +113,6 @@ bool CAEStreamInfo::operator==(const CAEStreamInfo& info) const
     return false;
   return true;
 }
-
-CAEStreamParser::~CAEStreamParser() = default;
 
 void CAEStreamParser::Reset()
 {
@@ -179,7 +179,7 @@ int CAEStreamParser::AddData(uint8_t *data, unsigned int size, uint8_t **buffer/
       m_needBytes = 0;
       offset = (this->*m_syncFunc)(m_buffer, m_bufferSize);
 
-      if (m_hasSync || m_needBytes)
+      if (m_hasSync)
         break;
       else
       {
@@ -259,7 +259,7 @@ void CAEStreamParser::GetPacket(uint8_t **buffer, unsigned int *bufferSize)
 
 /*
   This function looks for sync words across the types in parallel, and only does an exhaustive
-  test if it finds a syncword. Once sync has been established, the relevent sync function sets
+  test if it finds a syncword. Once sync has been established, the relevant sync function sets
   m_syncFunc to itself. This function will only be called again if total sync is lost, which
   allows is to switch stream types on the fly much like a real receiver does.
 */
@@ -405,7 +405,8 @@ bool CAEStreamParser::TrySyncAC3(uint8_t *data, unsigned int size, bool resyncin
     m_info.m_ac3FrameSize = m_fsize;
     m_info.m_repeat = 1;
 
-    CLog::Log(LOGINFO, "CAEStreamParser::TrySyncAC3 - AC3 stream detected (%d channels, %dHz)", m_info.m_channels, m_info.m_sampleRate);
+    CLog::Log(LOGINFO, "CAEStreamParser::TrySyncAC3 - AC3 stream detected ({} channels, {}Hz)",
+              m_info.m_channels, m_info.m_sampleRate);
     return true;
   }
   else
@@ -417,7 +418,8 @@ bool CAEStreamParser::TrySyncAC3(uint8_t *data, unsigned int size, bool resyncin
 
     if (strmtyp != 1 && wantEAC3dependent)
     {
-      CLog::Log(LOGDEBUG, "CAEStreamParser::TrySyncAC3 - Unexpected stream type: %d (wantEAC3dependent: %d)",
+      CLog::Log(LOGDEBUG,
+                "CAEStreamParser::TrySyncAC3 - Unexpected stream type: {} (wantEAC3dependent: {})",
                 strmtyp, wantEAC3dependent);
       return false;
     }
@@ -456,7 +458,8 @@ bool CAEStreamParser::TrySyncAC3(uint8_t *data, unsigned int size, bool resyncin
     m_info.m_type = CAEStreamInfo::STREAM_TYPE_EAC3;
     m_info.m_ac3FrameSize = m_fsize;
 
-    CLog::Log(LOGINFO, "CAEStreamParser::TrySyncAC3 - E-AC3 stream detected (%d channels, %dHz)", m_info.m_channels, m_info.m_sampleRate);
+    CLog::Log(LOGINFO, "CAEStreamParser::TrySyncAC3 - E-AC3 stream detected ({} channels, {}Hz)",
+              m_info.m_channels, m_info.m_sampleRate);
     return true;
   }
 }
@@ -702,9 +705,10 @@ unsigned int CAEStreamParser::SyncDTS(uint8_t *data, unsigned int size)
         }
       }
 
-      CLog::Log(LOGINFO, "CAEStreamParser::SyncDTS - %s stream detected (%d channels, %dHz, %dbit %s, period: %u, syncword: 0x%x, target rate: 0x%x, framesize %u))",
-                type.c_str(), m_info.m_channels, m_info.m_sampleRate,
-                bits, m_info.m_dataIsLE ? "LE" : "BE",
+      CLog::Log(LOGINFO,
+                "CAEStreamParser::SyncDTS - {} stream detected ({} channels, {}Hz, {}bit {}, "
+                "period: {}, syncword: 0x{:x}, target rate: 0x{:x}, framesize {}))",
+                type, m_info.m_channels, m_info.m_sampleRate, bits, m_info.m_dataIsLE ? "LE" : "BE",
                 m_info.m_dtsPeriod, hd_sync, target_rate, m_fsize);
     }
 
@@ -779,7 +783,9 @@ unsigned int CAEStreamParser::SyncTrueHD(uint8_t *data, unsigned int size)
       m_info.m_channels = CAEStreamParser::GetTrueHDChannels(channel_map);
 
       if (!m_hasSync)
-        CLog::Log(LOGINFO, "CAEStreamParser::SyncTrueHD - TrueHD stream detected (%d channels, %dHz)", m_info.m_channels, m_info.m_sampleRate);
+        CLog::Log(LOGINFO,
+                  "CAEStreamParser::SyncTrueHD - TrueHD stream detected ({} channels, {}Hz)",
+                  m_info.m_channels, m_info.m_sampleRate);
 
       m_hasSync = true;
       m_fsize = length;

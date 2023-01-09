@@ -8,15 +8,17 @@
 
 #import "platform/darwin/ios-common/AnnounceReceiver.h"
 
-#include "Application.h"
 #include "FileItem.h"
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
 #include "TextureCache.h"
+#include "application/Application.h"
 #include "filesystem/SpecialProtocol.h"
 #include "music/MusicDatabase.h"
 #include "music/tags/MusicInfoTag.h"
 #include "playlists/PlayList.h"
+#include "pvr/channels/PVRChannel.h"
+#include "pvr/epg/EpgInfoTag.h"
 #include "utils/Variant.h"
 
 #import "platform/darwin/ios-common/DarwinEmbedNowPlayingInfoManager.h"
@@ -78,14 +80,14 @@ id objectFromVariant(const CVariant& data)
 }
 
 void AnnounceBridge(ANNOUNCEMENT::AnnouncementFlag flag,
-                    const char* sender,
-                    const char* message,
+                    const std::string& sender,
+                    const std::string& message,
                     const CVariant& data)
 {
   int item_id = -1;
   std::string item_type = "";
   CVariant nonConstData = data;
-  const std::string msg(message);
+  const std::string& msg(message);
 
   // handle data which only has a database id and not the metadata inside
   if (msg == "OnPlay" || msg == "OnResume")
@@ -131,18 +133,10 @@ void AnnounceBridge(ANNOUNCEMENT::AnnouncementFlag flag,
   {
     NSMutableDictionary* item = dict[@"item"];
     NSDictionary* player = dict[@"player"];
+
+    // Common properties
     item[@"speed"] = player[@"speed"];
     std::string thumb = g_application.CurrentFileItem().GetArt("thumb");
-    if (!thumb.empty())
-    {
-      bool needsRecaching;
-      std::string cachedThumb(CTextureCache::GetInstance().CheckCachedImage(thumb, needsRecaching));
-      if (!cachedThumb.empty())
-      {
-        std::string thumbRealPath = CSpecialProtocol::TranslatePath(cachedThumb);
-        item[@"thumb"] = @(thumbRealPath.c_str());
-      }
-    }
     double duration = g_application.GetTotalTime();
     if (duration > 0)
       item[@"duration"] = @(duration);
@@ -155,19 +149,55 @@ void AnnounceBridge(ANNOUNCEMENT::AnnouncementFlag flag,
                              .GetPlaylist(CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist())
                              .size());
     }
+
+    // Music properties
     if (g_application.CurrentFileItem().HasMusicInfoTag())
     {
       const auto& genre = g_application.CurrentFileItem().GetMusicInfoTag()->GetGenre();
       if (!genre.empty())
       {
         NSMutableArray* genreArray = [[NSMutableArray alloc] initWithCapacity:genre.size()];
-        for (auto genreItem : genre)
+        for (const auto& genreItem : genre)
         {
           [genreArray addObject:@(genreItem.c_str())];
         }
         item[@"genre"] = genreArray;
       }
     }
+
+    // Live TV properties
+    if (g_application.CurrentFileItem().IsPVRChannel())
+    {
+      auto epg_now = g_application.CurrentFileItem().GetPVRChannelInfoTag()->GetEPGNow();
+      if (epg_now)
+      {
+        auto epg_title = epg_now->Title();
+        if (!epg_title.empty())
+        {
+          // If we have the TV show name then use artist property
+          // to put the channel name and title field for the TV show name.
+          item[@"artist"] = @[item[@"title"]];
+          item[@"title"] = @(epg_title.c_str());
+        }
+        auto epg_icon = epg_now->ClientIconPath();
+        if (!epg_icon.empty())
+        {
+          // If we have the TV show icon, use it instead of the channel logo.
+          thumb = epg_icon;
+        }
+      }
+    }
+
+    // Thumb cache process
+    bool needsRecaching;
+    std::string cachedIcon(
+        CServiceBroker::GetTextureCache()->CheckCachedImage(thumb, needsRecaching));
+    if (cachedIcon.empty())
+    {
+      cachedIcon = CServiceBroker::GetTextureCache()->CacheImage(thumb);
+    }
+    std::string iconRealPath = CSpecialProtocol::TranslatePath(cachedIcon);
+    item[@"thumb"] = @(iconRealPath.c_str());
 
     dispatch_async(dispatch_get_main_queue(), ^{
       [g_xbmcController.MPNPInfoManager onPlay:item];
@@ -215,8 +245,8 @@ void CAnnounceReceiver::DeInitialize()
 }
 
 void CAnnounceReceiver::Announce(ANNOUNCEMENT::AnnouncementFlag flag,
-                                 const char* sender,
-                                 const char* message,
+                                 const std::string& sender,
+                                 const std::string& message,
                                  const CVariant& data)
 {
   // can be called from c++, we need an auto poll here.

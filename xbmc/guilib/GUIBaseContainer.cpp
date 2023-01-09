@@ -48,22 +48,65 @@ CGUIBaseContainer::CGUIBaseContainer(int parentID, int controlID, float posX, fl
   m_cacheItems = preloadItems;
   m_scrollItemsPerFrame = 0.0f;
   m_type = VIEW_TYPE_NONE;
-  m_listProvider = NULL;
   m_autoScrollMoveTime = 0;
   m_autoScrollDelayTime = 0;
   m_autoScrollIsReversed = false;
   m_lastRenderTime = 0;
 }
 
-CGUIBaseContainer::CGUIBaseContainer(const CGUIBaseContainer &) = default;
+CGUIBaseContainer::CGUIBaseContainer(const CGUIBaseContainer& other)
+  : IGUIContainer(other),
+    m_renderOffset(other.m_renderOffset),
+    m_analogScrollCount(other.m_analogScrollCount),
+    m_lastHoldTime(other.m_lastHoldTime),
+    m_orientation(other.m_orientation),
+    m_itemsPerPage(other.m_itemsPerPage),
+    m_pageControl(other.m_pageControl),
+    m_layoutCondition(other.m_layoutCondition),
+    m_focusedLayoutCondition(other.m_focusedLayoutCondition),
+    m_scroller(other.m_scroller),
+    m_listProvider(other.m_listProvider ? other.m_listProvider->Clone() : nullptr),
+    m_wasReset(other.m_wasReset),
+    m_letterOffsets(other.m_letterOffsets),
+    m_autoScrollCondition(other.m_autoScrollCondition),
+    m_autoScrollMoveTime(other.m_autoScrollMoveTime),
+    m_autoScrollDelayTime(other.m_autoScrollDelayTime),
+    m_autoScrollIsReversed(other.m_autoScrollIsReversed),
+    m_lastRenderTime(other.m_lastRenderTime),
+    m_cursor(other.m_cursor),
+    m_offset(other.m_offset),
+    m_cacheItems(other.m_cacheItems),
+    m_scrollTimer(other.m_scrollTimer),
+    m_lastScrollStartTimer(other.m_lastScrollStartTimer),
+    m_pageChangeTimer(other.m_pageChangeTimer),
+    m_clickActions(other.m_clickActions),
+    m_focusActions(other.m_focusActions),
+    m_unfocusActions(other.m_unfocusActions),
+    m_matchTimer(other.m_matchTimer),
+    m_match(other.m_match),
+    m_scrollItemsPerFrame(other.m_scrollItemsPerFrame),
+    m_gestureActive(other.m_gestureActive),
+    m_waitForScrollEnd(other.m_waitForScrollEnd),
+    m_lastScrollValue(other.m_lastScrollValue)
+{
+  // Initialize CGUIControl
+  m_bInvalidated = true;
+
+  for (const auto& item : other.m_items)
+    m_items.emplace_back(std::make_shared<CGUIListItem>(*item));
+
+  for (const auto& layout : other.m_layouts)
+    m_layouts.emplace_back(layout, this);
+
+  for (const auto& focusedLayout : other.m_focusedLayouts)
+    m_focusedLayouts.emplace_back(focusedLayout, this);
+}
 
 CGUIBaseContainer::~CGUIBaseContainer(void)
 {
   // release the container from items
-  for (auto item : m_items)
+  for (const auto& item : m_items)
     item->FreeMemory();
-
-  delete m_listProvider;
 }
 
 void CGUIBaseContainer::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
@@ -86,7 +129,8 @@ void CGUIBaseContainer::Process(unsigned int currentTime, CDirtyRegionList &dirt
   // update our auto-scrolling as necessary
   UpdateAutoScrolling(currentTime);
 
-  ValidateOffset();
+  if (!m_waitForScrollEnd && !m_gestureActive)
+    ValidateOffset();
 
   if (m_bInvalidated)
     UpdateLayout();
@@ -94,6 +138,9 @@ void CGUIBaseContainer::Process(unsigned int currentTime, CDirtyRegionList &dirt
   if (!m_layout || !m_focusedLayout) return;
 
   UpdateScrollOffset(currentTime);
+
+  if (m_scroller.IsScrolling())
+    MarkDirtyRegion();
 
   int offset = (int)floorf(m_scroller.GetValue() / m_layout->Size(m_orientation));
 
@@ -161,7 +208,7 @@ void CGUIBaseContainer::ProcessItem(float posX, float posY, CGUIListItemPtr& ite
   {
     if (!item->GetFocusedLayout())
     {
-      item->SetFocusedLayout(CGUIListItemLayoutPtr(new CGUIListItemLayout(*m_focusedLayout, this)));
+      item->SetFocusedLayout(std::make_unique<CGUIListItemLayout>(*m_focusedLayout, this));
     }
     if (item->GetFocusedLayout())
     {
@@ -187,8 +234,7 @@ void CGUIBaseContainer::ProcessItem(float posX, float posY, CGUIListItemPtr& ite
       item->GetFocusedLayout()->SetFocusedItem(0);  // focus is not set
     if (!item->GetLayout())
     {
-      CGUIListItemLayoutPtr layout(new CGUIListItemLayout(*m_layout));
-      layout->SetParentControl(this);
+      CGUIListItemLayoutPtr layout = std::make_unique<CGUIListItemLayout>(*m_layout, this);
       item->SetLayout(std::move(layout));
     }
     if (item->GetFocusedLayout())
@@ -293,9 +339,11 @@ void CGUIBaseContainer::RenderItem(float posX, float posY, CGUIListItem *item, b
 
 bool CGUIBaseContainer::OnAction(const CAction &action)
 {
-  if (action.GetID() >= KEY_ASCII)
+  if (action.GetID() == KEY_UNICODE)
   {
-    OnJumpLetter((char)(action.GetID() & 0xff));
+    std::string letter;
+    g_charsetConverter.wToUTF8({action.GetUnicode()}, letter);
+    OnJumpLetter(letter);
     return true;
   }
   // stop the timer on any other action
@@ -367,8 +415,20 @@ bool CGUIBaseContainer::OnAction(const CAction &action)
       return true;
     else if (action.GetID())
       return OnClick(action.GetID());
-    else
-      return false;
+
+    return false;
+
+  case ACTION_PLAYER_PLAY:
+    if (m_listProvider)
+    {
+      const int selected = GetSelectedItem();
+      if (selected >= 0 && selected < static_cast<int>(m_items.size()))
+      {
+        if (m_listProvider->OnPlay(m_items[selected]))
+          return true;
+      }
+    }
+    break;
 
   case ACTION_FIRST_PAGE:
     SelectItem(0);
@@ -461,6 +521,11 @@ bool CGUIBaseContainer::OnMessage(CGUIMessage& message)
     { // update our list contents
       for (unsigned int i = 0; i < m_items.size(); ++i)
         m_items[i]->SetInvalid();
+    }
+    else if (message.GetMessage() == GUI_MSG_REFRESH_THUMBS)
+    {
+      if (m_listProvider)
+        m_listProvider->FreeResources(true);
     }
     else if (message.GetMessage() == GUI_MSG_MOVE_OFFSET)
     {
@@ -559,12 +624,12 @@ void CGUIBaseContainer::OnPrevLetter()
   }
 }
 
-void CGUIBaseContainer::OnJumpLetter(char letter, bool skip /*=false*/)
+void CGUIBaseContainer::OnJumpLetter(const std::string& letter, bool skip /*=false*/)
 {
   if (m_matchTimer.GetElapsedMilliseconds() < letter_match_timeout)
-    m_match.push_back(letter);
+    m_match += letter;
   else
-    m_match = StringUtils::Format("%c", letter);
+    m_match = letter;
 
   m_matchTimer.StartZero();
 
@@ -581,15 +646,18 @@ void CGUIBaseContainer::OnJumpLetter(char letter, bool skip /*=false*/)
     std::string label = item->GetLabel();
     if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING))
       label = SortUtils::RemoveArticles(label);
-    if (0 == strnicmp(label.c_str(), m_match.c_str(), m_match.size()))
+    if (0 == StringUtils::CompareNoCase(label, m_match, m_match.size()))
     {
       SelectItem(i);
       return;
     }
     i = (i+1) % m_items.size();
   } while (i != offset);
+
   // no match found - repeat with a single letter
-  if (m_match.size() > 1)
+  std::wstring wmatch;
+  g_charsetConverter.utf8ToW(m_match, wmatch);
+  if (wmatch.length() > 1)
   {
     m_match.clear();
     OnJumpLetter(letter, true);
@@ -690,7 +758,8 @@ CGUIListItemLayout *CGUIBaseContainer::GetFocusedLayout() const
 bool CGUIBaseContainer::OnMouseOver(const CPoint &point)
 {
   // select the item under the pointer
-  SelectItemFromPoint(point - CPoint(m_posX, m_posY));
+  if (!m_waitForScrollEnd)
+    SelectItemFromPoint(point - CPoint(m_posX, m_posY));
   return CGUIControl::OnMouseOver(point);
 }
 
@@ -700,9 +769,13 @@ EVENT_RESULT CGUIBaseContainer::OnMouseEvent(const CPoint &point, const CMouseEv
       event.m_id == ACTION_MOUSE_DOUBLE_CLICK ||
       event.m_id == ACTION_MOUSE_RIGHT_CLICK)
   {
+    // Cancel touch
+    m_waitForScrollEnd = false;
+    int select = GetSelectedItem();
     if (SelectItemFromPoint(point - CPoint(m_posX, m_posY)))
     {
-      OnClick(event.m_id);
+      if (event.m_id != ACTION_MOUSE_RIGHT_CLICK || select == GetSelectedItem())
+        OnClick(event.m_id);
       return EVENT_RESULT_HANDLED;
     }
   }
@@ -718,10 +791,13 @@ EVENT_RESULT CGUIBaseContainer::OnMouseEvent(const CPoint &point, const CMouseEv
   }
   else if (event.m_id == ACTION_GESTURE_NOTIFY)
   {
+    m_waitForScrollEnd = true;
+    m_lastScrollValue = m_scroller.GetValue();
     return (m_orientation == HORIZONTAL) ? EVENT_RESULT_PAN_HORIZONTAL : EVENT_RESULT_PAN_VERTICAL;
   }
   else if (event.m_id == ACTION_GESTURE_BEGIN)
   { // grab exclusive access
+    m_gestureActive = true;
     CGUIMessage msg(GUI_MSG_EXCLUSIVE_MOUSE, GetID(), GetParentID());
     SendWindowMessage(msg);
     return EVENT_RESULT_HANDLED;
@@ -730,11 +806,27 @@ EVENT_RESULT CGUIBaseContainer::OnMouseEvent(const CPoint &point, const CMouseEv
   { // do the drag and validate our offset (corrects for end of scroll)
     m_scroller.SetValue(m_scroller.GetValue() - ((m_orientation == HORIZONTAL) ? event.m_offsetX : event.m_offsetY));
     float size = (m_layout) ? m_layout->Size(m_orientation) : 10.0f;
-    int offset = MathUtils::round_int(m_scroller.GetValue() / size);
+    int offset = MathUtils::round_int(static_cast<double>(m_scroller.GetValue() / size));
     m_lastScrollStartTimer.Stop();
     m_scrollTimer.Start();
+    const int absCursor = CorrectOffset(GetOffset(), GetCursor());
     SetOffset(offset);
     ValidateOffset();
+    // Notify Application if Inertial scrolling reaches lists end
+    if (m_waitForScrollEnd)
+    {
+      if (fabs(m_scroller.GetValue() - m_lastScrollValue) < 0.001f)
+      {
+        m_waitForScrollEnd = false;
+        return EVENT_RESULT_UNHANDLED;
+      }
+      else
+        m_lastScrollValue = m_scroller.GetValue();
+    }
+    else
+    {
+      CGUIBaseContainer::SetCursor(absCursor - CorrectOffset(GetOffset(), 0));
+    }
     return EVENT_RESULT_HANDLED;
   }
   else if (event.m_id == ACTION_GESTURE_END || event.m_id == ACTION_GESTURE_ABORT)
@@ -745,12 +837,17 @@ EVENT_RESULT CGUIBaseContainer::OnMouseEvent(const CPoint &point, const CMouseEv
     // and compute the nearest offset from this and scroll there
     float size = (m_layout) ? m_layout->Size(m_orientation) : 10.0f;
     float offset = m_scroller.GetValue() / size;
-    int toOffset = MathUtils::round_int(offset);
+    int toOffset = MathUtils::round_int(static_cast<double>(offset));
     if (toOffset < offset)
       SetOffset(toOffset+1);
     else
       SetOffset(toOffset-1);
     ScrollToOffset(toOffset);
+    ValidateOffset();
+    SetCursor(GetCursor());
+    SetFocus(true);
+    m_waitForScrollEnd = false;
+    m_gestureActive = false;
     return EVENT_RESULT_HANDLED;
   }
   return EVENT_RESULT_UNHANDLED;
@@ -810,7 +907,7 @@ std::string CGUIBaseContainer::GetDescription() const
   {
     CGUIListItemPtr pItem = m_items[item];
     if (pItem->m_bIsFolder)
-      strLabel = StringUtils::Format("[%s]", pItem->GetLabel().c_str());
+      strLabel = StringUtils::Format("[{}]", pItem->GetLabel());
     else
       strLabel = pItem->GetLabel();
   }
@@ -1102,7 +1199,7 @@ void CGUIBaseContainer::ResetAutoScrolling()
 
 void CGUIBaseContainer::UpdateAutoScrolling(unsigned int currentTime)
 {
-  if (m_autoScrollCondition && m_autoScrollCondition->Get())
+  if (m_autoScrollCondition && m_autoScrollCondition->Get(INFO::DEFAULT_CONTEXT))
   {
     if (m_lastRenderTime)
       m_autoScrollDelayTime += currentTime - m_lastRenderTime;
@@ -1131,6 +1228,7 @@ void CGUIBaseContainer::UpdateScrollOffset(unsigned int currentTime)
   {
     m_scrollTimer.Stop();
     m_lastScrollStartTimer.Stop();
+    SetCursor(GetCursor());
   }
 }
 
@@ -1169,16 +1267,14 @@ void CGUIBaseContainer::LoadLayout(TiXmlElement *layout)
 
 void CGUIBaseContainer::LoadListProvider(TiXmlElement *content, int defaultItem, bool defaultAlways)
 {
-  delete m_listProvider;
   m_listProvider = IListProvider::Create(content, GetParentID());
   if (m_listProvider)
     m_listProvider->SetDefaultItem(defaultItem, defaultAlways);
 }
 
-void CGUIBaseContainer::SetListProvider(IListProvider *provider)
+void CGUIBaseContainer::SetListProvider(std::unique_ptr<IListProvider> provider)
 {
-  delete m_listProvider;
-  m_listProvider = provider;
+  m_listProvider = std::move(provider);
   UpdateListProvider(true);
 }
 
@@ -1215,7 +1311,7 @@ bool CGUIBaseContainer::InsideLayout(const CGUIListItemLayout *layout, const CPo
 #ifdef _DEBUG
 void CGUIBaseContainer::DumpTextureUse()
 {
-  CLog::Log(LOGDEBUG, "%s for container %u", __FUNCTION__, GetID());
+  CLog::Log(LOGDEBUG, "{} for container {}", __FUNCTION__, GetID());
   for (unsigned int i = 0; i < m_items.size(); ++i)
   {
     CGUIListItemPtr item = m_items[i];
@@ -1298,20 +1394,20 @@ std::string CGUIBaseContainer::GetLabel(int info) const
   switch (info)
   {
   case CONTAINER_NUM_PAGES:
-    label = StringUtils::Format("%u", (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage);
+    label = std::to_string((GetRows() + m_itemsPerPage - 1) / m_itemsPerPage);
     break;
   case CONTAINER_CURRENT_PAGE:
-    label = StringUtils::Format("%u", GetCurrentPage());
+    label = std::to_string(GetCurrentPage());
     break;
   case CONTAINER_POSITION:
-    label = StringUtils::Format("%i", GetCursor());
+    label = std::to_string(GetCursor());
     break;
   case CONTAINER_CURRENT_ITEM:
     {
       if (m_items.size() && m_items[0]->IsFileItem() && (std::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder())
-        label = StringUtils::Format("%i", GetSelectedItem());
+        label = std::to_string(GetSelectedItem());
       else
-        label = StringUtils::Format("%i", GetSelectedItem() + 1);
+        label = std::to_string(GetSelectedItem() + 1);
     }
     break;
   case CONTAINER_NUM_ALL_ITEMS:
@@ -1319,20 +1415,20 @@ std::string CGUIBaseContainer::GetLabel(int info) const
     {
       unsigned int numItems = GetNumItems();
       if (info == CONTAINER_NUM_ITEMS && numItems && m_items[0]->IsFileItem() && (std::static_pointer_cast<CFileItem>(m_items[0]))->IsParentFolder())
-        label = StringUtils::Format("%u", numItems-1);
+        label = std::to_string(numItems - 1);
       else
-        label = StringUtils::Format("%u", numItems);
+        label = std::to_string(numItems);
     }
     break;
   case CONTAINER_NUM_NONFOLDER_ITEMS:
     {
       int numItems = 0;
-      for (auto item : m_items)
+      for (const auto& item : m_items)
       {
         if (!item->m_bIsFolder)
           numItems++;
       }
-      label = StringUtils::Format("%u", numItems);
+      label = std::to_string(numItems);
     }
     break;
   default:

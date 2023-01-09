@@ -14,6 +14,7 @@
 #include <memory>
 #include <queue>
 #include <string>
+#include <utility>
 
 class CEvent;
 
@@ -31,9 +32,10 @@ class CPayloadWrap : public CPayloadWrapBase
 {
 public:
   ~CPayloadWrap() override = default;
-  CPayloadWrap(Payload *data) {m_pPayload.reset(data);};
-  CPayloadWrap(Payload &data) {m_pPayload.reset(new Payload(data));};
-  Payload *GetPlayload() {return m_pPayload.get();};
+  CPayloadWrap(Payload* data) { m_pPayload.reset(data); }
+  CPayloadWrap(Payload& data) { m_pPayload.reset(new Payload(data)); }
+  Payload* GetPlayload() { return m_pPayload.get(); }
+
 protected:
   std::unique_ptr<Payload> m_pPayload;
 };
@@ -71,10 +73,11 @@ private:
 class Protocol
 {
 public:
-  Protocol(std::string name, CEvent* inEvent, CEvent *outEvent)
-    :portName(name), containerInEvent(inEvent), containerOutEvent(outEvent) {}
-  Protocol(std::string name)
-    : Protocol(name, nullptr, nullptr) {}
+  Protocol(std::string name, CEvent* inEvent, CEvent* outEvent)
+    : portName(std::move(name)), containerInEvent(inEvent), containerOutEvent(outEvent)
+  {
+  }
+  Protocol(std::string name) : Protocol(std::move(name), nullptr, nullptr) {}
   ~Protocol();
   Message *GetMessage();
   void ReturnMessage(Message *msg);
@@ -96,10 +99,10 @@ public:
   void Purge();
   void PurgeIn(int signal);
   void PurgeOut(int signal);
-  void DeferIn(bool value) {inDefered = value;};
-  void DeferOut(bool value) {outDefered = value;};
-  void Lock() {criticalSection.lock();};
-  void Unlock() {criticalSection.unlock();};
+  void DeferIn(bool value) { inDefered = value; }
+  void DeferOut(bool value) { outDefered = value; }
+  void Lock() { criticalSection.lock(); }
+  void Unlock() { criticalSection.unlock(); }
   std::string portName;
 
 protected:

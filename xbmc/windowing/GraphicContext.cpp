@@ -8,9 +8,10 @@
 
 #include "GraphicContext.h"
 
-#include "Application.h"
 #include "ServiceBroker.h"
 #include "WinSystem.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/TextureManager.h"
@@ -26,11 +27,10 @@
 #include "utils/log.h"
 
 #include <cassert>
+#include <mutex>
 
-using namespace KODI::MESSAGING;
-
-CGraphicContext::CGraphicContext(void) = default;
-CGraphicContext::~CGraphicContext(void) = default;
+CGraphicContext::CGraphicContext() = default;
+CGraphicContext::~CGraphicContext() = default;
 
 void CGraphicContext::SetOrigin(float x, float y)
 {
@@ -318,13 +318,15 @@ void CGraphicContext::SetViewWindow(float left, float top, float right, float bo
 
 void CGraphicContext::SetFullScreenVideo(bool bOnOff)
 {
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   m_bFullScreenVideo = bOnOff;
 
   if (m_bFullScreenRoot)
   {
     bool bTriggerUpdateRes = false;
+    auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
     if (m_bFullScreenVideo)
       bTriggerUpdateRes = true;
     else
@@ -332,20 +334,20 @@ void CGraphicContext::SetFullScreenVideo(bool bOnOff)
       bool allowDesktopRes = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE) == ADJUST_REFRESHRATE_ALWAYS;
       if (!allowDesktopRes)
       {
-        if (g_application.GetAppPlayer().IsPlayingVideo())
+        if (appPlayer->IsPlayingVideo())
           bTriggerUpdateRes = true;
       }
     }
-    
+
     bool allowResolutionChangeOnStop = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE) != ADJUST_REFRESHRATE_ON_START;
     RESOLUTION targetResolutionOnStop = RES_DESKTOP;
     if (bTriggerUpdateRes)
-      g_application.GetAppPlayer().TriggerUpdateResolution();
+      appPlayer->TriggerUpdateResolution();
     else if (CDisplaySettings::GetInstance().GetCurrentResolution() > RES_DESKTOP)
     {
       targetResolutionOnStop = CDisplaySettings::GetInstance().GetCurrentResolution();
     }
-    
+
     if (allowResolutionChangeOnStop && !bTriggerUpdateRes)
     {
       SetVideoResolution(targetResolutionOnStop, false);
@@ -383,13 +385,13 @@ bool CGraphicContext::IsValidResolution(RESOLUTION res)
 // call SetVideoResolutionInternal and ensure its done from mainthread
 void CGraphicContext::SetVideoResolution(RESOLUTION res, bool forceUpdate)
 {
-  if (g_application.IsCurrentThread())
+  if (CServiceBroker::GetAppMessenger()->IsProcessThread())
   {
     SetVideoResolutionInternal(res, forceUpdate);
   }
   else
   {
-    CApplicationMessenger::GetInstance().SendMsg(TMSG_SETVIDEORESOLUTION, res, forceUpdate ? 1 : 0);
+    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_SETVIDEORESOLUTION, res, forceUpdate ? 1 : 0);
   }
 }
 
@@ -420,7 +422,7 @@ void CGraphicContext::SetVideoResolutionInternal(RESOLUTION res, bool forceUpdat
     m_bFullScreenRoot = false;
   }
 
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   // FIXME Wayland windowing needs some way to "deny" resolution updates since what Kodi
   // requests might not get actually set by the compositor.
@@ -490,7 +492,8 @@ void CGraphicContext::ApplyVideoResolution(RESOLUTION res)
 {
   if (!IsValidResolution(res))
   {
-    CLog::LogF(LOGWARNING, "Asked to apply invalid resolution %d, falling back to RES_DESKTOP", res);
+    CLog::LogF(LOGWARNING, "Asked to apply invalid resolution {}, falling back to RES_DESKTOP",
+               res);
     res = RES_DESKTOP;
   }
 
@@ -505,7 +508,7 @@ void CGraphicContext::ApplyVideoResolution(RESOLUTION res)
     m_bFullScreenRoot = false;
   }
 
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   UpdateInternalStateWithResolution(res);
 
@@ -570,22 +573,14 @@ void CGraphicContext::ResetScreenParameters(RESOLUTION res)
 {
   RESOLUTION_INFO& info = CDisplaySettings::GetInstance().GetResolutionInfo(res);
 
-  switch (res)
-  {
-  case RES_WINDOW:
-    info.iSubtitles = (int)(0.965 * info.iHeight);
-    info.fPixelRatio = 1.0;
-    break;
-  default:
-    break;
-  }
-
-  info.iScreenWidth  = info.iWidth;
+  info.iSubtitles = info.iHeight;
+  info.fPixelRatio = 1.0f;
+  info.iScreenWidth = info.iWidth;
   info.iScreenHeight = info.iHeight;
   ResetOverscan(res, info.Overscan);
 }
 
-void CGraphicContext::Clear(UTILS::Color color)
+void CGraphicContext::Clear(UTILS::COLOR::Color color)
 {
   CServiceBroker::GetRenderSystem()->ClearBuffers(color);
 }
@@ -645,12 +640,13 @@ void CGraphicContext::SetResInfo(RESOLUTION res, const RESOLUTION_INFO& info)
   curr.Overscan   = info.Overscan;
   curr.iSubtitles = info.iSubtitles;
   curr.fPixelRatio = info.fPixelRatio;
+  curr.guiInsets = info.guiInsets;
 
   if(info.dwFlags & D3DPRESENTFLAG_MODE3DSBS)
   {
     curr.Overscan.right  = info.Overscan.right  * 2 + info.iBlanking;
     if((curr.dwFlags & D3DPRESENTFLAG_MODE3DSBS) == 0)
-      curr.fPixelRatio  /= 2.0;
+      curr.fPixelRatio /= 2.0f;
   }
 
   if(info.dwFlags & D3DPRESENTFLAG_MODE3DTB)
@@ -658,7 +654,7 @@ void CGraphicContext::SetResInfo(RESOLUTION res, const RESOLUTION_INFO& info)
     curr.Overscan.bottom = info.Overscan.bottom * 2 + info.iBlanking;
     curr.iSubtitles      = info.iSubtitles      * 2 + info.iBlanking;
     if((curr.dwFlags & D3DPRESENTFLAG_MODE3DTB) == 0)
-      curr.fPixelRatio  *= 2.0;
+      curr.fPixelRatio *= 2.0f;
   }
 }
 
@@ -675,10 +671,10 @@ void CGraphicContext::GetGUIScaling(const RESOLUTION_INFO &res, float &scaleX, f
     RESOLUTION_INFO info = GetResInfo();
     float fFromWidth  = (float)res.iWidth;
     float fFromHeight = (float)res.iHeight;
-    float fToPosX     = (float)info.Overscan.left;
-    float fToPosY     = (float)info.Overscan.top;
-    float fToWidth    = (float)info.Overscan.right  - fToPosX;
-    float fToHeight   = (float)info.Overscan.bottom - fToPosY;
+    auto fToPosX = info.Overscan.left + info.guiInsets.left;
+    auto fToPosY = info.Overscan.top + info.guiInsets.top;
+    auto fToWidth = info.Overscan.right - info.guiInsets.right - fToPosX;
+    auto fToHeight = info.Overscan.bottom - info.guiInsets.bottom - fToPosY;
 
     float fZoom = (100 + CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_LOOKANDFEEL_SKINZOOM)) * 0.01f;
 
@@ -711,8 +707,6 @@ void CGraphicContext::GetGUIScaling(const RESOLUTION_INFO &res, float &scaleX, f
 
 void CGraphicContext::SetScalingResolution(const RESOLUTION_INFO &res, bool needsScaling)
 {
-  CSingleLock lock(*this);
-
   m_windowResolution = res;
   if (needsScaling && m_Resolution != RES_INVALID)
     GetGUIScaling(res, m_guiTransform.scaleX, m_guiTransform.scaleY, &m_guiTransform.matrix);
@@ -738,7 +732,7 @@ void CGraphicContext::SetScalingResolution(const RESOLUTION_INFO &res, bool need
 
 void CGraphicContext::SetRenderingResolution(const RESOLUTION_INFO &res, bool needsScaling)
 {
-  CSingleLock lock(*this);
+  std::unique_lock<CCriticalSection> lock(*this);
 
   SetScalingResolution(res, needsScaling);
   UpdateCameraPosition(m_cameras.top(), m_stereoFactors.top());
@@ -907,11 +901,16 @@ float CGraphicContext::GetGUIScaleY() const
   return m_finalTransform.scaleY;
 }
 
-UTILS::Color CGraphicContext::MergeAlpha(UTILS::Color color) const
+UTILS::COLOR::Color CGraphicContext::MergeAlpha(UTILS::COLOR::Color color) const
 {
-  UTILS::Color alpha = m_finalTransform.matrix.TransformAlpha((color >> 24) & 0xff);
+  UTILS::COLOR::Color alpha = m_finalTransform.matrix.TransformAlpha((color >> 24) & 0xff);
   if (alpha > 255) alpha = 255;
   return ((alpha << 24) & 0xff000000) | (color & 0xffffff);
+}
+
+UTILS::COLOR::Color CGraphicContext::MergeColor(UTILS::COLOR::Color color) const
+{
+  return m_finalTransform.matrix.TransformColor(color);
 }
 
 int CGraphicContext::GetWidth() const

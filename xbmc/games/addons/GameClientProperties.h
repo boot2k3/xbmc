@@ -8,14 +8,20 @@
 
 #pragma once
 
-#include "addons/Addon.h"
-#include "addons/kodi-addon-dev-kit/include/kodi/addon-instance/Game.h"
+#include "addons/kodi-dev-kit/include/kodi/addon-instance/Game.h"
 #include "games/GameTypes.h"
 
 #include <string>
 #include <vector>
 
 struct AddonProps_Game;
+
+namespace ADDON
+{
+class IAddon;
+using AddonPtr = std::shared_ptr<IAddon>;
+using VECADDONS = std::vector<AddonPtr>;
+} // namespace ADDON
 
 namespace KODI
 {
@@ -46,7 +52,7 @@ private:
   const char* GetLibraryPath(void);
 
   // List of proxy DLLs needed to load the game client
-  const char** GetProxyDllPaths(const ADDON::VECADDONS &addons);
+  const char** GetProxyDllPaths(const ADDON::VECADDONS& addons);
 
   // Number of proxy DLLs needed to load the game client
   unsigned int GetProxyDllCount(void) const;
@@ -67,7 +73,7 @@ private:
   unsigned int GetExtensionCount(void) const;
 
   // Helper functions
-  bool GetProxyAddons(ADDON::VECADDONS &addons);
+  bool GetProxyAddons(ADDON::VECADDONS& addons);
   void AddProxyDll(const GameClientPtr& gameClient);
   bool HasProxyDll(const std::string& strLibPath) const;
 
@@ -76,10 +82,10 @@ private:
   AddonProps_Game& m_properties;
 
   // Buffers to hold the strings
-  std::string        m_strLibraryPath;
+  std::string m_strLibraryPath;
   std::vector<char*> m_proxyDllPaths;
   std::vector<char*> m_resourceDirectories;
-  std::string        m_strProfileDirectory;
+  std::string m_strProfileDirectory;
   std::vector<char*> m_extensions;
 };
 

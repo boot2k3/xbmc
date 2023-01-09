@@ -11,22 +11,20 @@
 #include "ServiceBroker.h"
 #include "addons/AddonInstaller.h"
 #include "addons/AddonManager.h"
-#include "filesystem/File.h"
+#include "addons/addoninfo/AddonType.h"
 #include "interfaces/builtins/Builtins.h"
-#include "messaging/helpers/DialogHelper.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "threads/SingleLock.h"
+#include "utils/FileUtils.h"
 #include "utils/RssReader.h"
 #include "utils/StringUtils.h"
-#include "utils/Variant.h"
 #include "utils/log.h"
 
+#include <mutex>
 #include <utility>
 
-using namespace XFILE;
 using namespace KODI::MESSAGING;
 
 
@@ -56,7 +54,7 @@ void CRssManager::OnSettingsUnloaded()
   Clear();
 }
 
-void CRssManager::OnSettingAction(std::shared_ptr<const CSetting> setting)
+void CRssManager::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
 {
   if (setting == NULL)
     return;
@@ -65,9 +63,11 @@ void CRssManager::OnSettingAction(std::shared_ptr<const CSetting> setting)
   if (settingId == CSettings::SETTING_LOOKANDFEEL_RSSEDIT)
   {
     ADDON::AddonPtr addon;
-    if (!CServiceBroker::GetAddonMgr().GetAddon("script.rss.editor", addon))
+    if (!CServiceBroker::GetAddonMgr().GetAddon("script.rss.editor", addon,
+                                                ADDON::OnlyEnabled::CHOICE_YES))
     {
-      if (!CAddonInstaller::GetInstance().InstallModal("script.rss.editor", addon))
+      if (!ADDON::CAddonInstaller::GetInstance().InstallModal(
+              "script.rss.editor", addon, ADDON::InstallModalPrompt::CHOICE_YES))
         return;
     }
     CBuiltins::GetInstance().Execute("RunScript(script.rss.editor)");
@@ -81,7 +81,7 @@ void CRssManager::Start()
 
 void CRssManager::Stop()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   m_bActive = false;
   for (unsigned int i = 0; i < m_readers.size(); i++)
   {
@@ -95,23 +95,24 @@ bool CRssManager::Load()
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   std::string rssXML = profileManager->GetUserDataItem("RssFeeds.xml");
-  if (!CFile::Exists(rssXML))
+  if (!CFileUtils::Exists(rssXML))
     return false;
 
   CXBMCTinyXML rssDoc;
   if (!rssDoc.LoadFile(rssXML))
   {
-    CLog::Log(LOGERROR, "CRssManager: error loading %s, Line %d\n%s", rssXML.c_str(), rssDoc.ErrorRow(), rssDoc.ErrorDesc());
+    CLog::Log(LOGERROR, "CRssManager: error loading {}, Line {}\n{}", rssXML, rssDoc.ErrorRow(),
+              rssDoc.ErrorDesc());
     return false;
   }
 
   const TiXmlElement *pRootElement = rssDoc.RootElement();
   if (pRootElement == NULL || !StringUtils::EqualsNoCase(pRootElement->ValueStr(), "rssfeeds"))
   {
-    CLog::Log(LOGERROR, "CRssManager: error loading %s, no <rssfeeds> node", rssXML.c_str());
+    CLog::Log(LOGERROR, "CRssManager: error loading {}, no <rssfeeds> node", rssXML);
     return false;
   }
 
@@ -123,7 +124,8 @@ bool CRssManager::Load()
     if (pSet->QueryIntAttribute("id", &iId) == TIXML_SUCCESS)
     {
       RssSet set;
-      set.rtl = pSet->Attribute("rtl") != NULL && strcasecmp(pSet->Attribute("rtl"), "true") == 0;
+      set.rtl = pSet->Attribute("rtl") != NULL &&
+                StringUtils::CompareNoCase(pSet->Attribute("rtl"), "true") == 0;
       const TiXmlElement* pFeed = pSet->FirstChildElement("feed");
       while (pFeed != NULL)
       {
@@ -168,14 +170,14 @@ bool CRssManager::Reload()
 
 void CRssManager::Clear()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   m_mapRssUrls.clear();
 }
 
 // returns true if the reader doesn't need creating, false otherwise
 bool CRssManager::GetReader(int controlID, int windowID, IRssObserver* observer, CRssReader *&reader)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   // check to see if we've already created this reader
   for (unsigned int i = 0; i < m_readers.size(); i++)
   {

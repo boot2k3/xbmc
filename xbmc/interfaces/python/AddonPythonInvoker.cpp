@@ -19,7 +19,6 @@
 #define RUNSCRIPT_PREAMBLE \
         "" \
         "import " MODULE "\n" \
-        "xbmc.abortRequested = False\n" \
         "class xbmcout:\n" \
         "  def __init__(self, loglevel=" MODULE ".LOGDEBUG):\n" \
         "    self.ll=loglevel\n" \
@@ -47,6 +46,12 @@
   "sys.modules['pkg_resources'] = pkg_resources\n" \
   ""
 
+#define RUNSCRIPT_SETUP_ENVIROMENT_VARIABLES \
+  "" \
+  "from os import environ\n" \
+  "environ['SSL_CERT_FILE'] = 'system/certs/cacert.pem'\n" \
+  ""
+
 #define RUNSCRIPT_POSTSCRIPT \
         "print('-->Python Interpreter Initialized<--')\n" \
         ""
@@ -55,6 +60,11 @@
 
 #define RUNSCRIPT_COMPLIANT \
   RUNSCRIPT_PREAMBLE RUNSCRIPT_SETUPTOOLS_HACK RUNSCRIPT_POSTSCRIPT
+
+#elif defined(TARGET_WINDOWS_STORE)
+
+#define RUNSCRIPT_COMPLIANT \
+  RUNSCRIPT_PREAMBLE RUNSCRIPT_SETUP_ENVIROMENT_VARIABLES RUNSCRIPT_POSTSCRIPT
 
 #else
 

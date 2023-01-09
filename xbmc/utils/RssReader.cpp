@@ -19,16 +19,18 @@
 #include "network/Network.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SingleLock.h"
 #include "threads/SystemClock.h"
 #include "utils/HTMLUtil.h"
 #include "utils/XTimeUtils.h"
+
+#include <mutex>
 
 #define RSS_COLOR_BODY      0
 #define RSS_COLOR_HEADLINE  1
 #define RSS_COLOR_CHANNEL   2
 
 using namespace XFILE;
+using namespace std::chrono_literals;
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -55,7 +57,7 @@ CRssReader::~CRssReader()
 
 void CRssReader::Create(IRssObserver* aObserver, const std::vector<std::string>& aUrls, const std::vector<int> &times, int spacesBetweenFeeds, bool rtl)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
 
   m_pObserver = aObserver;
   m_spacesBetweenFeeds = spacesBetweenFeeds;
@@ -84,7 +86,7 @@ void CRssReader::requestRefresh()
 
 void CRssReader::AddToQueue(int iAdd)
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   if (iAdd < (int)m_vecUrls.size())
     m_vecQueue.push_back(iAdd);
   if (!m_bIsRunning)
@@ -102,7 +104,7 @@ void CRssReader::OnExit()
 
 int CRssReader::GetQueueSize()
 {
-  CSingleLock lock(m_critical);
+  std::unique_lock<CCriticalSection> lock(m_critical);
   return m_vecQueue.size();
 }
 
@@ -110,7 +112,7 @@ void CRssReader::Process()
 {
   while (GetQueueSize())
   {
-    CSingleLock lock(m_critical);
+    std::unique_lock<CCriticalSection> lock(m_critical);
 
     int iFeed = m_vecQueue.front();
     m_vecQueue.erase(m_vecQueue.begin());
@@ -123,7 +125,7 @@ void CRssReader::Process()
     http.SetTimeout(2);
     std::string strXML;
     std::string strUrl = m_vecUrls[iFeed];
-    lock.Leave();
+    lock.unlock();
 
     int nRetries = 3;
     CURL url(strUrl);
@@ -138,12 +140,12 @@ void CRssReader::Process()
     }
     else
     {
-      XbmcThreads::EndTime timeout(15000);
+      XbmcThreads::EndTime<> timeout(15s);
       while (!m_bStop && nRetries > 0)
       {
         if (timeout.IsTimePast())
         {
-          CLog::Log(LOGERROR, "Timeout while retrieving rss feed: %s", strUrl.c_str());
+          CLog::Log(LOGERROR, "Timeout while retrieving rss feed: {}", strUrl);
           break;
         }
         nRetries--;
@@ -151,10 +153,10 @@ void CRssReader::Process()
         if (!url.IsProtocol("http") && !url.IsProtocol("https"))
         {
           CFile file;
-          auto_buffer buffer;
+          std::vector<uint8_t> buffer;
           if (file.LoadFile(strUrl, buffer) > 0)
           {
-            strXML.assign(buffer.get(), buffer.length());
+            strXML.assign(reinterpret_cast<char*>(buffer.data()), buffer.size());
             break;
           }
         }
@@ -163,13 +165,13 @@ void CRssReader::Process()
           if (http.Get(strUrl, strXML))
           {
             fileCharset = http.GetProperty(XFILE::FILE_PROPERTY_CONTENT_CHARSET);
-            CLog::Log(LOGDEBUG, "Got rss feed: %s", strUrl.c_str());
+            CLog::Log(LOGDEBUG, "Got rss feed: {}", strUrl);
             break;
           }
           else if (nRetries > 0)
-            CThread::Sleep(5000); // Network problems? Retry, but not immediately.
+            CThread::Sleep(5000ms); // Network problems? Retry, but not immediately.
           else
-            CLog::Log(LOGERROR, "Unable to obtain rss feed: %s", strUrl.c_str());
+            CLog::Log(LOGERROR, "Unable to obtain rss feed: {}", strUrl);
         }
       }
       http.Cancel();
@@ -191,7 +193,7 @@ void CRssReader::Process()
       }
 
       if (Parse(strXML, iFeed, fileCharset))
-        CLog::Log(LOGDEBUG, "Parsed rss feed: %s", strUrl.c_str());
+        CLog::Log(LOGDEBUG, "Parsed rss feed: {}", strUrl);
     }
   }
   UpdateObserver();
@@ -310,7 +312,7 @@ bool CRssReader::Parse(const std::string& data, int iFeed, const std::string& ch
   m_xml.Clear();
   m_xml.Parse(data, charset);
 
-  CLog::Log(LOGDEBUG, "RSS feed encoding: %s", m_xml.GetUsedCharset().c_str());
+  CLog::Log(LOGDEBUG, "RSS feed encoding: {}", m_xml.GetUsedCharset());
 
   return Parse(iFeed);
 }
@@ -385,7 +387,7 @@ void CRssReader::UpdateObserver()
   getFeed(feed);
   if (!feed.empty())
   {
-    CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
     if (m_pObserver) // need to check again when locked to make sure observer wasnt removed
       m_pObserver->OnFeedUpdate(feed);
   }

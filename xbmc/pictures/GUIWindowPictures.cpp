@@ -8,21 +8,24 @@
 
 #include "GUIWindowPictures.h"
 
-#include "Application.h"
 #include "Autorun.h"
+#include "FileItem.h"
 #include "GUIDialogPictureInfo.h"
 #include "GUIPassword.h"
 #include "GUIWindowSlideShow.h"
 #include "PictureInfoLoader.h"
-#include "PlayListPlayer.h"
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "Util.h"
-#include "addons/GUIDialogAddonInfo.h"
+#include "addons/gui/GUIDialogAddonInfo.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "dialogs/GUIDialogMediaSource.h"
 #include "dialogs/GUIDialogProgress.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
+#include "input/actions/ActionIDs.h"
 #include "interfaces/AnnouncementManager.h"
 #include "media/MediaLockState.h"
 #include "messaging/helpers/DialogOKHelper.h"
@@ -31,7 +34,6 @@
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SystemClock.h"
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -40,14 +42,13 @@
 #include "utils/log.h"
 #include "view/GUIViewState.h"
 
-#define CONTROL_BTNVIEWASICONS      2
-#define CONTROL_BTNSORTBY           3
 #define CONTROL_BTNSORTASC          4
 #define CONTROL_LABELFILES         12
 
 using namespace XFILE;
-using namespace PLAYLIST;
 using namespace KODI::MESSAGING;
+
+using namespace std::chrono_literals;
 
 #define CONTROL_BTNSLIDESHOW   6
 #define CONTROL_BTNSLIDESHOW_RECURSIVE   7
@@ -202,15 +203,16 @@ void CGUIWindowPictures::OnPrepareFileItems(CFileItemList& items)
   bool bShowProgress = !CServiceBroker::GetGUI()->GetWindowManager().HasModalDialog(true);
   bool bProgressVisible = false;
 
-  unsigned int tick=XbmcThreads::SystemClockMillis();
+  auto start = std::chrono::steady_clock::now();
 
   while (loader.IsLoading() && m_dlgProgress && !m_dlgProgress->IsCanceled())
   {
     if (bShowProgress)
     { // Do we have to init a progress dialog?
-      unsigned int elapsed=XbmcThreads::SystemClockMillis()-tick;
+      auto end = std::chrono::steady_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-      if (!bProgressVisible && elapsed>1500 && m_dlgProgress)
+      if (!bProgressVisible && duration.count() > 1500 && m_dlgProgress)
       { // tag loading takes more then 1.5 secs, show a progress dialog
         CURL url(items.GetPath());
 
@@ -228,7 +230,7 @@ void CGUIWindowPictures::OnPrepareFileItems(CFileItemList& items)
         m_dlgProgress->Progress();
       }
     } // if (bShowProgress)
-    KODI::TIME::Sleep(1);
+    KODI::TIME::Sleep(1ms);
   } // while (loader.IsLoading())
 
   if (bProgressVisible && m_dlgProgress)
@@ -315,12 +317,14 @@ bool CGUIWindowPictures::ShowPicture(int iItem, bool startSlideShow)
   CGUIWindowSlideShow *pSlideShow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
   if (!pSlideShow)
     return false;
-  if (g_application.GetAppPlayer().IsPlayingVideo())
+  const auto& components = CServiceBroker::GetAppComponents();
+  const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+  if (appPlayer->IsPlayingVideo())
     g_application.StopPlaying();
 
   pSlideShow->Reset();
   bool bShowVideos = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_PICTURES_SHOWVIDEOS);
-  for (const auto pItem : *m_vecItems)
+  for (const auto& pItem : *m_vecItems)
   {
     if (!pItem->m_bIsFolder &&
         !(URIUtils::IsRAR(pItem->GetPath()) || URIUtils::IsZIP(pItem->GetPath())) &&
@@ -341,8 +345,9 @@ bool CGUIWindowPictures::ShowPicture(int iItem, bool startSlideShow)
   {
     CVariant param;
     param["player"]["speed"] = 1;
-    param["player"]["playerid"] = PLAYLIST_PICTURE;
-    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "xbmc", "OnPlay", pSlideShow->GetCurrentSlide(), param);
+    param["player"]["playerid"] = PLAYLIST::TYPE_PICTURE;
+    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnPlay",
+                                                       pSlideShow->GetCurrentSlide(), param);
   }
 
   m_slideShowStarted = true;
@@ -357,7 +362,9 @@ void CGUIWindowPictures::OnShowPictureRecursive(const std::string& strPath)
   if (pSlideShow)
   {
     // stop any video
-    if (g_application.GetAppPlayer().IsPlayingVideo())
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPlayingVideo())
       g_application.StopPlaying();
 
     SortDescription sorting = m_guiState->GetSortMethod();
@@ -397,7 +404,6 @@ void CGUIWindowPictures::OnSlideShowRecursive(const std::string &strPicture)
 
 void CGUIWindowPictures::OnSlideShowRecursive()
 {
-  std::string strEmpty = "";
   OnSlideShowRecursive(m_vecItems->GetPath());
 }
 
@@ -530,8 +536,10 @@ void CGUIWindowPictures::OnItemLoaded(CFileItem *pItem)
 
 void CGUIWindowPictures::LoadPlayList(const std::string& strPlayList)
 {
-  CLog::Log(LOGDEBUG,"CGUIWindowPictures::LoadPlayList()... converting playlist into slideshow: %s", strPlayList.c_str());
-  std::unique_ptr<CPlayList> pPlayList (CPlayListFactory::Create(strPlayList));
+  CLog::Log(LOGDEBUG,
+            "CGUIWindowPictures::LoadPlayList()... converting playlist into slideshow: {}",
+            strPlayList);
+  std::unique_ptr<PLAYLIST::CPlayList> pPlayList(PLAYLIST::CPlayListFactory::Create(strPlayList));
   if (nullptr != pPlayList)
   {
     if (!pPlayList->Load(strPlayList))
@@ -541,14 +549,16 @@ void CGUIWindowPictures::LoadPlayList(const std::string& strPlayList)
     }
   }
 
-  CPlayList playlist = *pPlayList;
+  PLAYLIST::CPlayList playlist = *pPlayList;
   if (playlist.size() > 0)
   {
     // set up slideshow
     CGUIWindowSlideShow *pSlideShow = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIWindowSlideShow>(WINDOW_SLIDESHOW);
     if (!pSlideShow)
       return;
-    if (g_application.GetAppPlayer().IsPlayingVideo())
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (appPlayer->IsPlayingVideo())
       g_application.StopPlaying();
 
     // convert playlist items into slideshow items
@@ -556,7 +566,7 @@ void CGUIWindowPictures::LoadPlayList(const std::string& strPlayList)
     for (int i = 0; i < playlist.size(); ++i)
     {
       CFileItemPtr pItem = playlist[i];
-      //CLog::Log(LOGDEBUG,"-- playlist item: %s", pItem->GetPath().c_str());
+      //CLog::Log(LOGDEBUG,"-- playlist item: {}", pItem->GetPath());
       if (pItem->IsPicture() && !(pItem->IsZIP() || pItem->IsRAR() || pItem->IsCBZ() || pItem->IsCBR()))
         pSlideShow->Add(pItem.get());
     }

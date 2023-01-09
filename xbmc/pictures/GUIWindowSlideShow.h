@@ -30,7 +30,7 @@ public:
 
   void Create(CGUIWindowSlideShow *pCallback);
   void LoadPic(int iPic, int iSlideNumber, const std::string &strFileName, const int maxWidth, const int maxHeight);
-  bool IsLoading() { return m_isLoading;};
+  bool IsLoading() { return m_isLoading; }
   int SlideNumber() const { return m_iSlideNumber; }
   int Pic() const { return m_iPic; }
 
@@ -82,7 +82,11 @@ public:
                    const std::string &strExtensions="");
   void StartSlideShow();
   bool InSlideShow() const;
-  void OnLoadPic(int iPic, int iSlideNumber, const std::string &strFileName, CBaseTexture* pTexture, bool bFullSize);
+  void OnLoadPic(int iPic,
+                 int iSlideNumber,
+                 const std::string& strFileName,
+                 std::unique_ptr<CTexture> pTexture,
+                 bool bFullSize);
   int NumSlides() const;
   int CurrentSlide() const;
   void Shuffle();
@@ -90,7 +94,7 @@ public:
   bool IsShuffled() const { return m_bShuffled; }
   int GetDirection() const { return m_iDirection; }
 
-  static void RunSlideShow(std::vector<std::string> paths, int start=0);
+  static void RunSlideShow(const std::vector<std::string>& paths, int start = 0);
 
 private:
   void ShowNext();

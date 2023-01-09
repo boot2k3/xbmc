@@ -2,27 +2,31 @@ set(SOURCES ActorProtocol.cpp
             AlarmClock.cpp
             AliasShortcutUtils.cpp
             Archive.cpp
-            auto_buffer.cpp
             Base64.cpp
             BitstreamConverter.cpp
             BitstreamReader.cpp
             BitstreamStats.cpp
             BitstreamWriter.cpp
             BooleanLogic.cpp
+            CharArrayParser.cpp
             CharsetConverter.cpp
             CharsetDetection.cpp
             ColorUtils.cpp
+            ContentUtils.cpp
             CPUInfo.cpp
             Crc32.cpp
-            CryptThreading.cpp
+            CSSUtils.cpp
             DatabaseUtils.cpp
             Digest.cpp
+            DiscsUtils.cpp
             EndianSwap.cpp
             EmbeddedArt.cpp
+            ExecString.cpp
             FileExtensionProvider.cpp
             Fanart.cpp
             FileOperationJob.cpp
             FileUtils.cpp
+            FontUtils.cpp
             GroupUtils.cpp
             HTMLUtil.cpp
             HttpHeader.cpp
@@ -39,8 +43,10 @@ set(SOURCES ActorProtocol.cpp
             Locale.cpp
             log.cpp
             Mime.cpp
+            MovingSpeed.cpp
             Observer.cpp
             POUtils.cpp
+            PlayerUtils.cpp
             RecentlyAddedJob.cpp
             RegExp.cpp
             rfft.cpp
@@ -54,7 +60,6 @@ set(SOURCES ActorProtocol.cpp
             Screenshot.cpp
             SortUtils.cpp
             Speed.cpp
-            Stopwatch.cpp
             StreamDetails.cpp
             StreamUtils.cpp
             StringUtils.cpp
@@ -76,32 +81,37 @@ set(HEADERS ActorProtocol.h
             AlarmClock.h
             AliasShortcutUtils.h
             Archive.h
-            auto_buffer.h
             Base64.h
             BitstreamConverter.h
             BitstreamReader.h
             BitstreamStats.h
             BitstreamWriter.h
             BooleanLogic.h
+            CharArrayParser.h
             CharsetConverter.h
             CharsetDetection.h
             CPUInfo.h
-            Color.h
             ColorUtils.h
+            ComponentContainer.h
+            ContentUtils.h
             Crc32.h
-            CryptThreading.h
+            CSSUtils.h
             DatabaseUtils.h
             Digest.h
+            DiscsUtils.h
             EndianSwap.h
             EventStream.h
             EventStreamDetail.h
+            ExecString.h
             FileExtensionProvider.h
             Fanart.h
             FileOperationJob.h
             FileUtils.h
+            FontUtils.h
             Geometry.h
             GlobalsHandling.h
             GroupUtils.h
+            HDRCapabilities.h
             HTMLUtil.h
             HttpHeader.h
             HttpParser.h
@@ -111,6 +121,7 @@ set(HEADERS ActorProtocol.h
             IBufferObject.h
             ILocalizer.h
             InfoLoader.h
+            IPlatformLog.h
             IRssObserver.h
             IScreenshotSurface.h
             ISerializable.h
@@ -125,12 +136,16 @@ set(HEADERS ActorProtocol.h
             LegacyPathTranslation.h
             Locale.h
             log.h
+            logtypes.h
+            Map.h
             MathUtils.h
             MemUtils.h
             Mime.h
+            MovingSpeed.h
             Observer.h
             params_check_macros.h
             POUtils.h
+            PlayerUtils.h
             ProgressJob.h
             RecentlyAddedJob.h
             RegExp.h
@@ -153,6 +168,7 @@ set(HEADERS ActorProtocol.h
             SystemInfo.h
             Temperature.h
             TextSearch.h
+            TimeFormat.h
             TimeUtils.h
             TransformMatrix.h
             URIUtils.h
@@ -162,7 +178,8 @@ set(HEADERS ActorProtocol.h
             VC1BitstreamParser.h
             Vector.h
             XBMCTinyXML.h
-            XMLUtils.h)
+            XMLUtils.h
+            XTimeUtils.h)
 
 if(XSLT_FOUND)
   list(APPEND SOURCES XSLTUtils.cpp)
@@ -180,18 +197,45 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL Clang)
   set_source_files_properties(Mime.cpp PROPERTIES COMPILE_FLAGS -O0)
 endif()
 
-if(NOT CORE_SYSTEM_NAME STREQUAL windows AND NOT CORE_SYSTEM_NAME STREQUAL windowsstore)
+if(OPENGL_FOUND OR OPENGLES_FOUND)
   list(APPEND SOURCES GLUtils.cpp)
   list(APPEND HEADERS GLUtils.h)
 endif()
 
-if(CORE_PLATFORM_NAME_LC STREQUAL gbm)
-  list(APPEND SOURCES EGLImage.cpp)
-  list(APPEND HEADERS EGLImage.h)
+if("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_LC)
+  list(APPEND SOURCES BufferObject.cpp
+                      BufferObjectFactory.cpp)
+  list(APPEND HEADERS BufferObject.h
+                      BufferObjectFactory.h)
 
-  if(GBM_HAS_BO_MAP)
+  if("gbm" IN_LIST CORE_PLATFORM_NAME_LC)
+    list(APPEND SOURCES DumbBufferObject.cpp)
+    list(APPEND SOURCES DumbBufferObject.h)
+  endif()
+
+  if(HAVE_LINUX_MEMFD AND HAVE_LINUX_UDMABUF)
+    list(APPEND SOURCES UDMABufferObject.cpp)
+    list(APPEND HEADERS UDMABufferObject.h)
+  endif()
+
+  if(HAVE_LINUX_DMA_HEAP)
+    list(APPEND SOURCES DMAHeapBufferObject.cpp)
+    list(APPEND HEADERS DMAHeapBufferObject.h)
+  endif()
+
+  if(GBM_HAS_BO_MAP AND "gbm" IN_LIST CORE_PLATFORM_NAME_LC)
     list(APPEND SOURCES GBMBufferObject.cpp)
     list(APPEND HEADERS GBMBufferObject.h)
+  endif()
+
+  if(EGL_FOUND)
+    list(APPEND SOURCES EGLImage.cpp)
+    list(APPEND HEADERS EGLImage.h)
+  endif()
+
+  if(LIBDRM_FOUND)
+    list(APPEND SOURCES DRMHelpers.cpp)
+    list(APPEND HEADERS DRMHelpers.h)
   endif()
 endif()
 

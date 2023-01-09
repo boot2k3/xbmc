@@ -6,8 +6,9 @@
  *  See LICENSES/README.md for more information.
  */
 
+#include "TextureGL.h"
+
 #include "ServiceBroker.h"
-#include "Texture.h"
 #include "guilib/TextureManager.h"
 #include "rendering/RenderSystem.h"
 #include "settings/AdvancedSettings.h"
@@ -15,11 +16,17 @@
 #include "utils/MemUtils.h"
 #include "utils/log.h"
 
-/************************************************************************/
-/*    CGLTexture                                                       */
-/************************************************************************/
+#include <memory>
+
+std::unique_ptr<CTexture> CTexture::CreateTexture(unsigned int width,
+                                                  unsigned int height,
+                                                  unsigned int format)
+{
+  return std::make_unique<CGLTexture>(width, height, format);
+}
+
 CGLTexture::CGLTexture(unsigned int width, unsigned int height, unsigned int format)
-: CBaseTexture(width, height, format)
+  : CTexture(width, height, format)
 {
   unsigned int major, minor;
   CServiceBroker::GetRenderSystem()->GetRenderVersion(major, minor);
@@ -87,12 +94,16 @@ void CGLTexture::LoadToGPU()
   unsigned int maxSize = CServiceBroker::GetRenderSystem()->GetMaxTextureSize();
   if (m_textureHeight > maxSize)
   {
-    CLog::Log(LOGERROR, "GL: Image height %d too big to fit into single texture unit, truncating to %u", m_textureHeight, maxSize);
+    CLog::Log(LOGERROR,
+              "GL: Image height {} too big to fit into single texture unit, truncating to {}",
+              m_textureHeight, maxSize);
     m_textureHeight = maxSize;
   }
   if (m_textureWidth > maxSize)
   {
-    CLog::Log(LOGERROR, "GL: Image width %d too big to fit into single texture unit, truncating to %u", m_textureWidth, maxSize);
+    CLog::Log(LOGERROR,
+              "GL: Image width {} too big to fit into single texture unit, truncating to {}",
+              m_textureWidth, maxSize);
 #ifndef HAS_GLES
     glPixelStorei(GL_UNPACK_ROW_LENGTH, m_textureWidth);
 #endif

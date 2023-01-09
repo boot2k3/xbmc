@@ -8,16 +8,20 @@
 
 #include "GameClientProperties.h"
 
+#include "FileItem.h"
 #include "GameClient.h"
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
 #include "addons/GameResource.h"
 #include "addons/IAddon.h"
+#include "addons/addoninfo/AddonInfo.h"
+#include "addons/addoninfo/AddonType.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/Directory.h"
 #include "filesystem/SpecialProtocol.h"
 #include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogOKHelper.h"
+#include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 
@@ -28,11 +32,10 @@ using namespace ADDON;
 using namespace GAME;
 using namespace XFILE;
 
-#define GAME_CLIENT_RESOURCES_DIRECTORY  "resources"
+#define GAME_CLIENT_RESOURCES_DIRECTORY "resources"
 
 CGameClientProperties::CGameClientProperties(const CGameClient& parent, AddonProps_Game& props)
-  : m_parent(parent),
-    m_properties(props)
+  : m_parent(parent), m_properties(props)
 {
 }
 
@@ -59,15 +62,15 @@ bool CGameClientProperties::InitializeProperties(void)
   if (!GetProxyAddons(addons))
     return false;
 
-  m_properties.game_client_dll_path     = GetLibraryPath();
-  m_properties.proxy_dll_paths          = GetProxyDllPaths(addons);
-  m_properties.proxy_dll_count          = GetProxyDllCount();
-  m_properties.resource_directories     = GetResourceDirectories();
+  m_properties.game_client_dll_path = GetLibraryPath();
+  m_properties.proxy_dll_paths = GetProxyDllPaths(addons);
+  m_properties.proxy_dll_count = GetProxyDllCount();
+  m_properties.resource_directories = GetResourceDirectories();
   m_properties.resource_directory_count = GetResourceDirectoryCount();
-  m_properties.profile_directory        = GetProfileDirectory();
-  m_properties.supports_vfs             = m_parent.SupportsVFS();
-  m_properties.extensions               = GetExtensions();
-  m_properties.extension_count          = GetExtensionCount();
+  m_properties.profile_directory = GetProfileDirectory();
+  m_properties.supports_vfs = m_parent.SupportsVFS();
+  m_properties.extensions = GetExtensions();
+  m_properties.extension_count = GetExtensionCount();
 
   return true;
 }
@@ -84,11 +87,11 @@ const char* CGameClientProperties::GetLibraryPath(void)
   return m_strLibraryPath.c_str();
 }
 
-const char** CGameClientProperties::GetProxyDllPaths(const ADDON::VECADDONS &addons)
+const char** CGameClientProperties::GetProxyDllPaths(const ADDON::VECADDONS& addons)
 {
   if (m_proxyDllPaths.empty())
   {
-    for (const auto &addon : addons)
+    for (const auto& addon : addons)
       AddProxyDll(std::static_pointer_cast<CGameClient>(addon));
   }
 
@@ -113,7 +116,8 @@ const char** CGameClientProperties::GetResourceDirectories(void)
     {
       const std::string& strAddonId = it->id;
       AddonPtr addon;
-      if (CServiceBroker::GetAddonMgr().GetAddon(strAddonId, addon, ADDON_RESOURCE_GAMES))
+      if (CServiceBroker::GetAddonMgr().GetAddon(strAddonId, addon, AddonType::RESOURCE_GAMES,
+                                                 OnlyEnabled::CHOICE_YES))
       {
         std::shared_ptr<CGameResource> resource = std::static_pointer_cast<CGameResource>(addon);
 
@@ -135,7 +139,7 @@ const char** CGameClientProperties::GetResourceDirectories(void)
 
     if (!CDirectory::Exists(addonProfile))
     {
-      CLog::Log(LOGDEBUG, "Creating resource directory: %s", addonProfile.c_str());
+      CLog::Log(LOGDEBUG, "Creating resource directory: {}", addonProfile);
       CDirectory::Create(addonProfile);
     }
 
@@ -195,50 +199,50 @@ unsigned int CGameClientProperties::GetExtensionCount(void) const
   return static_cast<unsigned int>(m_extensions.size());
 }
 
-bool CGameClientProperties::GetProxyAddons(ADDON::VECADDONS &addons)
+bool CGameClientProperties::GetProxyAddons(ADDON::VECADDONS& addons)
 {
   ADDON::VECADDONS ret;
   std::vector<std::string> missingDependencies; // ID or name of missing dependencies
 
-  for (const auto &dependency : m_parent.GetDependencies())
+  for (const auto& dependency : m_parent.GetDependencies())
   {
     AddonPtr addon;
-    if (CServiceBroker::GetAddonMgr().GetAddon(dependency.id, addon, ADDON_UNKNOWN, false))
+    if (CServiceBroker::GetAddonMgr().GetAddon(dependency.id, addon, OnlyEnabled::CHOICE_NO))
     {
       // If add-on is disabled, ask the user to enable it
       if (CServiceBroker::GetAddonMgr().IsAddonDisabled(dependency.id))
       {
         // "Failed to play game"
         // "This game depends on a disabled add-on. Would you like to enable it?"
-        if (CGUIDialogYesNo::ShowAndGetInput(CVariant{ 35210 }, CVariant{ 35215 }))
+        if (CGUIDialogYesNo::ShowAndGetInput(CVariant{35210}, CVariant{35215}))
         {
           if (!CServiceBroker::GetAddonMgr().EnableAddon(dependency.id))
           {
-            CLog::Log(LOGERROR, "Failed to enable add-on %s", dependency.id.c_str());
+            CLog::Log(LOGERROR, "Failed to enable add-on {}", dependency.id);
             missingDependencies.emplace_back(addon->Name());
             addon.reset();
           }
         }
         else
         {
-          CLog::Log(LOGERROR, "User chose to not enable add-on %s", dependency.id.c_str());
+          CLog::Log(LOGERROR, "User chose to not enable add-on {}", dependency.id);
           missingDependencies.emplace_back(addon->Name());
           addon.reset();
         }
       }
 
-      if (addon && addon->Type() == ADDON_GAMEDLL)
+      if (addon && addon->Type() == AddonType::GAMEDLL)
         ret.emplace_back(std::move(addon));
     }
     else
     {
       if (dependency.optional)
       {
-        CLog::Log(LOGDEBUG, "Missing optional dependency %s", dependency.id.c_str());
+        CLog::Log(LOGDEBUG, "Missing optional dependency {}", dependency.id);
       }
       else
       {
-        CLog::Log(LOGERROR, "Missing mandatory dependency %s", dependency.id.c_str());
+        CLog::Log(LOGERROR, "Missing mandatory dependency {}", dependency.id);
         missingDependencies.emplace_back(dependency.id);
       }
     }
@@ -253,7 +257,8 @@ bool CGameClientProperties::GetProxyAddons(ADDON::VECADDONS &addons)
     // "Add-on is incompatible due to unmet dependencies."
     // ""
     // "Missing: {0:s}"
-    MESSAGING::HELPERS::ShowOKDialogLines(CVariant{ 35210 }, CVariant{ 24104 }, CVariant{ "" }, CVariant{ dialogText });
+    MESSAGING::HELPERS::ShowOKDialogLines(CVariant{35210}, CVariant{24104}, CVariant{""},
+                                          CVariant{dialogText});
 
     return false;
   }

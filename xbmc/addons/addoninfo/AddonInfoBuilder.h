@@ -8,72 +8,39 @@
 
 #pragma once
 
-#include "addons/Repository.h"
-#include "addons/addoninfo/AddonInfo.h"
+#include "addons/IAddon.h"
 
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+class CDateTime;
 class TiXmlElement;
 
 namespace ADDON
 {
+enum class AddonLifecycleState;
+enum class AddonType;
+
+class CAddonExtensions;
+class CAddonType;
+
+struct DependencyInfo;
+struct RepositoryDirInfo;
+
+class CAddonInfo;
+using AddonInfoPtr = std::shared_ptr<CAddonInfo>;
 
 class CAddonInfoBuilder
 {
 public:
-  static AddonInfoPtr Generate(const std::string& id, TYPE type);
+  static AddonInfoPtr Generate(const std::string& id, AddonType type);
   static AddonInfoPtr Generate(const std::string& addonPath, bool platformCheck = true);
-  static AddonInfoPtr Generate(const TiXmlElement* baseElement, const CRepository::DirInfo& repo, bool platformCheck = true);
-
-  class CFromDB
-  {
-  public:
-    CFromDB() : m_addonInfo(std::make_shared<CAddonInfo>()) { }
-
-    void SetId(std::string id) { m_addonInfo->m_id = std::move(id); }
-    void SetName(std::string name) { m_addonInfo->m_name = std::move(name); }
-    void SetLicense(std::string license) { m_addonInfo->m_license = std::move(license); }
-    void SetSummary(std::string summary) { m_addonInfo->m_summary.insert(std::pair<std::string, std::string>("unk", std::move(summary))); }
-    void SetDescription(std::string description) { m_addonInfo->m_description.insert(std::pair<std::string, std::string>("unk", std::move(description))); }
-    void SetDisclaimer(std::string disclaimer) { m_addonInfo->m_disclaimer.insert(std::pair<std::string, std::string>("unk", std::move(disclaimer))); }
-    void SetAuthor(std::string author) { m_addonInfo->m_author = std::move(author); }
-    void SetSource(std::string source) { m_addonInfo->m_source = std::move(source); }
-    void SetWebsite(std::string website) { m_addonInfo->m_website = std::move(website); }
-    void SetForum(std::string forum) { m_addonInfo->m_forum = std::move(forum); }
-    void SetEMail(std::string email) { m_addonInfo->m_email = std::move(email); }
-    void SetIcon(std::string icon) { m_addonInfo->m_icon = std::move(icon); }
-    void SetArt(std::string type, std::string value) { m_addonInfo->m_art[type] = value; }
-    void SetArt(std::map<std::string, std::string> art) { m_addonInfo->m_art = std::move(art); }
-    void SetScreenshots(std::vector<std::string> screenshots) { m_addonInfo->m_screenshots = std::move(screenshots); }
-    void SetChangelog(std::string changelog) { m_addonInfo->m_changelog.insert(std::pair<std::string, std::string>("unk", std::move(changelog))); }
-    void SetBroken(std::string broken) { m_addonInfo->m_broken = std::move(broken); }
-    void SetPath(std::string path) { m_addonInfo->m_path = std::move(path); }
-    void SetLibName(std::string libname) { m_addonInfo->m_libname = std::move(libname); }
-    void SetVersion(AddonVersion version) { m_addonInfo->m_version = std::move(version); }
-    void SetMinVersion(AddonVersion minversion) { m_addonInfo->m_minversion = std::move(minversion); }
-    void SetDependencies(std::vector<DependencyInfo> dependencies) { m_addonInfo->m_dependencies = std::move(dependencies); }
-    void SetExtrainfo(InfoMap extrainfo)
-    {
-      m_addonInfo->m_extrainfo = std::move(extrainfo);
-
-      const auto& it = m_addonInfo->m_extrainfo.find("provides");
-      if (it != m_addonInfo->m_extrainfo.end())
-      {
-        CAddonType addonType(m_addonInfo->m_mainType);
-        addonType.SetProvides(it->second);
-        m_addonInfo->m_types.push_back(addonType);
-      }
-    }
-    void SetType(TYPE type) { m_addonInfo->m_mainType = type; }
-    void SetInstallDate(const CDateTime& installDate) { m_addonInfo->m_installDate = installDate; }
-    void SetLastUpdated(const CDateTime& lastUpdated) { m_addonInfo->m_lastUpdated = lastUpdated; }
-    void SetLastUsed(const CDateTime& lastUsed) { m_addonInfo->m_lastUsed = lastUsed; }
-    void SetOrigin(std::string origin) { m_addonInfo->m_origin = std::move(origin); }
-    void SetPackageSize(uint64_t size) { m_addonInfo->m_packageSize = size; }
-
-    const AddonInfoPtr& get() { return m_addonInfo; }
-
-  private:
-    AddonInfoPtr m_addonInfo;
-  };
+  static AddonInfoPtr Generate(const TiXmlElement* baseElement,
+                               const RepositoryDirInfo& repo,
+                               bool platformCheck = true);
 
   /*!
     * @brief Parts used from CAddonDatabase
@@ -84,12 +51,59 @@ public:
   //@}
 
 private:
-  static bool ParseXML(const AddonInfoPtr& addon, const TiXmlElement* element, const std::string& addonPath, const CRepository::DirInfo& repo = {});
-  static bool ParseXMLTypes(CAddonType& addonType, AddonInfoPtr info, const TiXmlElement* child);
+  static bool ParseXML(const AddonInfoPtr& addon,
+                       const TiXmlElement* element,
+                       const std::string& addonPath);
+  static bool ParseXML(const AddonInfoPtr& addon,
+                       const TiXmlElement* element,
+                       const std::string& addonPath,
+                       const RepositoryDirInfo& repo);
+  static bool ParseXMLTypes(CAddonType& addonType,
+                            const AddonInfoPtr& info,
+                            const TiXmlElement* child);
   static bool ParseXMLExtension(CAddonExtensions& addonExt, const TiXmlElement* element);
   static bool GetTextList(const TiXmlElement* element, const std::string& tag, std::unordered_map<std::string, std::string>& translatedValues);
   static const char* GetPlatformLibraryName(const TiXmlElement* element);
   static bool PlatformSupportsAddon(const AddonInfoPtr& addon);
 };
 
+class CAddonInfoBuilderFromDB
+{
+public:
+  CAddonInfoBuilderFromDB();
+
+  void SetId(std::string id);
+  void SetName(std::string name);
+  void SetLicense(std::string license);
+  void SetSummary(std::string summary);
+  void SetDescription(std::string description);
+  void SetDisclaimer(std::string disclaimer);
+  void SetAuthor(std::string author);
+  void SetSource(std::string source);
+  void SetWebsite(std::string website);
+  void SetForum(std::string forum);
+  void SetEMail(std::string email);
+  void SetIcon(std::string icon);
+  void SetArt(const std::string& type, std::string value);
+  void SetArt(std::map<std::string, std::string> art);
+  void SetScreenshots(std::vector<std::string> screenshots);
+  void SetChangelog(std::string changelog);
+  void SetLifecycleState(AddonLifecycleState state, std::string description);
+  void SetPath(std::string path);
+  void SetLibName(std::string libname);
+  void SetVersion(CAddonVersion version);
+  void SetDependencies(std::vector<DependencyInfo> dependencies);
+  void SetExtrainfo(InfoMap extrainfo);
+  void SetInstallDate(const CDateTime& installDate);
+  void SetLastUpdated(const CDateTime& lastUpdated);
+  void SetLastUsed(const CDateTime& lastUsed);
+  void SetOrigin(std::string origin);
+  void SetPackageSize(uint64_t size);
+  void SetExtensions(CAddonType addonType);
+
+  const AddonInfoPtr& get() { return m_addonInfo; }
+
+private:
+  AddonInfoPtr m_addonInfo;
+};
 }

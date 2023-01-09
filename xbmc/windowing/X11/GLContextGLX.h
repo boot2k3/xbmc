@@ -12,6 +12,13 @@
 
 #include <GL/glx.h>
 
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
 class CGLContextGLX : public CGLContext
 {
 public:
@@ -22,8 +29,9 @@ public:
   void SetVSync(bool enable) override;
   void SwapBuffers() override;
   void QueryExtensions() override;
-  GLXWindow m_glxWindow;
-  GLXContext m_glxContext;
+  GLXWindow m_glxWindow = 0;
+  GLXContext m_glxContext = 0;
+
 protected:
   bool IsSuitableVisual(XVisualInfo *vInfo);
 
@@ -35,3 +43,7 @@ protected:
   int m_iVSyncErrors;
   int m_vsyncMode;
 };
+
+}
+}
+}

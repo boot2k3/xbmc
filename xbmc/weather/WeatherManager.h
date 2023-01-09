@@ -86,7 +86,7 @@ public:
   static bool GetSearchResults(const std::string &strSearch, std::string &strResult);
 
   std::string GetLocation(int iLocation);
-  const std::string &GetLastUpdateTime() const { return m_info.lastUpdateTime; };
+  const std::string& GetLastUpdateTime() const { return m_info.lastUpdateTime; }
   const ForecastDay &GetForecast(int day) const;
   bool IsFetched();
   void Reset();
@@ -99,8 +99,8 @@ protected:
   std::string BusyInfo(int info) const override;
   void OnJobComplete(unsigned int jobID, bool success, CJob *job) override;
 
-  void OnSettingChanged(std::shared_ptr<const CSetting> setting) override;
-  void OnSettingAction(std::shared_ptr<const CSetting> setting) override;
+  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
+  void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
 
 private:
 

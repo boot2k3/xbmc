@@ -9,7 +9,7 @@
 #include "DVDStreamInfo.h"
 
 #include "DVDDemuxers/DVDDemux.h"
-#include "cores/VideoPlayer/Interface/Addon/DemuxCrypto.h"
+#include "cores/VideoPlayer/Interface/DemuxCrypto.h"
 
 CDVDStreamInfo::CDVDStreamInfo()                                                     { extradata = NULL; Clear(); }
 CDVDStreamInfo::CDVDStreamInfo(const CDVDStreamInfo &right, bool withextradata )     { extradata = NULL; Clear(); Assign(right, withextradata); }
@@ -29,6 +29,7 @@ void CDVDStreamInfo::Clear()
   codec = AV_CODEC_ID_NONE;
   type = STREAM_NONE;
   uniqueId = -1;
+  source = STREAM_SOURCE_NONE;
   codecOptions = 0;
   codec_tag  = 0;
   flags = 0;
@@ -55,6 +56,7 @@ void CDVDStreamInfo::Clear()
   ptsinvalid = false;
   forced_aspect = false;
   bitsperpixel = 0;
+  hdrType = StreamHdrType::HDR_TYPE_NONE;
   colorSpace = AVCOL_SPC_UNSPECIFIED;
   colorRange = AVCOL_RANGE_UNSPECIFIED;
   colorPrimaries = AVCOL_PRI_UNSPECIFIED;
@@ -71,19 +73,18 @@ void CDVDStreamInfo::Clear()
   channellayout = 0;
 
   orientation = 0;
+  bitdepth = 0;
 }
 
-bool CDVDStreamInfo::Equal(const CDVDStreamInfo& right, bool withextradata)
+bool CDVDStreamInfo::Equal(const CDVDStreamInfo& right, int compare)
 {
-  if( codec     != right.codec
-  ||  type      != right.type
-  ||  uniqueId  != right.uniqueId
-  ||  demuxerId != right.demuxerId
-  ||  codec_tag != right.codec_tag
-  ||  flags     != right.flags)
+  if (codec != right.codec || type != right.type ||
+      ((compare & COMPARE_ID) && uniqueId != right.uniqueId) ||
+      ((compare & COMPARE_ID) && demuxerId != right.demuxerId) || codec_tag != right.codec_tag ||
+      flags != right.flags)
     return false;
 
-  if( withextradata )
+  if (compare & COMPARE_EXTRADATA)
   {
     if( extrasize != right.extrasize ) return false;
     if( extrasize )
@@ -93,22 +94,27 @@ bool CDVDStreamInfo::Equal(const CDVDStreamInfo& right, bool withextradata)
   }
 
   // VIDEO
-  if( fpsscale != right.fpsscale
-  ||  fpsrate  != right.fpsrate
-  ||  height   != right.height
-  ||  width    != right.width
-  ||  stills   != right.stills
-  ||  level    != right.level
-  ||  profile  != right.profile
-  ||  ptsinvalid != right.ptsinvalid
-  ||  forced_aspect != right.forced_aspect
-  ||  bitsperpixel != right.bitsperpixel
-  ||  vfr      != right.vfr
-  ||  colorSpace != right.colorSpace
-  ||  colorRange != right.colorRange
-  ||  colorPrimaries != right.colorPrimaries
-  ||  colorTransferCharacteristic != right.colorTransferCharacteristic
-  ||  stereo_mode != right.stereo_mode ) return false;
+  // clang-format off
+  if (fpsscale != right.fpsscale
+  || fpsrate != right.fpsrate
+  || height != right.height
+  || width != right.width
+  || stills != right.stills
+  || level != right.level
+  || profile != right.profile
+  || ptsinvalid != right.ptsinvalid
+  || forced_aspect != right.forced_aspect
+  || bitsperpixel != right.bitsperpixel
+  || bitdepth != right.bitdepth
+  || vfr != right.vfr
+  || hdrType != right.hdrType
+  || colorSpace != right.colorSpace
+  || colorRange != right.colorRange
+  || colorPrimaries != right.colorPrimaries
+  || colorTransferCharacteristic != right.colorTransferCharacteristic
+  || stereo_mode != right.stereo_mode)
+    return false;
+  // clang-format on
 
   if (masteringMetadata && right.masteringMetadata)
   {
@@ -171,7 +177,7 @@ bool CDVDStreamInfo::Equal(const CDemuxStream& right, bool withextradata)
 {
   CDVDStreamInfo info;
   info.Assign(right, withextradata);
-  return Equal(info, withextradata);
+  return Equal(info, withextradata ? COMPARE_ALL : COMPARE_ALL & ~COMPARE_EXTRADATA);
 }
 
 
@@ -182,6 +188,7 @@ void CDVDStreamInfo::Assign(const CDVDStreamInfo& right, bool withextradata)
   type = right.type;
   uniqueId = right.uniqueId;
   demuxerId = right.demuxerId;
+  source = right.source;
   codec_tag = right.codec_tag;
   flags = right.flags;
   filename = right.filename;
@@ -219,8 +226,10 @@ void CDVDStreamInfo::Assign(const CDVDStreamInfo& right, bool withextradata)
   forced_aspect = right.forced_aspect;
   orientation = right.orientation;
   bitsperpixel = right.bitsperpixel;
+  bitdepth = right.bitdepth;
   vfr = right.vfr;
   codecOptions = right.codecOptions;
+  hdrType = right.hdrType;
   colorSpace = right.colorSpace;
   colorRange = right.colorRange;
   colorPrimaries = right.colorPrimaries;
@@ -248,6 +257,7 @@ void CDVDStreamInfo::Assign(const CDemuxStream& right, bool withextradata)
   type = right.type;
   uniqueId = right.uniqueId;
   demuxerId = right.demuxerId;
+  source = right.source;
   codec_tag = right.codec_fourcc;
   profile = right.profile;
   level = right.level;
@@ -259,7 +269,7 @@ void CDVDStreamInfo::Assign(const CDemuxStream& right, bool withextradata)
     extradata = malloc(extrasize);
     if (!extradata)
       return;
-    memcpy(extradata, right.ExtraData, extrasize);
+    memcpy(extradata, right.ExtraData.get(), extrasize);
   }
 
   cryptoSession = right.cryptoSession;
@@ -288,6 +298,8 @@ void CDVDStreamInfo::Assign(const CDemuxStream& right, bool withextradata)
     forced_aspect = stream->bForcedAspect;
     orientation = stream->iOrientation;
     bitsperpixel = stream->iBitsPerPixel;
+    bitdepth = stream->bitDepth;
+    hdrType = stream->hdr_type;
     colorSpace = stream->colorSpace;
     colorRange = stream->colorRange;
     colorPrimaries = stream->colorPrimaries;

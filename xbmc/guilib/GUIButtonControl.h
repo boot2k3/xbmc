@@ -18,7 +18,7 @@
 #include "GUILabel.h"
 #include "GUITexture.h"
 #include "guilib/guiinfo/GUIInfoLabel.h"
-#include "utils/Color.h"
+#include "utils/ColorUtils.h"
 
 /*!
  \ingroup controls
@@ -32,8 +32,10 @@ public:
                     const CTextureInfo& textureFocus, const CTextureInfo& textureNoFocus,
                     const CLabelInfo &label, bool wrapMultiline = false);
 
-  ~CGUIButtonControl(void) override;
-  CGUIButtonControl *Clone() const override { return new CGUIButtonControl(*this); };
+  CGUIButtonControl(const CGUIButtonControl& control);
+
+  ~CGUIButtonControl() override = default;
+  CGUIButtonControl* Clone() const override { return new CGUIButtonControl(*this); }
 
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
   void Render() override;
@@ -46,12 +48,12 @@ public:
   void SetPosition(float posX, float posY) override;
   virtual void SetLabel(const std::string & aLabel);
   virtual void SetLabel2(const std::string & aLabel2);
-  void SetClickActions(const CGUIAction& clickActions) { m_clickActions = clickActions; };
-  const CGUIAction &GetClickActions() const { return m_clickActions; };
-  void SetFocusActions(const CGUIAction& focusActions) { m_focusActions = focusActions; };
-  void SetUnFocusActions(const CGUIAction& unfocusActions) { m_unfocusActions = unfocusActions; };
-  const CLabelInfo& GetLabelInfo() const { return m_label.GetLabelInfo(); };
-  virtual std::string GetLabel() const { return GetDescription(); };
+  void SetClickActions(const CGUIAction& clickActions) { m_clickActions = clickActions; }
+  const CGUIAction& GetClickActions() const { return m_clickActions; }
+  void SetFocusActions(const CGUIAction& focusActions) { m_focusActions = focusActions; }
+  void SetUnFocusActions(const CGUIAction& unfocusActions) { m_unfocusActions = unfocusActions; }
+  const CLabelInfo& GetLabelInfo() const { return m_label.GetLabelInfo(); }
+  virtual std::string GetLabel() const { return GetDescription(); }
   virtual std::string GetLabel2() const;
   void SetSelected(bool bSelected);
   std::string GetDescription() const override;
@@ -59,13 +61,17 @@ public:
   virtual void SetMinWidth(float minWidth);
   void SetAlpha(unsigned char alpha);
 
-  void PythonSetLabel(const std::string &strFont, const std::string &strText, UTILS::Color textColor, UTILS::Color shadowColor, UTILS::Color focusedColor);
-  void PythonSetDisabledColor(UTILS::Color disabledColor);
+  void PythonSetLabel(const std::string& strFont,
+                      const std::string& strText,
+                      UTILS::COLOR::Color textColor,
+                      UTILS::COLOR::Color shadowColor,
+                      UTILS::COLOR::Color focusedColor);
+  void PythonSetDisabledColor(UTILS::COLOR::Color disabledColor);
 
   virtual void OnClick();
-  bool HasClickActions() const { return m_clickActions.HasActionsMeetingCondition(); };
+  bool HasClickActions() const { return m_clickActions.HasActionsMeetingCondition(); }
 
-  bool UpdateColors() override;
+  bool UpdateColors(const CGUIListItem* item) override;
 
   CRect CalcRenderRegion() const override;
 
@@ -78,13 +84,19 @@ protected:
   virtual void RenderText();
   virtual CGUILabel::COLOR GetTextColor() const;
 
-  CGUITexture m_imgFocus;
-  CGUITexture m_imgNoFocus;
+  /*!
+   * \brief Set the maximum width for the left label
+   */
+  void SetMaxWidth(float labelMaxWidth) { m_labelMaxWidth = labelMaxWidth; }
+
+  std::unique_ptr<CGUITexture> m_imgFocus;
+  std::unique_ptr<CGUITexture> m_imgNoFocus;
   unsigned int  m_focusCounter;
   unsigned char m_alpha;
 
   float m_minWidth;
   float m_maxWidth;
+  float m_labelMaxWidth{0};
 
   KODI::GUILIB::GUIINFO::CGUIInfoLabel  m_info;
   KODI::GUILIB::GUIINFO::CGUIInfoLabel  m_info2;

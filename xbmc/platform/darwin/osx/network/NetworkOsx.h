@@ -17,7 +17,7 @@ class CNetworkInterfaceOsx : public CNetworkInterfacePosix
 {
 public:
   CNetworkInterfaceOsx(CNetworkPosix* network,
-                       std::string interfaceName,
+                       const std::string& interfaceName,
                        char interfaceMacAddrRaw[6]);
   ~CNetworkInterfaceOsx() override = default;
 
@@ -38,5 +38,3 @@ private:
   void GetMacAddress(const std::string& interfaceName, char macAddrRaw[6]) override;
   void queryInterfaceList() override;
 };
-
-using CNetwork = CNetworkOsx;

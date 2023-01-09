@@ -22,11 +22,8 @@ using namespace MUSIC_INFO;
 CSong::CSong(CFileItem& item)
 {
   CMusicInfoTag& tag = *item.GetMusicInfoTag();
-  KODI::TIME::SystemTime stTime;
-  tag.GetReleaseDate(stTime);
   strTitle = tag.GetTitle();
   genre = tag.GetGenre();
-  std::vector<std::string> artist = tag.GetArtist();
   strArtistDesc = tag.GetArtistString();
   //Set sort string before processing artist credits
   strArtistSort = tag.GetArtistSort();
@@ -56,7 +53,8 @@ CSong::CSong(CFileItem& item)
   rating = tag.GetRating();
   userrating = tag.GetUserrating();
   votes = tag.GetVotes();
-  iYear = stTime.year;
+  strOrigReleaseDate = tag.GetOriginalDate();
+  strReleaseDate = tag.GetReleaseDate();
   strDiscSubtitle = tag.GetDiscSubtitle();
   iTrack = tag.GetTrackAndDiscNumber();
   iDuration = tag.GetDuration();
@@ -68,11 +66,15 @@ CSong::CSong(CFileItem& item)
   dateAdded = tag.GetDateAdded();
   replayGain = tag.GetReplayGain();
   strThumb = item.GetUserMusicThumb(true);
-  iStartOffset = item.m_lStartOffset;
-  iEndOffset = item.m_lEndOffset;
+  iStartOffset = static_cast<int>(item.GetStartOffset());
+  iEndOffset = static_cast<int>(item.GetEndOffset());
   idSong = -1;
   iTimesPlayed = 0;
   idAlbum = -1;
+  iBPM = tag.GetBPM();
+  iSampleRate = tag.GetSampleRate();
+  iBitRate = tag.GetBitRate();
+  iChannels = tag.GetNoOfChannels();
 }
 
 CSong::CSong()
@@ -97,9 +99,9 @@ void CSong::SetArtistCredits(const std::vector<std::string>& names, const std::v
     // Establish tag consistency - do the number of musicbrainz ids and number of names in hints or artist match
     if (mbids.size() != artistHints.size() && mbids.size() != names.size())
     {
-      // Tags mis-match - report it and then try to fix
-      CLog::Log(LOGDEBUG, "Mis-match in song file tags: %i mbid %i names %s %s",
-        (int)mbids.size(), (int)names.size(), strTitle.c_str(), strArtistDesc.c_str());
+      // Tags mismatch - report it and then try to fix
+      CLog::Log(LOGDEBUG, "Mismatch in song file tags: {} mbid {} names {} {}", (int)mbids.size(),
+                (int)names.size(), strTitle, strArtistDesc);
       /*
         Most likely we have no hints and a single artist name like "Artist1 feat. Artist2"
         or "Composer; Conductor, Orchestra, Soloist" or "Artist1/Artist2" where the
@@ -110,7 +112,7 @@ void CSong::SetArtistCredits(const std::vector<std::string>& names, const std::v
         separators so attempt to split them. Or we could have more hints or artist names than
         musicbrainz id so ignore them but raise warning.
       */
-      // Do hints exist yet mis-match
+      // Do hints exist yet mismatch
       if (artistHints.size() > 0 &&
         artistHints.size() != mbids.size())
       {
@@ -125,10 +127,10 @@ void CSong::SetArtistCredits(const std::vector<std::string>& names, const std::v
           // Extra hints, discard them.
           artistHints.resize(mbids.size());
       }
-      // Do hints not exist or still mis-match, try artists
+      // Do hints not exist or still mismatch, try artists
       if (artistHints.size() != mbids.size())
         artistHints = names;
-      // Still mis-match, try splitting the hints (now artists) until have matching number
+      // Still mismatch, try splitting the hints (now artists) until have matching number
       if (artistHints.size() < mbids.size())
       {
         artistHints = StringUtils::SplitMulti(artistHints, separators, mbids.size());
@@ -136,7 +138,7 @@ void CSong::SetArtistCredits(const std::vector<std::string>& names, const std::v
     }
     else
     { // Either hints or artist names (or both) matches number of musicbrainz id
-      // If hints mis-match, use artists
+      // If hints mismatch, use artists
       if (artistHints.size() != mbids.size())
         artistHints = names;
     }
@@ -221,7 +223,7 @@ void CSong::Serialize(CVariant& value) const
   value["genre"] = genre;
   value["duration"] = iDuration;
   value["track"] = iTrack;
-  value["year"] = iYear;
+  value["year"] = atoi(strReleaseDate.c_str());;
   value["musicbrainztrackid"] = strMusicBrainzTrackID;
   value["comment"] = strComment;
   value["mood"] = strMood;
@@ -232,6 +234,11 @@ void CSong::Serialize(CVariant& value) const
   value["lastplayed"] = lastPlayed.IsValid() ? lastPlayed.GetAsDBDateTime() : "";
   value["dateadded"] = dateAdded.IsValid() ? dateAdded.GetAsDBDateTime() : "";
   value["albumid"] = idAlbum;
+  value["albumreleasedate"] = strReleaseDate;
+  value["bpm"] = iBPM;
+  value["bitrate"] = iBitRate;
+  value["samplerate"] = iSampleRate;
+  value["channels"] = iChannels;
 }
 
 void CSong::Clear()
@@ -254,7 +261,8 @@ void CSong::Clear()
   votes = 0;
   iTrack = 0;
   iDuration = 0;
-  iYear = 0;
+  strOrigReleaseDate.clear();
+  strReleaseDate.clear();
   strDiscSubtitle.clear();
   iStartOffset = 0;
   iEndOffset = 0;
@@ -262,9 +270,16 @@ void CSong::Clear()
   iTimesPlayed = 0;
   lastPlayed.Reset();
   dateAdded.Reset();
+  dateUpdated.Reset();
+  dateNew.Reset();
   idAlbum = -1;
   bCompilation = false;
   embeddedArt.Clear();
+  iBPM = 0;
+  iBitRate = 0;
+  iSampleRate = 0;
+  iChannels =  0;
+
   replayGain = ReplayGain();
 }
 const std::vector<std::string> CSong::GetArtist() const
@@ -285,12 +300,12 @@ const std::vector<std::string> CSong::GetArtist() const
 
 const std::string CSong::GetArtistSort() const
 {
-  //The stored artist sort name string takes precidence but a
+  //The stored artist sort name string takes precedence but a
   //value could be created from individual sort names held in artistcredits
   if (!strArtistSort.empty())
     return strArtistSort;
   std::vector<std::string> artistvector;
-  for (auto artistcredit: artistCredits)
+  for (const auto& artistcredit : artistCredits)
     if (!artistcredit.GetSortName().empty())
       artistvector.emplace_back(artistcredit.GetSortName());
   std::string artistString;

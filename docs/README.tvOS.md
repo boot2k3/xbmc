@@ -1,13 +1,14 @@
 ![Kodi Logo](resources/banner_slim.png)
 
 # tvOS build guide
-This guide has been tested with macOS 10.13.4(17E199) High Sierra and 10.14.4(18E226) Mojave on Xcode 9.4.1(9F2000) and Xcode 10.2(10E125). It is meant to cross-compile Kodi for tvOS 11+ (AppleTV 4/4K) using **[Kodi's unified depends build system](../tools/depends/README.md)**. Please read it in full before you proceed to familiarize yourself with the build procedure.
+This guide has been tested using Xcode 11.3.1 running on MacOS 10.15.2 (Catalina). Please note this combination is the only version our CI system builds. The minimum OS requirement for this version of Xcode is MacOS 10.14.4. Other combinations may work but we provide no assurances that other combinations will build correctly and run identically to Team Kodi releases. It is meant to cross-compile Kodi for tvOS 11+ (AppleTV 4/4K) using **[Kodi's unified depends build system](../tools/depends/README.md)**. Please read it in full before you proceed to familiarize yourself with the build procedure.
 
 ## Table of Contents
 1. **[Document conventions](#1-document-conventions)**
 2. **[Prerequisites](#2-prerequisites)**
 3. **[Get the source code](#3-get-the-source-code)**
-4. **[Configure and build tools and dependencies](#4-configure-and-build-tools-and-dependencies)**
+4. **[Configure and build tools and dependencies](#4-configure-and-build-tools-and-dependencies)**  
+  4.1. **[Advanced Configure Options](#41-Advanced-Configure-Options)**  
 5. **[Generate Kodi Build files](#5-Generate-Kodi-Build-files)**  
   5.1. **[Generate XCode Project Files](#51-Generate-Xcode-Project-Files)**  
   5.2. **[Build with Xcode](#62-build)**  
@@ -63,10 +64,10 @@ Several different strategies are used to draw your attention to certain pieces o
 * Device with **tvOS 11.0 or newer** to install Kodi after build.
 
 Building for tvOS should work with the following combinations of Xcode and macOS versions:
-  * Xcode 9.x against tvOS SDK 11.x on 10.13.x (High Sierra)(recommended)
-  * Xcode 9.x against tvOS SDK 11.x on 10.14.x (Mojave)(recommended)
-  * Xcode 10.x against tvOS SDK 12.x on 10.14.x (Mojave)(recommended)
+  * Xcode 12.4 against tvOS SDK 14.3 on 10.15.7 (Catalina)(recommended)(CI)
+  * Xcode 13.x against tvOS SDK 15.4 on 12.x (Monterey)(recommended)
 
+Team Kodi CI infrastructure is limited, and therefore we only have the single combination tested. Newer xcode/macos combinations generally should work, however the team does not actively test/use pre-release versions, so use with caution. Earlier versions may work, however we dont actively support them, so use with caution.
 **WARNING:** Start Xcode after installation finishes. You need to accept the licenses and install missing components.
 
 **[back to top](#table-of-contents)**
@@ -86,12 +87,13 @@ git clone https://github.com/xbmc/xbmc kodi
 
 ## 4. Configure and build tools and dependencies
 Kodi can be built as a 64bit program only for tvOS. The dependencies are built in `$HOME/kodi/tools/depends` and installed into `/Users/Shared/xbmc-depends`.
+**NOTE:** `--with-platform` is mandatory for all Apple platforms
 
 Configure build:
 ```
 cd $HOME/kodi/tools/depends
 ./bootstrap
-./configure --host=arm-apple-darwin --with-platform=tvos
+./configure --host=aarch64-apple-darwin --with-platform=tvos
 ```
 
 Build tools and dependencies:
@@ -105,8 +107,80 @@ make -j$(getconf _NPROCESSORS_ONLN)
 
 **NOTE:** **Advanced developers** may want to specify an tvOS SDK version (if multiple versions are installed) in the configure line(s) shown above. The example below would use the tvOS SDK 11.0:
 ```
-./configure --host=arm-apple-darwin --with-platform=tvos --with-sdk=11.0
+./configure --host=aarch64-apple-darwin --with-platform=tvos --with-sdk=11.0
 ```
+
+### 4.1. Advanced Configure Options
+
+
+**All platforms:**
+
+```
+--with-toolchain=<path>
+```
+  specify path to toolchain. Auto set for android. Defaults to xcode root for darwin, /usr for linux
+
+```
+--enable-debug=<yes:no>
+```
+  enable debugging information (default is yes)
+
+```
+--disable-ccache
+```
+  disable ccache
+
+```
+--with-tarballs=<path>
+```
+  path where tarballs will be saved [prefix/xbmc-tarballs]
+
+```
+--with-cpu=<cpu>
+```
+  optional. specify target cpu. guessed if not specified
+
+```
+--with-linker=<linker>
+```
+  specify linker to use. (default is ld)
+
+```
+--with-platform=<platform>
+```
+  target platform
+
+```
+--enable-gplv3=<yes:no>
+```
+  enable gplv3 components. (default is yes)
+
+```
+--with-target-cflags=<cflags>
+```
+  C compiler flags (target)
+
+```
+--with-target-cxxflags=<cxxflags>
+```
+  C++ compiler flags (target)
+
+```
+--with-target-ldflags=<ldflags>
+```
+  linker flags. Use e.g. for -l<lib> (target)
+
+```
+--with-ffmpeg-options
+```
+  FFmpeg configure options, e.g. --enable-vaapi (target)
+
+**Apple Specific:**
+
+```
+--with-sdk=<sdknumber>
+```
+  specify sdk platform version.
 
 **[back to top](#table-of-contents)**
 
@@ -161,6 +235,7 @@ Generate Xcode project to build a specific group of add-ons:
 ```
 make -C tools/depends/target/cmakebuildsys CMAKE_EXTRA_ARGUMENTS="-DENABLE_XCODE_ADDONBUILD=ON -DADDONS_TO_BUILD='pvr.*'"
 ```
+For additional information on regular expression usage for ADDONS_TO_BUILD, view ADDONS_TO_BUILD section located at [Kodi add-ons CMake based buildsystem](../cmake/addons/README.md)
 
 Generate Xcode project to build all add-ons automatically:
 ```
@@ -247,9 +322,9 @@ Note that using a free developer account the signing will need to be reapplied e
 
   1. Open the Xcode project in Xcode as above (requires Xcode 7 or later)
   2. Select Xcode->Preferences and select Accounts
-    * Hit the + sign to add an Apple ID accoumt and Login.
+    * Hit the + sign to add an Apple ID account and Login.
   2. Next select the kodi build target
-  3. Under the `General` tab, enter a unique bundle identifer and check the box to `Automatically Manage Signing`.
+  3. Under the `General` tab, enter a unique bundle identifier and check the box to `Automatically Manage Signing`.
   4. Select your team under `Automatically Manage Signing`.
 
 ## An important note on Code Signing

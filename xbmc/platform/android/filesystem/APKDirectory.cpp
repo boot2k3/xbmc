@@ -27,7 +27,7 @@ bool CAPKDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
   // uses a <fully qualified path>/filename.apk/...
   std::string path = url.GetFileName();
-  std::string host = url.GetHostName();
+  const std::string& host = url.GetHostName();
   URIUtils::AddSlashAtEnd(path);
 
   int zip_flags = 0, zip_error = 0;
@@ -35,8 +35,7 @@ bool CAPKDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   zip_archive = zip_open(host.c_str(), zip_flags, &zip_error);
   if (!zip_archive || zip_error)
   {
-    CLog::Log(LOGERROR, "CAPKDirectory::GetDirectory: Unable to open archive : '%s'",
-      host.c_str());
+    CLog::Log(LOGERROR, "CAPKDirectory::GetDirectory: Unable to open archive : '{}'", host);
     return false;
   }
 

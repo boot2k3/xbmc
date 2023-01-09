@@ -8,7 +8,9 @@
 
 #pragma once
 
+#include "BlurayStateSerializer.h"
 #include "DVDInputStream.h"
+
 #include <list>
 #include <memory>
 
@@ -33,6 +35,8 @@ extern "C"
 #define HDMV_PID_AUDIO_LAST       0x111f
 #define HDMV_PID_PG_FIRST         0x1200
 #define HDMV_PID_PG_LAST          0x121f
+#define HDMV_PID_PG_HDR_FIRST     0x12a0
+#define HDMV_PID_PG_HDR_LAST      0x12bf
 #define HDMV_PID_IG_FIRST         0x1400
 #define HDMV_PID_IG_LAST          0x141f
 
@@ -54,7 +58,6 @@ public:
   void Close() override;
   int Read(uint8_t* buf, int buf_size) override;
   int64_t Seek(int64_t offset, int whence) override;
-  bool Pause(double dTime) override { return false; };
   void Abort() override;
   bool IsEOF() override;
   int64_t GetLength() override;
@@ -75,7 +78,11 @@ public:
   void OnDown() override  { UserInput(BD_VK_DOWN); }
   void OnLeft() override { UserInput(BD_VK_LEFT); }
   void OnRight() override { UserInput(BD_VK_RIGHT); }
-  void OnMenu() override;
+
+  /*! \brief Open the Menu
+  * \return true if the menu is successfully opened, false otherwise
+  */
+  bool OnMenu() override;
   void OnBack() override
   {
     if(IsInMenu())
@@ -83,13 +90,20 @@ public:
   }
   void OnNext() override {}
   void OnPrevious() override {}
-  bool HasMenu() override;
+
+  /*!
+   * \brief Get the supported menu type
+   * \return The supported menu type
+  */
+  MenuType GetSupportedMenuType() override;
+
   bool IsInMenu() override;
   bool OnMouseMove(const CPoint &point) override  { return MouseMove(point); }
   bool OnMouseClick(const CPoint &point) override { return MouseClick(point); }
   void SkipStill() override;
-  bool GetState(std::string &xmlstate) override { return false; }
-  bool SetState(const std::string &xmlstate) override { return false; }
+  bool GetState(std::string& xmlstate) override;
+  bool SetState(const std::string& xmlstate) override;
+  bool CanSeek() override;
 
 
   void UserInput(bd_vk_key_e vk);
@@ -137,6 +151,8 @@ protected:
   BLURAY_CLIP_INFO* m_clip = nullptr;
   uint32_t m_angle = 0;
   bool m_menu = false;
+  bool m_isInMainMenu = false;
+  bool m_hasOverlay = false;
   bool m_navmode = false;
   int m_dispTimeBeforeRead = 0;
 
@@ -170,4 +186,7 @@ protected:
     void FreeTitleInfo();
     std::unique_ptr<CDVDInputStreamFile> m_pstream = nullptr;
     std::string m_rootPath;
+
+    /*! Bluray state serializer handler */
+    CBlurayStateSerializer m_blurayStateSerializer;
 };

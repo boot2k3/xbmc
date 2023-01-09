@@ -14,7 +14,21 @@
 #if defined (HAVE_LIBVA)
 #include <va/va_x11.h>
 #include "cores/VideoPlayer/DVDCodecs/Video/VAAPI.h"
+#if defined(HAS_GL)
 #include "cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGL.h"
+#endif
+#if defined(HAS_GLES)
+#include "cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVAAPIGLES.h"
+#endif
+
+using namespace KODI::WINDOWING::X11;
+
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
 
 class CWinSystemX11GLContext;
 
@@ -30,61 +44,88 @@ public:
   void *eglDisplay;
 };
 
-CVaapiProxy* X11::VaapiProxyCreate()
+CVaapiProxy* VaapiProxyCreate()
 {
   return new CVaapiProxy();
 }
 
-void X11::VaapiProxyDelete(CVaapiProxy *proxy)
+void VaapiProxyDelete(CVaapiProxy *proxy)
 {
   delete proxy;
 }
 
-void X11::VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
+void VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
 {
   proxy->dpy = static_cast<Display*>(dpy);
   proxy->eglDisplay = eglDpy;
 }
 
-void X11::VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
+void VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
 {
   VAAPI::CDecoder::Register(winSystem, deepColor);
 }
 
-void X11::VAAPIRegisterRender(CVaapiProxy *winSystem, bool &general, bool &deepColor)
+#if defined(HAS_GL)
+void VAAPIRegisterRenderGL(CVaapiProxy* winSystem, bool& general, bool& deepColor)
 {
   EGLDisplay eglDpy = winSystem->eglDisplay;
   VADisplay vaDpy = vaGetDisplay(winSystem->dpy);
-  CRendererVAAPI::Register(winSystem, vaDpy, eglDpy, general, deepColor);
+  CRendererVAAPIGL::Register(winSystem, vaDpy, eglDpy, general, deepColor);
+}
+#endif
+
+#if defined(HAS_GLES)
+void VAAPIRegisterRenderGLES(CVaapiProxy* winSystem, bool& general, bool& deepColor)
+{
+  EGLDisplay eglDpy = winSystem->eglDisplay;
+  VADisplay vaDpy = vaGetDisplay(winSystem->dpy);
+  CRendererVAAPIGLES::Register(winSystem, vaDpy, eglDpy, general, deepColor);
+}
+#endif
+}
+}
 }
 
 #else
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
 
 class CVaapiProxy
 {
 };
 
-CVaapiProxy* X11::VaapiProxyCreate()
+CVaapiProxy* VaapiProxyCreate()
 {
   return nullptr;
 }
 
-void X11::VaapiProxyDelete(CVaapiProxy *proxy)
+void VaapiProxyDelete(CVaapiProxy *proxy)
 {
 }
 
-void X11::VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
+void VaapiProxyConfig(CVaapiProxy *proxy, void *dpy, void *eglDpy)
 {
 }
 
-void X11::VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
+void VAAPIRegister(CVaapiProxy *winSystem, bool deepColor)
 {
 }
 
-void X11::VAAPIRegisterRender(CVaapiProxy *winSystem, bool &general, bool &deepColor)
+void VAAPIRegisterRenderGL(CVaapiProxy* winSystem, bool& general, bool& deepColor)
 {
 }
 
+void VAAPIRegisterRenderGLES(CVaapiProxy* winSystem, bool& general, bool& deepColor)
+{
+}
+
+}
+}
+}
 #endif
 
 //-----------------------------------------------------------------------------
@@ -96,48 +137,69 @@ void X11::VAAPIRegisterRender(CVaapiProxy *winSystem, bool &general, bool &deepC
 #include "VideoSyncGLX.h"
 #include "GLContextGLX.h"
 
-XID X11::GLXGetWindow(void* context)
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
+XID GLXGetWindow(void* context)
 {
   return static_cast<CGLContextGLX*>(context)->m_glxWindow;
 }
 
-void* X11::GLXGetContext(void* context)
+void* GLXGetContext(void* context)
 {
   return static_cast<CGLContextGLX*>(context)->m_glxContext;
 }
 
-CGLContext* X11::GLXContextCreate(Display *dpy)
+CGLContext* GLXContextCreate(Display *dpy)
 {
   return new CGLContextGLX(dpy);
 }
 
-CVideoSync* X11::GLXVideoSyncCreate(void *clock, CWinSystemX11GLContext& winSystem)
+
+CVideoSync* GLXVideoSyncCreate(void* clock, CWinSystemX11GLContext& winSystem)
 {
   return new  CVideoSyncGLX(clock, winSystem);
 }
 
+}
+}
+}
 #else
 
-XID X11::GLXGetWindow(void* context)
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
+XID GLXGetWindow(void* context)
 {
   return 0;
 }
 
-void* X11::GLXGetContext(void* context)
+void* GLXGetContext(void* context)
 {
   return nullptr;
 }
 
-CGLContext* X11::GLXContextCreate(Display *dpy)
+CGLContext* GLXContextCreate(Display *dpy)
 {
   return nullptr;
 }
 
-CVideoSync* X11::GLXVideoSyncCreate(void *clock, CWinSystemX11GLContext& winSystem)
+CVideoSync* GLXVideoSyncCreate(void* clock, CWinSystemX11GLContext& winSystem)
 {
   return nullptr;
 }
 
+}
+}
+}
 #endif
 
 //-----------------------------------------------------------------------------
@@ -148,26 +210,47 @@ CVideoSync* X11::GLXVideoSyncCreate(void *clock, CWinSystemX11GLContext& winSyst
 #include "cores/VideoPlayer/DVDCodecs/Video/VDPAU.h"
 #include "cores/VideoPlayer/VideoRenderers/HwDecRender/RendererVDPAU.h"
 
-void X11::VDPAURegisterRender()
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
+void VDPAURegisterRender()
 {
   CRendererVDPAU::Register();
 }
 
-void X11::VDPAURegister()
+void VDPAURegister()
 {
   VDPAU::CDecoder::Register();
 }
 
+}
+}
+}
 #else
 
-void X11::VDPAURegisterRender()
+namespace KODI
+{
+namespace WINDOWING
+{
+namespace X11
+{
+
+void VDPAURegisterRender()
 {
 
 }
 
-void X11::VDPAURegister()
+void VDPAURegister()
 {
 
+}
+
+}
+}
 }
 #endif
 

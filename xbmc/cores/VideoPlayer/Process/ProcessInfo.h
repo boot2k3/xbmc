@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "VideoBuffer.h"
+#include "cores/VideoPlayer/Buffers/VideoBuffer.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderInfo.h"
 #include "cores/VideoSettings.h"
 #include "threads/CriticalSection.h"
@@ -27,7 +27,7 @@ class CProcessInfo
 {
 public:
   static CProcessInfo* CreateInstance();
-  static void RegisterProcessControl(std::string id, CreateProcessControl createFunc);
+  static void RegisterProcessControl(const std::string& id, CreateProcessControl createFunc);
   virtual ~CProcessInfo() = default;
   void SetDataCache(CDataCacheCore *cache);
 
@@ -53,9 +53,9 @@ public:
   virtual EINTERLACEMETHOD GetFallbackDeintMethod();
   virtual void SetSwDeinterlacingMethods();
   void UpdateDeinterlacingMethods(std::list<EINTERLACEMETHOD> &methods);
-  bool Supports(EINTERLACEMETHOD method);
+  bool Supports(EINTERLACEMETHOD method) const;
   void SetDeinterlacingMethodDefault(EINTERLACEMETHOD method);
-  EINTERLACEMETHOD GetDeinterlacingMethodDefault();
+  EINTERLACEMETHOD GetDeinterlacingMethodDefault() const;
   CVideoBufferManager& GetVideoBufferManager();
   std::vector<AVPixelFormat> GetPixFormats();
   void SetPixFormats(std::vector<AVPixelFormat> &formats);
@@ -71,6 +71,7 @@ public:
   void SetAudioBitsPerSample(int bitsPerSample);
   int GetAudioBitsPerSample();
   virtual bool AllowDTSHDDecode();
+  virtual bool WantsRawPassthrough() { return false; }
 
   // render info
   void SetRenderClockSync(bool enabled);
@@ -81,6 +82,12 @@ public:
   virtual std::vector<AVPixelFormat> GetRenderFormats();
 
   // player states
+  /*!
+   * @brief Notifies that a seek operation has finished
+   * @param offset - the seek offset
+  */
+  void SeekFinished(int64_t offset);
+
   void SetStateSeeking(bool active);
   bool IsSeeking();
   void SetStateRealtime(bool state);
@@ -109,7 +116,7 @@ public:
   // settings
   CVideoSettings GetVideoSettings();
   void SetVideoSettings(CVideoSettings &settings);
-  CVideoSettingsLocked& UpdateVideoSettings();
+  CVideoSettingsLocked& GetVideoSettingsLocked();
 
 protected:
   CProcessInfo();
@@ -129,7 +136,7 @@ protected:
   bool m_videoIsInterlaced;
   std::list<EINTERLACEMETHOD> m_deintMethods;
   EINTERLACEMETHOD m_deintMethodDefault;
-  CCriticalSection m_videoCodecSection;
+  mutable CCriticalSection m_videoCodecSection;
   CVideoBufferManager m_videoBufferManager;
   std::vector<AVPixelFormat> m_pixFormats;
 

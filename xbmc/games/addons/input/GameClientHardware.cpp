@@ -14,13 +14,12 @@
 using namespace KODI;
 using namespace GAME;
 
-CGameClientHardware::CGameClientHardware(CGameClient &gameClient) :
-  m_gameClient(gameClient)
+CGameClientHardware::CGameClientHardware(CGameClient& gameClient) : m_gameClient(gameClient)
 {
 }
 
 void CGameClientHardware::OnResetButton()
 {
-  CLog::Log(LOGDEBUG, "%s: Sending hardware reset", m_gameClient.ID().c_str());
+  CLog::Log(LOGDEBUG, "{}: Sending hardware reset", m_gameClient.ID());
   m_gameClient.Reset();
 }

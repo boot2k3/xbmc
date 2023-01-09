@@ -8,44 +8,50 @@
 
 #include "Autorun.h"
 
-#include <stdlib.h>
-
-#include "Application.h"
+#include "FileItem.h"
 #include "GUIPassword.h"
 #include "GUIUserMessages.h"
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
+#include "URL.h"
+#include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPowerHandling.h"
 #include "cores/playercorefactory/PlayerCoreFactory.h"
-#include "filesystem/StackDirectory.h"
 #include "filesystem/Directory.h"
 #include "filesystem/DirectoryFactory.h"
-#include "filesystem/File.h"
-#include "messaging/ApplicationMessenger.h"
+#include "filesystem/StackDirectory.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
+#include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogHelper.h"
+#include "playlists/PlayList.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingDefinitions.h"
-#include "playlists/PlayList.h"
-#include "guilib/GUIComponent.h"
-#include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+
+#include <stdlib.h>
+#ifndef TARGET_WINDOWS
+#include "storage/DetectDVDType.h"
+#endif
 #include "storage/MediaManager.h"
-#include "video/VideoDatabase.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "utils/log.h"
 #include "utils/Variant.h"
+#include "utils/log.h"
+#include "video/VideoDatabase.h"
 
 #ifdef HAS_CDDA_RIPPER
 #include "cdrip/CDDARipper.h"
 #endif
 
 using namespace XFILE;
-using namespace PLAYLIST;
 using namespace MEDIA_DETECT;
 using namespace KODI::MESSAGING;
+using namespace std::chrono_literals;
 
 using KODI::MESSAGING::HELPERS::DialogResponse;
 
@@ -56,39 +62,34 @@ CAutorun::CAutorun()
 
 CAutorun::~CAutorun() = default;
 
-void CAutorun::ExecuteAutorun(const std::string& path, bool bypassSettings, bool ignoreplaying, bool startFromBeginning )
+bool CAutorun::ExecuteAutorun(const std::string& path)
 {
-  if (!ignoreplaying)
-  {
-    if (g_application.GetAppPlayer().IsPlayingAudio() ||
-        g_application.GetAppPlayer().IsPlayingVideo() ||
-        CServiceBroker::GetGUI()->GetWindowManager().HasModalDialog(true))
-    {
-      return;
-    }
-  }
-
   if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_LOGIN_SCREEN)
-    return;
+    return false;
 
   CCdInfo* pInfo = CServiceBroker::GetMediaManager().GetCdInfo(path);
 
   if ( pInfo == NULL )
-    return ;
+    return false;
 
-  g_application.ResetScreenSaver();
-  g_application.WakeUpScreenSaverAndDPMS();  // turn off the screensaver if it's active
+  auto& components = CServiceBroker::GetAppComponents();
+  const auto appPower = components.GetComponent<CApplicationPowerHandling>();
+  appPower->ResetScreenSaver();
+  appPower->WakeUpScreenSaverAndDPMS(); // turn off the screensaver if it's active
+
+  bool success = false;
 
 #ifdef HAS_CDDA_RIPPER
   if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_AUDIOCDS_AUTOACTION) == AUTOCD_RIP &&
       pInfo->IsAudio(1) && !CServiceBroker::GetSettingsComponent()->GetProfileManager()->GetCurrentProfile().musicLocked())
   {
-    CCDDARipper::GetInstance().RipCD();
+    success = KODI::CDRIP::CCDDARipper::GetInstance().RipCD();
   }
   else
 #endif
 
-  PlayDisc(path, bypassSettings, startFromBeginning);
+    success = PlayDisc(path, false, false);
+  return success;
 }
 
 bool CAutorun::PlayDisc(const std::string& path, bool bypassSettings, bool startFromBeginning)
@@ -96,7 +97,7 @@ bool CAutorun::PlayDisc(const std::string& path, bool bypassSettings, bool start
   if ( !bypassSettings && CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_AUDIOCDS_AUTOACTION) != AUTOCD_PLAY && !CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_DVDS_AUTORUN))
     return false;
 
-  int nSize = CServiceBroker::GetPlaylistPlayer().GetPlaylist( PLAYLIST_MUSIC ).size();
+  int nSize = CServiceBroker::GetPlaylistPlayer().GetPlaylist(PLAYLIST::TYPE_MUSIC).size();
   int nAddedToPlaylist = 0;
 
   std::string mediaPath;
@@ -105,7 +106,7 @@ bool CAutorun::PlayDisc(const std::string& path, bool bypassSettings, bool start
   if (pInfo == NULL)
     return false;
 
-  if (mediaPath.empty() && pInfo->IsAudio(1))
+  if (pInfo->IsAudio(1))
     mediaPath = "cdda://local/";
 
   if (mediaPath.empty() && (pInfo->IsISOUDF(1) || pInfo->IsISOHFS(1) || pInfo->IsIso9660(1) || pInfo->IsIso9660Interactive(1)))
@@ -125,7 +126,7 @@ bool CAutorun::PlayDisc(const std::string& path, bool bypassSettings, bool start
   {
     CGUIMessage msg( GUI_MSG_PLAYLIST_CHANGED, 0, 0 );
     CServiceBroker::GetGUI()->GetWindowManager().SendMessage( msg );
-    CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_MUSIC);
+    CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_MUSIC);
     // Start playing the items we inserted
     return CServiceBroker::GetPlaylistPlayer().Play(nSize, "");
   }
@@ -138,6 +139,12 @@ bool CAutorun::PlayDisc(const std::string& path, bool bypassSettings, bool start
  */
 bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAddedToPlaylist, bool bRoot, bool bypassSettings /* = false */, bool startFromBeginning /* = false */)
 {
+  if (!pDir)
+  {
+    CLog::Log(LOGDEBUG, "CAutorun::{}: cannot run disc. is it properly mounted?", __FUNCTION__);
+    return false;
+  }
+
   bool bPlaying(false);
   CFileItemList vecItems;
 
@@ -184,7 +191,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
         && (bypassSettings || bAutorunDVDs))
         {
           std::string path = URIUtils::AddFileToFolder(pItem->GetPath(), "VIDEO_TS.IFO");
-          if(!CFile::Exists(path))
+          if (!CFileUtils::Exists(path))
             path = URIUtils::AddFileToFolder(pItem->GetPath(), "video_ts.ifo");
           CFileItemPtr item(new CFileItem(path, false));
           item->SetLabel(CServiceBroker::GetMediaManager().GetDiskLabel(strDrive));
@@ -192,12 +199,12 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
               CServiceBroker::GetMediaManager().GetDiskUniqueId(strDrive);
 
           if (!startFromBeginning && !item->GetVideoInfoTag()->m_strFileNameAndPath.empty())
-            item->m_lStartOffset = STARTOFFSET_RESUME;
+            item->SetStartOffset(STARTOFFSET_RESUME);
 
-          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST_VIDEO);
-          CServiceBroker::GetPlaylistPlayer().SetShuffle (PLAYLIST_VIDEO, false);
-          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_VIDEO, item);
-          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST::TYPE_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().SetShuffle(PLAYLIST::TYPE_VIDEO, false);
+          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_VIDEO, item);
+          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_VIDEO);
           CServiceBroker::GetPlaylistPlayer().Play(0, "");
           return true;
         }
@@ -214,12 +221,12 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
               CServiceBroker::GetMediaManager().GetDiskUniqueId(strDrive);
 
           if (!startFromBeginning && !item->GetVideoInfoTag()->m_strFileNameAndPath.empty())
-            item->m_lStartOffset = STARTOFFSET_RESUME;
+            item->SetStartOffset(STARTOFFSET_RESUME);
 
-          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST_VIDEO);
-          CServiceBroker::GetPlaylistPlayer().SetShuffle (PLAYLIST_VIDEO, false);
-          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_VIDEO, item);
-          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST::TYPE_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().SetShuffle(PLAYLIST::TYPE_VIDEO, false);
+          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_VIDEO, item);
+          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_VIDEO);
           CServiceBroker::GetPlaylistPlayer().Play(0, "");
           return true;
         }
@@ -242,7 +249,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
             items.Sort(SortByLabel, SortOrderDescending);
             phddvdItem = pItem;
             hddvdname = URIUtils::GetFileName(items[0]->GetPath());
-            CLog::Log(LOGINFO,"HD DVD: %s", items[0]->GetPath().c_str());
+            CLog::Log(LOGINFO, "HD DVD: {}", items[0]->GetPath());
           }
         }
 
@@ -262,7 +269,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
               items.Sort(SortByLabel, SortOrderAscending);
               phddvdItem = pItem;
               hddvdname = URIUtils::GetFileName(items[0]->GetPath());
-              CLog::Log(LOGINFO,"HD DVD: %s",items[0]->GetPath().c_str());
+              CLog::Log(LOGINFO, "HD DVD: {}", items[0]->GetPath());
             }
           }
           // Find and sort *.evo files for internal playback.
@@ -307,7 +314,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
                 CServiceBroker::GetMediaManager().GetDiskUniqueId(strDrive);
 
             if (!startFromBeginning && !item.GetVideoInfoTag()->m_strFileNameAndPath.empty())
-            item.m_lStartOffset = STARTOFFSET_RESUME;
+              item.SetStartOffset(STARTOFFSET_RESUME);
 
             // get playername
             std::string hdVideoPlayer = CServiceBroker::GetPlayerCoreFactory().GetDefaultPlayer(item);
@@ -316,7 +323,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
             // If no matching rule was found, VideoPlayer will be default player.
             if (hdVideoPlayer != "VideoPlayer")
             {
-              CLog::Log(LOGINFO,"HD DVD: External singlefile playback initiated: %s",hddvdname.c_str());
+              CLog::Log(LOGINFO, "HD DVD: External singlefile playback initiated: {}", hddvdname);
               g_application.PlayFile(item, hdVideoPlayer, false);
               return true;
             } else
@@ -325,10 +332,10 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
 
           //  internal *.evo playback.
           CLog::Log(LOGINFO,"HD DVD: Internal multifile playback initiated.");
-          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST_VIDEO);
-          CServiceBroker::GetPlaylistPlayer().SetShuffle (PLAYLIST_VIDEO, false);
-          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_VIDEO, items);
-          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST::TYPE_VIDEO);
+          CServiceBroker::GetPlaylistPlayer().SetShuffle(PLAYLIST::TYPE_VIDEO, false);
+          CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_VIDEO, items);
+          CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_VIDEO);
           CServiceBroker::GetPlaylistPlayer().Play(0, "");
           return true;
         }
@@ -349,9 +356,9 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
           if (items.Size())
           {
             items.Sort(SortByLabel, SortOrderAscending);
-            CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST_VIDEO);
-            CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_VIDEO, items);
-            CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_VIDEO);
+            CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST::TYPE_VIDEO);
+            CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_VIDEO, items);
+            CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_VIDEO);
             CServiceBroker::GetPlaylistPlayer().Play(0, "");
             return true;
           }
@@ -361,7 +368,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
               && (bypassSettings))
         {
           bPlaying = true;
-          std::string strExec = StringUtils::Format("RecursiveSlideShow(%s)", pItem->GetPath().c_str());
+          std::string strExec = StringUtils::Format("RecursiveSlideShow({})", pItem->GetPath());
           CBuiltins::Execute(strExec);
           return true;
         }
@@ -408,9 +415,9 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
         if (!g_passwordManager.IsMasterLockUnlocked(true))
           return false;
       }
-      CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST_VIDEO);
-      CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_VIDEO, itemlist);
-      CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST_VIDEO);
+      CServiceBroker::GetPlaylistPlayer().ClearPlaylist(PLAYLIST::TYPE_VIDEO);
+      CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_VIDEO, itemlist);
+      CServiceBroker::GetPlaylistPlayer().SetCurrentPlaylist(PLAYLIST::TYPE_VIDEO);
       CServiceBroker::GetPlaylistPlayer().Play(0, "");
     }
   }
@@ -423,7 +430,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
       if (!pItem->m_bIsFolder && pItem->IsAudio())
       {
         nAddedToPlaylist++;
-        CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST_MUSIC, pItem);
+        CServiceBroker::GetPlaylistPlayer().Add(PLAYLIST::TYPE_MUSIC, pItem);
       }
     }
   }
@@ -437,7 +444,7 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
       if (!pItem->m_bIsFolder && pItem->IsPicture())
       {
         bPlaying = true;
-        std::string strExec = StringUtils::Format("RecursiveSlideShow(%s)", strDrive.c_str());
+        std::string strExec = StringUtils::Format("RecursiveSlideShow({})", strDrive);
         CBuiltins::Execute(strExec);
         break;
       }
@@ -470,17 +477,20 @@ bool CAutorun::RunDisc(IDirectory* pDir, const std::string& strDrive, int& nAdde
 
 void CAutorun::HandleAutorun()
 {
-#ifndef TARGET_WINDOWS
+#if !defined(TARGET_WINDOWS) && defined(HAS_DVD_DRIVE)
+  const CDetectDVDMedia& mediadetect = CServiceBroker::GetDetectDVDMedia();
+
   if (!m_bEnable)
   {
-    CDetectDVDMedia::m_evAutorun.Reset();
+    mediadetect.m_evAutorun.Reset();
     return ;
   }
 
-  if (CDetectDVDMedia::m_evAutorun.WaitMSec(0))
+  if (mediadetect.m_evAutorun.Wait(0ms))
   {
-    ExecuteAutorun();
-    CDetectDVDMedia::m_evAutorun.Reset();
+    if (!ExecuteAutorun(""))
+      CLog::Log(LOGDEBUG, "{}: Could not execute autorun", __func__);
+    mediadetect.m_evAutorun.Reset();
   }
 #endif
 }
@@ -502,9 +512,10 @@ bool CAutorun::IsEnabled() const
 
 bool CAutorun::PlayDiscAskResume(const std::string& path)
 {
-  return PlayDisc(path, true, !CanResumePlayDVD(path) ||
-    HELPERS::ShowYesNoDialogText(CVariant{341}, CVariant{""}, CVariant{13404}, CVariant{12021}) ==
-    DialogResponse::YES);
+  return PlayDisc(path, true,
+                  !CanResumePlayDVD(path) ||
+                      HELPERS::ShowYesNoDialogText(CVariant{341}, CVariant{""}, CVariant{13404},
+                                                   CVariant{12021}) == DialogResponse::CHOICE_YES);
 }
 
 bool CAutorun::CanResumePlayDVD(const std::string& path)
@@ -521,7 +532,10 @@ bool CAutorun::CanResumePlayDVD(const std::string& path)
   return false;
 }
 
-void CAutorun::SettingOptionAudioCdActionsFiller(SettingConstPtr setting, std::vector<IntegerSettingOption> &list, int &current, void *data)
+void CAutorun::SettingOptionAudioCdActionsFiller(const SettingConstPtr& setting,
+                                                 std::vector<IntegerSettingOption>& list,
+                                                 int& current,
+                                                 void* data)
 {
   list.emplace_back(g_localizeStrings.Get(16018), AUTOCD_NONE);
   list.emplace_back(g_localizeStrings.Get(14098), AUTOCD_PLAY);

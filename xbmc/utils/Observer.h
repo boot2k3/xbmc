@@ -22,6 +22,10 @@ typedef enum
   ObservableMessagePeripheralsChanged,
   ObservableMessageSettingsChanged,
   ObservableMessageButtonMapsChanged,
+  // Used for example when the subtitle alignment position change
+  ObservableMessagePositionChanged,
+  ObservableMessageGamePortsChanged,
+  ObservableMessageGameAgentsChanged,
 } ObservableMessage;
 
 class Observer

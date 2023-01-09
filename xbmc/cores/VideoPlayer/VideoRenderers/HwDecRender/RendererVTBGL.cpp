@@ -14,7 +14,11 @@
 #include "cores/VideoPlayer/DVDCodecs/Video/VTB.h"
 #include "utils/log.h"
 #include "windowing/WinSystem.h"
+#if defined(HAS_SDL)
+#include "windowing/osx/SDL/WinSystemOSXSDL.h"
+#else
 #include "windowing/osx/WinSystemOSX.h"
+#endif
 
 #include "platform/darwin/osx/CocoaInterface.h"
 
@@ -71,7 +75,7 @@ EShaderFormat CRendererVTB::GetShaderFormat()
 
 bool CRendererVTB::LoadShadersHook()
 {
-  CLog::Log(LOGNOTICE, "GL: Using CVBREF render method");
+  CLog::Log(LOGINFO, "GL: Using CVBREF render method");
   m_textureTarget = GL_TEXTURE_RECTANGLE;
   return false;
 }

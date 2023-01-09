@@ -1,36 +1,33 @@
 include ../../Makefile.include
-DEPS= ../../Makefile.include Makefile size-max.patch add-dl-as-private-lib.patch
+DEPS = ../../Makefile.include Makefile ../../download-files.include \
+                              add-dl-as-private-lib.patch \
+                              01-macos-clang-accel.patch 03-support-correct-cisdigit.patch
 
 # lib name, version
 LIBNAME=gnutls
-VERSION=3.6.11.1
+VERSION=3.6.16
 SOURCE=$(LIBNAME)-$(VERSION)
 ARCHIVE=$(SOURCE).tar.xz
-
-ifeq (darwin, $(findstring darwin, $(HOST)))
-# darwins tar doesn't know about xz - so we need our native version of tar here
-ARCHIVE_TOOL=$(ARCHIVE_TOOL_NATIVE)
-CONFIGURE_HACKS = ac_cv_func_vfork_works=no
-CONFIGURE_HACKS+= ac_cv_func_fork=no
-endif
+SHA512=72c78d7fcb024393c1d15f2a1856608ae4460ba43cc5bbbb4c29b80508cae6cb822df4638029de2363437d110187e0a3cc19a7288c3b2f44b2f648399a028438
+include ../../download-files.include
 
 # configuration settings
 CONFIGURE=./configure --prefix=$(PREFIX) --disable-shared --without-p11-kit --disable-nls --with-included-unistring \
                       --with-included-libtasn1 --enable-local-libopts --disable-doc --disable-tests --disable-guile \
-                      --disable-tools $(CONFIGURE_HACKS)
+                      --disable-tools $(CONFIGURE_OPTIONS)
 
 LIBDYLIB=$(PLATFORM)/lib/.libs/lib$(LIBNAME).a
 
 all: .installed-$(PLATFORM)
 
-$(TARBALLS_LOCATION)/$(ARCHIVE):
-	cd $(TARBALLS_LOCATION); $(RETRIEVE_TOOL) $(RETRIEVE_TOOL_FLAGS) $(BASE_URL)/$(ARCHIVE)
-
-$(PLATFORM): $(TARBALLS_LOCATION)/$(ARCHIVE) $(DEPS)
+$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
-	cd $(PLATFORM); patch -p1 -i ../size-max.patch
 	cd $(PLATFORM); patch -p1 -i ../add-dl-as-private-lib.patch
+ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
+	cd $(PLATFORM); patch -p1 -i ../01-macos-clang-accel.patch
+endif
+	cd $(PLATFORM); patch -p1 -i ../03-support-correct-cisdigit.patch
 	cd $(PLATFORM); $(AUTORECONF) -vif
 	cd $(PLATFORM); $(CONFIGURE)
 

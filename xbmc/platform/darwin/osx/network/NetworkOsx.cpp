@@ -11,6 +11,7 @@
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+#include <array>
 #include <errno.h>
 
 #include <arpa/inet.h>
@@ -21,11 +22,10 @@
 #include <net/route.h>
 #include <netinet/if_ether.h>
 #include <sys/sockio.h>
-
-#define ARRAY_SIZE(X) (sizeof(X) / sizeof((X)[0]))
+#include <unistd.h>
 
 CNetworkInterfaceOsx::CNetworkInterfaceOsx(CNetworkPosix* network,
-                                           std::string interfaceName,
+                                           const std::string& interfaceName,
                                            char interfaceMacAddrRaw[6])
   : CNetworkInterfacePosix(network, interfaceName, interfaceMacAddrRaw)
 {
@@ -59,42 +59,34 @@ bool CNetworkInterfaceOsx::GetHostMacAddress(unsigned long host_ip, std::string&
 {
   bool ret = false;
   size_t needed;
-  char *buf, *next;
-  struct rt_msghdr* rtm;
-  struct sockaddr_inarp* sin;
-  struct sockaddr_dl* sdl;
-  int mib[6];
+  constexpr std::array<int, 6> mib = {
+      CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, RTF_LLINFO,
+  };
 
   mac = "";
 
-  mib[0] = CTL_NET;
-  mib[1] = PF_ROUTE;
-  mib[2] = 0;
-  mib[3] = AF_INET;
-  mib[4] = NET_RT_FLAGS;
-  mib[5] = RTF_LLINFO;
-
-  if (sysctl(mib, ARRAY_SIZE(mib), NULL, &needed, NULL, 0) == 0)
+  if (sysctl(const_cast<int*>(mib.data()), mib.size(), nullptr, &needed, nullptr, 0) == 0)
   {
-    buf = (char*)malloc(needed);
+    char* buf = static_cast<char*>(malloc(needed));
     if (buf)
     {
-      if (sysctl(mib, ARRAY_SIZE(mib), buf, &needed, NULL, 0) == 0)
+      if (sysctl(const_cast<int*>(mib.data()), mib.size(), buf, &needed, nullptr, 0) == 0)
       {
-        for (next = buf; next < buf + needed; next += rtm->rtm_msglen)
+        struct rt_msghdr* rtm;
+        for (char* next = buf; next < buf + needed; next += rtm->rtm_msglen)
         {
 
-          rtm = (struct rt_msghdr*)next;
-          sin = (struct sockaddr_inarp*)(rtm + 1);
-          sdl = (struct sockaddr_dl*)(sin + 1);
+          rtm = reinterpret_cast<struct rt_msghdr*>(next);
+          struct sockaddr_inarp* sin = reinterpret_cast<struct sockaddr_inarp*>(rtm + 1);
+          struct sockaddr_dl* sdl = reinterpret_cast<struct sockaddr_dl*>(sin + 1);
 
           if (host_ip != sin->sin_addr.s_addr || sdl->sdl_alen < 6)
             continue;
 
           u_char* cp = (u_char*)LLADDR(sdl);
 
-          mac = StringUtils::Format("%02X:%02X:%02X:%02X:%02X:%02X", cp[0], cp[1], cp[2], cp[3],
-                                    cp[4], cp[5]);
+          mac = StringUtils::Format("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", cp[0], cp[1],
+                                    cp[2], cp[3], cp[4], cp[5]);
           ret = true;
           break;
         }
@@ -103,6 +95,11 @@ bool CNetworkInterfaceOsx::GetHostMacAddress(unsigned long host_ip, std::string&
     }
   }
   return ret;
+}
+
+std::unique_ptr<CNetworkBase> CNetworkBase::GetNetwork()
+{
+  return std::make_unique<CNetworkOsx>();
 }
 
 CNetworkOsx::CNetworkOsx() : CNetworkPosix()
@@ -228,7 +225,7 @@ bool CNetworkOsx::PingHost(unsigned long remote_ip, unsigned int timeout_ms)
   // else some error
 
   if (result < 0 || result > 1)
-    CLog::Log(LOGERROR, "Ping fail : status = %d, errno = %d : '%s'", status, errno, cmd_line);
+    CLog::Log(LOGERROR, "Ping fail : status = {}, errno = {} : '{}'", status, errno, cmd_line);
 
   return result == 0;
 }

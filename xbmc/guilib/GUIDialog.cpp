@@ -8,7 +8,6 @@
 
 #include "GUIDialog.h"
 
-#include "Application.h"
 #include "GUIComponent.h"
 #include "GUIControlFactory.h"
 #include "GUILabelControl.h"
@@ -18,8 +17,6 @@
 #include "messaging/ApplicationMessenger.h"
 #include "threads/SingleLock.h"
 #include "utils/TimeUtils.h"
-
-using namespace KODI::MESSAGING;
 
 CGUIDialog::CGUIDialog(int id, const std::string &xmlFile, DialogModalityType modalityType /* = DialogModalityType::MODAL */)
     : CGUIWindow(id, xmlFile)
@@ -38,16 +35,7 @@ CGUIDialog::~CGUIDialog(void) = default;
 
 bool CGUIDialog::Load(TiXmlElement* pRootElement)
 {
-  bool retVal = CGUIWindow::Load(pRootElement);
-
-  if (retVal && IsCustom())
-  {
-    // custom dialog's modality type is modeless if visible condition is specified.
-    if (m_visibleCondition)
-      m_modalityType = DialogModalityType::MODELESS;
-  }
-
-  return retVal;
+  return CGUIWindow::Load(pRootElement);
 }
 
 void CGUIDialog::OnWindowLoaded()
@@ -138,7 +126,7 @@ void CGUIDialog::UpdateVisibility()
 {
   if (m_visibleCondition)
   {
-    if (m_visibleCondition->Get())
+    if (m_visibleCondition->Get(INFO::DEFAULT_CONTEXT))
       Open();
     else
       Close();
@@ -162,17 +150,8 @@ void CGUIDialog::UpdateVisibility()
   }
 }
 
-void CGUIDialog::Open_Internal(const std::string &param /* = "" */)
-{
-  CGUIDialog::Open_Internal(m_modalityType != DialogModalityType::MODELESS, param);
-}
-
 void CGUIDialog::Open_Internal(bool bProcessRenderLoop, const std::string &param /* = "" */)
 {
-  // Lock graphic context here as it is sometimes called from non rendering threads
-  // maybe we should have a critical section per window instead??
-  CSingleLock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
-
   if (!CServiceBroker::GetGUI()->GetWindowManager().Initialized() ||
       (m_active && !m_closing && !IsAnimating(ANIM_TYPE_WINDOW_CLOSE)))
     return;
@@ -195,8 +174,6 @@ void CGUIDialog::Open_Internal(bool bProcessRenderLoop, const std::string &param
     if (!m_windowLoaded)
       Close(true);
 
-    lock.Leave();
-
     while (m_active)
     {
       if (!CServiceBroker::GetGUI()->GetWindowManager().ProcessRenderLoop(false))
@@ -207,14 +184,21 @@ void CGUIDialog::Open_Internal(bool bProcessRenderLoop, const std::string &param
 
 void CGUIDialog::Open(const std::string &param /* = "" */)
 {
-  if (!g_application.IsCurrentThread())
+  CGUIDialog::Open(m_modalityType != DialogModalityType::MODELESS, param);
+}
+
+
+void CGUIDialog::Open(bool bProcessRenderLoop, const std::string& param /* = "" */)
+{
+  if (!CServiceBroker::GetAppMessenger()->IsProcessThread())
   {
     // make sure graphics lock is not held
     CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
-    CApplicationMessenger::GetInstance().SendMsg(TMSG_GUI_DIALOG_OPEN, -1, -1, static_cast<void*>(this), param);
+    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OPEN, -1, bProcessRenderLoop,
+                                               static_cast<void*>(this), param);
   }
   else
-    Open_Internal(param);
+    Open_Internal(bProcessRenderLoop, param);
 }
 
 void CGUIDialog::Render()

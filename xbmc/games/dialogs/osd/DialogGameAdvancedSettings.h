@@ -12,21 +12,16 @@
 
 namespace KODI
 {
-namespace RETRO
-{
-  class CGUIGameSettingsHandle;
-}
-
 namespace GAME
 {
-  class CDialogGameAdvancedSettings: public CGUIDialog
-  {
-  public:
-    CDialogGameAdvancedSettings();
-    ~CDialogGameAdvancedSettings() override = default;
+class CDialogGameAdvancedSettings : public CGUIDialog
+{
+public:
+  CDialogGameAdvancedSettings();
+  ~CDialogGameAdvancedSettings() override = default;
 
-    // implementation of CGUIControl via CGUIDialog
-    bool OnMessage(CGUIMessage &message) override;
-  };
-}
-}
+  // implementation of CGUIControl via CGUIDialog
+  bool OnMessage(CGUIMessage& message) override;
+};
+} // namespace GAME
+} // namespace KODI

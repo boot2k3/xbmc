@@ -8,7 +8,9 @@
 
 #include "ProcessInfoWayland.h"
 
-#include "threads/SingleLock.h"
+#include "cores/VideoPlayer/Buffers/VideoBufferPoolDMA.h"
+
+#include <mutex>
 
 using namespace VIDEOPLAYER;
 
@@ -22,6 +24,11 @@ void CProcessInfoWayland::Register()
   CProcessInfo::RegisterProcessControl("Wayland", CProcessInfoWayland::Create);
 }
 
+CProcessInfoWayland::CProcessInfoWayland()
+{
+  m_videoBufferManager.RegisterPool(std::make_shared<CVideoBufferPoolDMA>());
+}
+
 void CProcessInfoWayland::SetSwDeinterlacingMethods()
 {
   // first populate with the defaults from base implementation
@@ -30,7 +37,7 @@ void CProcessInfoWayland::SetSwDeinterlacingMethods()
   std::list<EINTERLACEMETHOD> methods;
   {
     // get the current methods
-    CSingleLock lock(m_videoCodecSection);
+    std::unique_lock<CCriticalSection> lock(m_videoCodecSection);
     methods = m_deintMethods;
   }
   // add bob and blend deinterlacer

@@ -17,24 +17,23 @@
 
 #include <sstream>
 
-MediaType DatabaseUtils::MediaTypeFromVideoContentType(int videoContentType)
+MediaType DatabaseUtils::MediaTypeFromVideoContentType(VideoDbContentType videoContentType)
 {
-  VIDEODB_CONTENT_TYPE type = (VIDEODB_CONTENT_TYPE)videoContentType;
-  switch (type)
+  switch (videoContentType)
   {
-    case VIDEODB_CONTENT_MOVIES:
+    case VideoDbContentType::MOVIES:
       return MediaTypeMovie;
 
-    case VIDEODB_CONTENT_MOVIE_SETS:
+    case VideoDbContentType::MOVIE_SETS:
       return MediaTypeVideoCollection;
 
-    case VIDEODB_CONTENT_TVSHOWS:
+    case VideoDbContentType::TVSHOWS:
       return MediaTypeTvShow;
 
-    case VIDEODB_CONTENT_EPISODES:
+    case VideoDbContentType::EPISODES:
       return MediaTypeEpisode;
 
-    case VIDEODB_CONTENT_MUSICVIDEOS:
+    case VideoDbContentType::MUSICVIDEOS:
       return MediaTypeMusicVideo;
 
     default:
@@ -54,8 +53,12 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     if (field == FieldId) return "albumview.idAlbum";
     else if (field == FieldAlbum) return "albumview.strAlbum";
     else if (field == FieldArtist || field == FieldAlbumArtist) return "albumview.strArtists";
-    else if (field == FieldGenre) return "albumview.strGenre";
-    else if (field == FieldYear) return "albumview.iYear";
+    else if (field == FieldGenre)
+      return "albumview.strGenres";
+    else if (field == FieldYear)
+      return "albumview.strReleaseDate";
+    else if (field == FieldOrigYear || field == FieldOrigDate)
+      return "albumview.strOrigReleaseDate";
     else if (field == FieldMoods) return "albumview.strMoods";
     else if (field == FieldStyles) return "albumview.strStyles";
     else if (field == FieldThemes) return "albumview.strThemes";
@@ -67,10 +70,16 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     else if (field == FieldVotes) return "albumview.iVotes";
     else if (field == FieldUserRating) return "albumview.iUserrating";
     else if (field == FieldDateAdded) return "albumview.dateAdded";
+    else if (field == FieldDateNew) return "albumview.dateNew";
+    else if (field == FieldDateModified) return "albumview.dateModified";
     else if (field == FieldPlaycount) return "albumview.iTimesPlayed";
     else if (field == FieldLastPlayed) return "albumview.lastPlayed";
     else if (field == FieldTotalDiscs)
       return "albumview.iDiscTotal";
+    else if (field == FieldAlbumStatus)
+        return "albumview.strReleaseStatus";
+    else if (field == FieldAlbumDuration)
+      return "albumview.iAlbumDuration";
   }
   else if (mediaType == MediaTypeSong)
   {
@@ -78,7 +87,10 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     else if (field == FieldTitle) return "songview.strTitle";
     else if (field == FieldTrackNumber) return "songview.iTrack";
     else if (field == FieldTime) return "songview.iDuration";
-    else if (field == FieldYear) return "songview.iYear";
+    else if (field == FieldYear)
+      return "songview.strReleaseDate";
+    else if (field == FieldOrigYear || field == FieldOrigDate)
+      return "songview.strOrigReleaseDate";
     else if (field == FieldFilename) return "songview.strFilename";
     else if (field == FieldPlaycount) return "songview.iTimesPlayed";
     else if (field == FieldStartOffset) return "songview.iStartOffset";
@@ -92,10 +104,22 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     else if (field == FieldAlbum) return "songview.strAlbum";
     else if (field == FieldPath) return "songview.strPath";
     else if (field == FieldArtist || field == FieldAlbumArtist) return "songview.strArtists";
-    else if (field == FieldGenre) return "songview.strGenre";
+    else if (field == FieldGenre)
+      return "songview.strGenres";
     else if (field == FieldDateAdded) return "songview.dateAdded";
+    else if (field == FieldDateNew) return "songview.dateNew";
+    else if (field == FieldDateModified) return "songview.dateModified";
+
     else if (field == FieldDiscTitle)
       return "songview.strDiscSubtitle";
+    else if (field == FieldBPM)
+        return "songview.iBPM";
+    else if (field == FieldMusicBitRate)
+        return "songview.iBitRate";
+    else if (field == FieldSampleRate)
+        return "songview.iSampleRate";
+    else if (field == FieldNoOfChannels)
+        return "songview.iChannels";
   }
   else if (mediaType == MediaTypeArtist)
   {
@@ -115,21 +139,32 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     else if (field == FieldDisbanded) return "artistview.strDisbanded";
     else if (field == FieldDied) return "artistview.strDied";
     else if (field == FieldDateAdded) return "artistview.dateAdded";
+    else if (field == FieldDateNew) return "artistview.dateNew";
+    else if (field == FieldDateModified) return "artistview.dateModified";
   }
   else if (mediaType == MediaTypeMusicVideo)
   {
     std::string result;
     if (field == FieldId) return "musicvideo_view.idMVideo";
-    else if (field == FieldTitle) result = StringUtils::Format("musicvideo_view.c%02d",VIDEODB_ID_MUSICVIDEO_TITLE);
-    else if (field == FieldTime) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_RUNTIME);
-    else if (field == FieldDirector) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_DIRECTOR);
-    else if (field == FieldStudio) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_STUDIOS);
+    else if (field == FieldTitle)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_TITLE);
+    else if (field == FieldTime)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_RUNTIME);
+    else if (field == FieldDirector)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_DIRECTOR);
+    else if (field == FieldStudio)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_STUDIOS);
     else if (field == FieldYear) return "musicvideo_view.premiered";
-    else if (field == FieldPlot) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_PLOT);
-    else if (field == FieldAlbum) result = StringUtils::Format("musicvideo_view.c%02d",VIDEODB_ID_MUSICVIDEO_ALBUM);
-    else if (field == FieldArtist) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_ARTIST);
-    else if (field == FieldGenre) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_GENRE);
-    else if (field == FieldTrackNumber) result = StringUtils::Format("musicvideo_view.c%02d", VIDEODB_ID_MUSICVIDEO_TRACK);
+    else if (field == FieldPlot)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_PLOT);
+    else if (field == FieldAlbum)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_ALBUM);
+    else if (field == FieldArtist)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_ARTIST);
+    else if (field == FieldGenre)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_GENRE);
+    else if (field == FieldTrackNumber)
+      result = StringUtils::Format("musicvideo_view.c{:02}", VIDEODB_ID_MUSICVIDEO_TRACK);
     else if (field == FieldFilename) return "musicvideo_view.strFilename";
     else if (field == FieldPath) return "musicvideo_view.strPath";
     else if (field == FieldPlaycount) return "musicvideo_view.playCount";
@@ -148,28 +183,44 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     {
       // We need some extra logic to get the title value if sorttitle isn't set
       if (queryPart == DatabaseQueryPartOrderBy)
-        result = StringUtils::Format("CASE WHEN length(movie_view.c%02d) > 0 THEN movie_view.c%02d ELSE movie_view.c%02d END", VIDEODB_ID_SORTTITLE, VIDEODB_ID_SORTTITLE, VIDEODB_ID_TITLE);
+        result = StringUtils::Format("CASE WHEN length(movie_view.c{:02}) > 0 THEN "
+                                     "movie_view.c{:02} ELSE movie_view.c{:02} END",
+                                     VIDEODB_ID_SORTTITLE, VIDEODB_ID_SORTTITLE, VIDEODB_ID_TITLE);
       else
-        result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_TITLE);
+        result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_TITLE);
     }
-    else if (field == FieldPlot) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_PLOT);
-    else if (field == FieldPlotOutline) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_PLOTOUTLINE);
-    else if (field == FieldTagline) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_TAGLINE);
+    else if (field == FieldPlot)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_PLOT);
+    else if (field == FieldPlotOutline)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_PLOTOUTLINE);
+    else if (field == FieldTagline)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_TAGLINE);
     else if (field == FieldVotes) return "movie_view.votes";
     else if (field == FieldRating) return "movie_view.rating";
-    else if (field == FieldWriter) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_CREDITS);
+    else if (field == FieldWriter)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_CREDITS);
     else if (field == FieldYear) return "movie_view.premiered";
-    else if (field == FieldSortTitle) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_SORTTITLE);
-    else if (field == FieldOriginalTitle) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_ORIGINALTITLE);
-    else if (field == FieldTime) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_RUNTIME);
-    else if (field == FieldMPAA) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_MPAA);
-    else if (field == FieldTop250) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_TOP250);
+    else if (field == FieldSortTitle)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_SORTTITLE);
+    else if (field == FieldOriginalTitle)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_ORIGINALTITLE);
+    else if (field == FieldTime)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_RUNTIME);
+    else if (field == FieldMPAA)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_MPAA);
+    else if (field == FieldTop250)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_TOP250);
     else if (field == FieldSet) return "movie_view.strSet";
-    else if (field == FieldGenre) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_GENRE);
-    else if (field == FieldDirector) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_DIRECTOR);
-    else if (field == FieldStudio) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_STUDIOS);
-    else if (field == FieldTrailer) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_TRAILER);
-    else if (field == FieldCountry) result = StringUtils::Format("movie_view.c%02d", VIDEODB_ID_COUNTRY);
+    else if (field == FieldGenre)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_GENRE);
+    else if (field == FieldDirector)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_DIRECTOR);
+    else if (field == FieldStudio)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_STUDIOS);
+    else if (field == FieldTrailer)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_TRAILER);
+    else if (field == FieldCountry)
+      result = StringUtils::Format("movie_view.c{:02}", VIDEODB_ID_COUNTRY);
     else if (field == FieldFilename) return "movie_view.strFilename";
     else if (field == FieldPath) return "movie_view.strPath";
     else if (field == FieldPlaycount) return "movie_view.playCount";
@@ -188,20 +239,31 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
     {
       // We need some extra logic to get the title value if sorttitle isn't set
       if (queryPart == DatabaseQueryPartOrderBy)
-        result = StringUtils::Format("CASE WHEN length(tvshow_view.c%02d) > 0 THEN tvshow_view.c%02d ELSE tvshow_view.c%02d END", VIDEODB_ID_TV_SORTTITLE, VIDEODB_ID_TV_SORTTITLE, VIDEODB_ID_TV_TITLE);
+        result = StringUtils::Format("CASE WHEN length(tvshow_view.c{:02}) > 0 THEN "
+                                     "tvshow_view.c{:02} ELSE tvshow_view.c{:02} END",
+                                     VIDEODB_ID_TV_SORTTITLE, VIDEODB_ID_TV_SORTTITLE,
+                                     VIDEODB_ID_TV_TITLE);
       else
-        result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_TITLE);
+        result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_TITLE);
     }
-    else if (field == FieldPlot) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_PLOT);
-    else if (field == FieldTvShowStatus) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_STATUS);
+    else if (field == FieldPlot)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_PLOT);
+    else if (field == FieldTvShowStatus)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_STATUS);
     else if (field == FieldVotes) return "tvshow_view.votes";
     else if (field == FieldRating) return "tvshow_view.rating";
-    else if (field == FieldYear) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_PREMIERED);
-    else if (field == FieldGenre) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_GENRE);
-    else if (field == FieldMPAA) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_MPAA);
-    else if (field == FieldStudio) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_STUDIOS);
-    else if (field == FieldSortTitle) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_SORTTITLE);
-    else if (field == FieldOriginalTitle) result = StringUtils::Format("tvshow_view.c%02d", VIDEODB_ID_TV_ORIGINALTITLE);
+    else if (field == FieldYear)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_PREMIERED);
+    else if (field == FieldGenre)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_GENRE);
+    else if (field == FieldMPAA)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_MPAA);
+    else if (field == FieldStudio)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_STUDIOS);
+    else if (field == FieldSortTitle)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_SORTTITLE);
+    else if (field == FieldOriginalTitle)
+      result = StringUtils::Format("tvshow_view.c{:02}", VIDEODB_ID_TV_ORIGINALTITLE);
     else if (field == FieldPath) return "tvshow_view.strPath";
     else if (field == FieldDateAdded) return "tvshow_view.dateAdded";
     else if (field == FieldLastPlayed) return "tvshow_view.lastPlayed";
@@ -217,19 +279,30 @@ std::string DatabaseUtils::GetField(Field field, const MediaType &mediaType, Dat
   {
     std::string result;
     if (field == FieldId) return "episode_view.idEpisode";
-    else if (field == FieldTitle) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_TITLE);
-    else if (field == FieldPlot) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_PLOT);
+    else if (field == FieldTitle)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_TITLE);
+    else if (field == FieldPlot)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_PLOT);
     else if (field == FieldVotes) return "episode_view.votes";
     else if (field == FieldRating) return "episode_view.rating";
-    else if (field == FieldWriter) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_CREDITS);
-    else if (field == FieldAirDate) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_AIRED);
-    else if (field == FieldTime) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_RUNTIME);
-    else if (field == FieldDirector) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_DIRECTOR);
-    else if (field == FieldSeason) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_SEASON);
-    else if (field == FieldEpisodeNumber) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_EPISODE);
-    else if (field == FieldUniqueId) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_IDENT_ID);
-    else if (field == FieldEpisodeNumberSpecialSort) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_SORTEPISODE);
-    else if (field == FieldSeasonSpecialSort) result = StringUtils::Format("episode_view.c%02d", VIDEODB_ID_EPISODE_SORTSEASON);
+    else if (field == FieldWriter)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_CREDITS);
+    else if (field == FieldAirDate)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_AIRED);
+    else if (field == FieldTime)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_RUNTIME);
+    else if (field == FieldDirector)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_DIRECTOR);
+    else if (field == FieldSeason)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_SEASON);
+    else if (field == FieldEpisodeNumber)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_EPISODE);
+    else if (field == FieldUniqueId)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_IDENT_ID);
+    else if (field == FieldEpisodeNumberSpecialSort)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_SORTEPISODE);
+    else if (field == FieldSeasonSpecialSort)
+      result = StringUtils::Format("episode_view.c{:02}", VIDEODB_ID_EPISODE_SORTSEASON);
     else if (field == FieldFilename) return "episode_view.strFilename";
     else if (field == FieldPath) return "episode_view.strPath";
     else if (field == FieldPlaycount) return "episode_view.playCount";
@@ -299,7 +372,7 @@ bool DatabaseUtils::GetSelectFields(const Fields &fields, const MediaType &media
 
     if (GetField(*it, mediaType, DatabaseQueryPartSelect).empty())
     {
-      CLog::Log(LOGDEBUG, "DatabaseUtils::GetSortFieldList: unknown field %d", *it);
+      CLog::Log(LOGDEBUG, "DatabaseUtils::GetSortFieldList: unknown field {}", *it);
       continue;
     }
     selectFields.push_back(*it);
@@ -401,10 +474,12 @@ bool DatabaseUtils::GetDatabaseResults(const MediaType &mediaType, const FieldLi
       std::pair<Field, CVariant> value;
       value.first = *it;
       if (!GetFieldValue(resultSet.records[index]->at(fieldIndex), value.second))
-        CLog::Log(LOGWARNING, "GetDatabaseResults: unable to retrieve value of field %s", resultSet.record_header[fieldIndex].name.c_str());
+        CLog::Log(LOGWARNING, "GetDatabaseResults: unable to retrieve value of field {}",
+                  resultSet.record_header[fieldIndex].name);
 
       if (value.first == FieldYear &&
-         (mediaType == MediaTypeTvShow || mediaType == MediaTypeEpisode))
+          (mediaType == MediaTypeTvShow || mediaType == MediaTypeEpisode ||
+           mediaType == MediaTypeMovie))
       {
         CDateTime dateTime;
         dateTime.SetFromDBDate(value.second.asString());
@@ -451,8 +526,12 @@ bool DatabaseUtils::GetDatabaseResults(const MediaType &mediaType, const FieldLi
 
 std::string DatabaseUtils::BuildLimitClause(int end, int start /* = 0 */)
 {
+  return " LIMIT " + BuildLimitClauseOnly(end, start);
+}
+
+std::string DatabaseUtils::BuildLimitClauseOnly(int end, int start /* = 0 */)
+{
   std::ostringstream sql;
-  sql << " LIMIT ";
   if (start > 0)
   {
     if (end > 0)
@@ -470,6 +549,20 @@ std::string DatabaseUtils::BuildLimitClause(int end, int start /* = 0 */)
   return sql.str();
 }
 
+size_t DatabaseUtils::GetLimitCount(int end, int start)
+{
+  if (start > 0)
+  {
+    if (end - start < 0)
+      return 0;
+    else
+      return static_cast<size_t>(end - start);
+  }
+  else if (end > 0)
+    return static_cast<size_t>(end);
+  return 0;
+}
+
 int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asIndex)
 {
   if (field == FieldNone || mediaType == MediaTypeNone)
@@ -483,7 +576,7 @@ int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asInde
     else if (field == FieldAlbum) return CMusicDatabase::album_strAlbum;
     else if (field == FieldArtist || field == FieldAlbumArtist) return CMusicDatabase::album_strArtists;
     else if (field == FieldGenre) return CMusicDatabase::album_strGenres;
-    else if (field == FieldYear) return CMusicDatabase::album_iYear;
+    else if (field == FieldYear) return CMusicDatabase::album_strReleaseDate;
     else if (field == FieldMoods) return CMusicDatabase::album_strMoods;
     else if (field == FieldStyles) return CMusicDatabase::album_strStyles;
     else if (field == FieldThemes) return CMusicDatabase::album_strThemes;
@@ -495,9 +588,17 @@ int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asInde
     else if (field == FieldUserRating) return CMusicDatabase::album_iUserrating;
     else if (field == FieldPlaycount) return CMusicDatabase::album_iTimesPlayed;
     else if (field == FieldLastPlayed) return CMusicDatabase::album_dtLastPlayed;
-    else if (field == FieldDateAdded) return CMusicDatabase::album_dtDateAdded;
+    else if (field == FieldDateAdded) return CMusicDatabase::album_dateAdded;
+    else if (field == FieldDateNew) return CMusicDatabase::album_dateNew;
+    else if (field == FieldDateModified) return CMusicDatabase::album_dateModified;
     else if (field == FieldTotalDiscs)
       return CMusicDatabase::album_iTotalDiscs;
+    else if (field == FieldOrigYear || field == FieldOrigDate)
+      return CMusicDatabase::album_strOrigReleaseDate;
+    else if (field == FieldAlbumStatus)
+      return CMusicDatabase::album_strReleaseStatus;
+    else if (field == FieldAlbumDuration)
+      return CMusicDatabase::album_iAlbumDuration;
   }
   else if (mediaType == MediaTypeSong)
   {
@@ -505,7 +606,7 @@ int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asInde
     else if (field == FieldTitle) return CMusicDatabase::song_strTitle;
     else if (field == FieldTrackNumber) return CMusicDatabase::song_iTrack;
     else if (field == FieldTime) return CMusicDatabase::song_iDuration;
-    else if (field == FieldYear) return CMusicDatabase::song_iYear;
+    else if (field == FieldYear) return CMusicDatabase::song_strReleaseDate;
     else if (field == FieldFilename) return CMusicDatabase::song_strFileName;
     else if (field == FieldPlaycount) return CMusicDatabase::song_iTimesPlayed;
     else if (field == FieldStartOffset) return CMusicDatabase::song_iStartOffset;
@@ -521,6 +622,16 @@ int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asInde
     else if (field == FieldGenre) return CMusicDatabase::song_strGenres;
     else if (field == FieldArtist || field == FieldAlbumArtist) return CMusicDatabase::song_strArtists;
     else if (field == FieldDateAdded) return CMusicDatabase::song_dateAdded;
+    else if (field == FieldDateNew) return CMusicDatabase::song_dateNew;
+    else if (field == FieldDateModified) return CMusicDatabase::song_dateModified;
+    else if (field == FieldBPM)
+      return CMusicDatabase::song_iBPM;
+    else if (field == FieldMusicBitRate)
+        return CMusicDatabase::song_iBitRate;
+    else if (field == FieldSampleRate)
+        return CMusicDatabase::song_iSampleRate;
+    else if (field == FieldNoOfChannels)
+        return CMusicDatabase::song_iChannels;
   }
   else if (mediaType == MediaTypeArtist)
   {
@@ -539,7 +650,9 @@ int DatabaseUtils::GetField(Field field, const MediaType &mediaType, bool asInde
     else if (field == FieldBandFormed) return CMusicDatabase::artist_strFormed;
     else if (field == FieldDisbanded) return CMusicDatabase::artist_strDisbanded;
     else if (field == FieldDied) return CMusicDatabase::artist_strDied;
-    else if (field == FieldDateAdded) return CMusicDatabase::artist_dtDateAdded;
+    else if (field == FieldDateAdded) return CMusicDatabase::artist_dateAdded;
+    else if (field == FieldDateNew) return CMusicDatabase::artist_dateNew;
+    else if (field == FieldDateModified) return CMusicDatabase::artist_dateModified;
   }
   else if (mediaType == MediaTypeMusicVideo)
   {

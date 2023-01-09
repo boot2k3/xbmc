@@ -47,6 +47,10 @@ configure_file(${CMAKE_SOURCE_DIR}/tools/Linux/kodi-xsession.desktop.in
 configure_file(${CMAKE_SOURCE_DIR}/tools/Linux/kodi.desktop.in
                ${CORE_BUILD_DIR}/${APP_NAME_LC}.desktop @ONLY)
 
+# Configure metainfo
+configure_file(${CMAKE_SOURCE_DIR}/tools/Linux/kodi.metainfo.xml.in
+               ${CORE_BUILD_DIR}/${APP_PACKAGE}.metainfo.xml @ONLY)
+
 # Install app
 install(TARGETS ${APP_NAME_LC}
         DESTINATION ${libdir}/${APP_NAME_LC}
@@ -90,6 +94,11 @@ install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/${APP_NAME_LC}-xsession.desk
 # Install desktop entry
 install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/${APP_NAME_LC}.desktop
         DESTINATION ${datarootdir}/applications
+        COMPONENT kodi)
+
+# Install metainfo
+install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/${APP_PACKAGE}.metainfo.xml
+        DESTINATION ${datarootdir}/metainfo
         COMPONENT kodi)
 
 # Install icons
@@ -145,9 +154,10 @@ install(FILES ${CMAKE_SOURCE_DIR}/privacy-policy.txt
         COMPONENT kodi)
 
 # Install kodi-tools-texturepacker
-if(NOT WITH_TEXTUREPACKER)
-  install(PROGRAMS $<TARGET_FILE:TexturePacker::TexturePacker>
+if(INTERNAL_TEXTUREPACKER_INSTALLABLE)
+  install(PROGRAMS $<TARGET_FILE:TexturePacker::TexturePacker::Installable>
           DESTINATION ${bindir}
+          RENAME "${APP_NAME_LC}-TexturePacker"
           COMPONENT kodi-tools-texturepacker)
 endif()
 
@@ -163,8 +173,7 @@ install(FILES ${CORE_ADDON_BINDINGS_FILES}
         COMPONENT kodi-addon-dev)
 
 # Install kodi-addon-dev add-on bindings
-install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/scripts/${APP_NAME}Config.cmake
-              ${CMAKE_SOURCE_DIR}/cmake/scripts/common/AddonHelpers.cmake
+install(FILES ${CMAKE_SOURCE_DIR}/cmake/scripts/common/AddonHelpers.cmake
               ${CMAKE_SOURCE_DIR}/cmake/scripts/common/AddOptions.cmake
               ${CMAKE_SOURCE_DIR}/cmake/scripts/common/ArchSetup.cmake
               ${CMAKE_SOURCE_DIR}/cmake/scripts/common/CheckCommits.cmake
@@ -177,6 +186,11 @@ install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/scripts/${APP_NAME}Config.cm
               ${CMAKE_SOURCE_DIR}/cmake/scripts/common/ProjectMacros.cmake
               ${CMAKE_SOURCE_DIR}/cmake/scripts/linux/PathSetup.cmake
         DESTINATION ${datarootdir}/${APP_NAME_LC}/cmake
+        COMPONENT kodi-addon-dev)
+# ${APP_NAME}Config.cmake contains architecture-specific paths so it
+# should be installed in ${libdir}/${APP_NAME_LC}/${dir}
+install(FILES ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/scripts/${APP_NAME}Config.cmake
+        DESTINATION ${libdir}/${APP_NAME_LC}/cmake
         COMPONENT kodi-addon-dev)
 
 if(ENABLE_EVENTCLIENTS)
@@ -199,7 +213,7 @@ if(ENABLE_EVENTCLIENTS)
           COMPONENT kodi-eventclients-common)
 
   # Install kodi-eventclients-common python files
-  file(WRITE ${CMAKE_BINARY_DIR}/packages/deb/defs.py ICON_PATH="usr/share/pixmaps/${APP_NAME_LC}/")
+  file(WRITE ${CMAKE_BINARY_DIR}/packages/deb/defs.py ICON_PATH="/usr/share/pixmaps/${APP_NAME_LC}/")
   install(PROGRAMS ${CMAKE_BINARY_DIR}/packages/deb/defs.py
                    ${CMAKE_SOURCE_DIR}/tools/EventClients/lib/python/__init__.py
                    ${CMAKE_SOURCE_DIR}/tools/EventClients/Clients/PS3BDRemote/ps3_remote.py
@@ -256,7 +270,7 @@ if(ENABLE_EVENTCLIENTS)
           DESTINATION ${bindir}
           COMPONENT kodi-eventclients-ps3)
 
-  if(BLUETOOTH_FOUND AND CWIID_FOUND)
+  if(BLUETOOTH_FOUND AND CWIID_FOUND AND GLU_FOUND)
     # Install kodi-eventclients-wiiremote
     install(PROGRAMS ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/WiiRemote/${APP_NAME_LC}-wiiremote
             DESTINATION ${bindir}

@@ -1,11 +1,8 @@
 -include ../../Makefile.include
-DEPS = Makefile 0001-remove_custom_cxx_flags.patch
-
-# lib name, version
-LIBNAME=rapidjson
-VERSION=1.1.0
-SOURCE=$(LIBNAME)-$(VERSION)
-ARCHIVE=$(SOURCE).tar.gz
+include RAPIDJSON-VERSION
+DEPS = Makefile RAPIDJSON-VERSION 001-remove_custom_cxx_flags.patch ../../download-files.include \
+                                  002-cmake-removedocs-examples.patch \
+                                  003-win-arm64.patch
 
 CMAKE_OPTIONS=-DRAPIDJSON_HAS_STDSTRING=ON -DRAPIDJSON_BUILD_DOC=OFF -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF -DRAPIDJSON_BUILD_THIRDPARTY_GTEST=OFF
 
@@ -23,17 +20,19 @@ else
     RETRIEVE_TOOL_FLAGS := -Ls --create-dirs -f -O
     ARCHIVE_TOOL := tar
     ARCHIVE_TOOL_FLAGS := --strip-components=1 -xf
+    HASH_TOOL := sha512sum
+    HASH_TOOL_FLAGS = -c --status
     CMAKE := cmake
     CMAKE_OPTIONS := -DCMAKE_INSTALL_PREFIX=$(PREFIX) $(CMAKE_OPTIONS)
   endif
 endif
 
+include ../../download-files.include
+
 all: .installed-$(PLATFORM)
 
-$(TARBALLS_LOCATION)/$(ARCHIVE):
-	cd $(TARBALLS_LOCATION); $(RETRIEVE_TOOL) $(RETRIEVE_TOOL_FLAGS) $(BASE_URL)/$(ARCHIVE)
 
-$(PLATFORM): $(TARBALLS_LOCATION)/$(ARCHIVE) $(DEPS)
+$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 ifeq ($(PREFIX),)
 	@echo
 	@echo "ERROR: please set PREFIX to the kodi install path e.g. $(MAKE) PREFIX=/usr/local"
@@ -42,7 +41,9 @@ endif
 	rm -rf $(PLATFORM); mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	cd $(PLATFORM); rm -rf build; mkdir -p build
-	cd $(PLATFORM); patch -p1 -i ../0001-remove_custom_cxx_flags.patch
+	cd $(PLATFORM); patch -p1 -i ../001-remove_custom_cxx_flags.patch
+	cd $(PLATFORM); patch -p1 -i ../002-cmake-removedocs-examples.patch
+	cd $(PLATFORM); patch -p1 -i ../003-win-arm64.patch
 	cd $(PLATFORM)/build; $(CMAKE) $(CMAKE_OPTIONS) ..
 
 .installed-$(PLATFORM): $(PLATFORM)

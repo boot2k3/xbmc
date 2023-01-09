@@ -8,7 +8,6 @@
 
 #include "DialogGameVideoSelect.h"
 
-#include "Application.h"
 #include "FileItem.h"
 #include "ServiceBroker.h"
 #include "cores/RetroPlayer/guibridge/GUIGameRenderManager.h"
@@ -29,14 +28,14 @@
 using namespace KODI;
 using namespace GAME;
 
-#define CONTROL_HEADING               1
-#define CONTROL_THUMBS                11
-#define CONTROL_DESCRIPTION           12
+#define CONTROL_HEADING 1
+#define CONTROL_THUMBS 11
+#define CONTROL_DESCRIPTION 12
 
-CDialogGameVideoSelect::CDialogGameVideoSelect(int windowId) :
-  CGUIDialog(windowId, "DialogSelect.xml"),
-  m_viewControl(new CGUIViewControl),
-  m_vecItems(new CFileItemList)
+CDialogGameVideoSelect::CDialogGameVideoSelect(int windowId)
+  : CGUIDialog(windowId, "DialogSelect.xml"),
+    m_viewControl(new CGUIViewControl),
+    m_vecItems(new CFileItemList)
 {
   // Initialize CGUIWindow
   m_loadType = KEEP_IN_MEMORY;
@@ -44,7 +43,7 @@ CDialogGameVideoSelect::CDialogGameVideoSelect(int windowId) :
 
 CDialogGameVideoSelect::~CDialogGameVideoSelect() = default;
 
-bool CDialogGameVideoSelect::OnMessage(CGUIMessage &message)
+bool CDialogGameVideoSelect::OnMessage(CGUIMessage& message)
 {
   switch (message.GetMessage())
   {
@@ -84,6 +83,8 @@ bool CDialogGameVideoSelect::OnMessage(CGUIMessage &message)
         {
           using namespace MESSAGING;
 
+          OnClickAction();
+
           // Changed from sending ACTION_SHOW_OSD to closing the dialog
           Close();
 
@@ -106,7 +107,7 @@ bool CDialogGameVideoSelect::OnMessage(CGUIMessage &message)
 
 void CDialogGameVideoSelect::FrameMove()
 {
-  CGUIBaseContainer *thumbs = dynamic_cast<CGUIBaseContainer*>(GetControl(CONTROL_THUMBS));
+  CGUIBaseContainer* thumbs = dynamic_cast<CGUIBaseContainer*>(GetControl(CONTROL_THUMBS));
   if (thumbs != nullptr)
     OnItemFocus(thumbs->GetSelectedItem());
 
@@ -160,7 +161,7 @@ void CDialogGameVideoSelect::Update()
 {
   //! @todo
   // Lock our display, as this window is rendered from the player thread
-  //CServiceBroker::GetWinSystem()->GetGfxContext().Lock();
+  // CServiceBroker::GetWinSystem()->GetGfxContext().Lock();
 
   m_viewControl->SetCurrentView(DEFAULT_VIEW_ICONS);
 
@@ -169,7 +170,7 @@ void CDialogGameVideoSelect::Update()
 
   OnRefreshList();
 
-  //CServiceBroker::GetWinSystem()->GetGfxContext().Unlock();
+  // CServiceBroker::GetWinSystem()->GetGfxContext().Unlock();
 }
 
 void CDialogGameVideoSelect::Clear()
@@ -193,8 +194,8 @@ void CDialogGameVideoSelect::OnRefreshList()
 
 void CDialogGameVideoSelect::SaveSettings()
 {
-  CGameSettings &defaultSettings = CMediaSettings::GetInstance().GetDefaultGameSettings();
-  CGameSettings &currentSettings = CMediaSettings::GetInstance().GetCurrentGameSettings();
+  CGameSettings& defaultSettings = CMediaSettings::GetInstance().GetDefaultGameSettings();
+  CGameSettings& currentSettings = CMediaSettings::GetInstance().GetCurrentGameSettings();
 
   if (defaultSettings != currentSettings)
   {
@@ -203,7 +204,7 @@ void CDialogGameVideoSelect::SaveSettings()
   }
 }
 
-void CDialogGameVideoSelect::OnDescriptionChange(const std::string &description)
+void CDialogGameVideoSelect::OnDescriptionChange(const std::string& description)
 {
   CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), CONTROL_DESCRIPTION);
   msg.SetLabel(description);

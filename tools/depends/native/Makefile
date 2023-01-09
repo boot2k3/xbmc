@@ -4,32 +4,50 @@ ifneq ($(shell test -f $(NATIVEPREFIX)/share/config.site && echo 1),1)
   $(error Error: $(NATIVEPREFIX)/share/config.site  is missing. Please reconfigure depends to generate it)
 endif
 
-NATIVE= m4 gettext heimdal autoconf automake \
-        libtool pkg-config yasm cmake \
-        gas-preprocessor libffi python3 zlib \
-        pcre swig \
-        libpng libjpeg-turbo liblzo2 giflib \
-        setuptools distutilscross JsonSchemaBuilder TexturePacker \
-        flatbuffers
+# Keep in alphabetical order
+NATIVE= \
+  autoconf \
+  autoconf-archive \
+  automake \
+  cmake \
+  gas-preprocessor \
+  gettext \
+  giflib \
+  heimdal \
+  JsonSchemaBuilder \
+  libjpeg-turbo \
+  liblzo2 \
+  libpng \
+  libtool \
+  m4 \
+  meson \
+  nasm \
+  ninja \
+  openssl \
+  pcre \
+  perlmodule-parseyapp \
+  pkg-config \
+  python3 \
+  swig \
+  TexturePacker \
+  zlib
 
-
-ifeq ($(OS),darwin_embedded)
-  NATIVE += dpkg xz tar gen_entitlements ldid
+ifneq ($(NATIVE_OS),osx)
+  NATIVE += libffi
+  LIBFFI = libffi
 endif
 
-ifeq ($(OS),osx)
-  NATIVE += xz tar
+ifeq ($(OS),darwin_embedded)
+  NATIVE += dpkg xz tar ldid
 endif
 
 ifeq ($(OS),linux)
-  ifeq ($(TARGET_PLATFORM),$(filter $(TARGET_PLATFORM),raspberry-pi gbm))
-    NATIVE += meson ninja
-  endif
-endif
-
-ifeq ($(TARGET_PLATFORM),wayland)
-  NATIVE += expat wayland-scanner waylandpp-scanner
+  NATIVE += expat wayland-scanner pugixml waylandpp-scanner
   EXPAT = expat
+
+  ifeq ($(RENDER_SYSTEM),gles)
+    NATIVE += MarkupSafe Mako
+  endif
 endif
 
 .PHONY: $(NATIVE) native
@@ -38,28 +56,34 @@ all: native
 	@echo "Dependencies built successfully."
 
 # Dependency layout for parallel builds
+autoconf-archive: autoconf
 autoconf: m4
 automake: autoconf
 dpkg: automake gettext libtool pkg-config tar
-flatbuffers: cmake
 heimdal: libtool
+JsonSchemaBuilder: automake
+libjpeg-turbo: cmake nasm
+libpng: zlib automake
 libtool: automake
-libjpeg-turbo: cmake yasm
-libpng: zlib
-meson: python3 setuptools
-ninja: python3
+Mako: MarkupSafe
+meson: python3
+ninja: meson
+openssl: zlib
+pugixml: cmake
+python3: $(EXPAT) $(LIBFFI) pkg-config zlib openssl autoconf-archive
 swig: pcre
-distutilscross: python3
 tar: xz automake
-python3: $(EXPAT) libffi pkg-config zlib
-setuptools: python3
-wayland-scanner: expat
-waylandpp-scanner: cmake
+TexturePacker: automake pkg-config libpng liblzo2 giflib libjpeg-turbo
+wayland-scanner: expat pkg-config
+waylandpp-scanner: cmake pugixml
+
+# python installs are not thread safe when using easy_install method.
+# MarkupSafe doesn't really depend on ninja but we need to make the
+# build sequential
+MarkupSafe: ninja
 
 #liblzo2 has stale packaged automake files that cause borked host/build detection
 liblzo2: automake
-JsonSchemaBuilder: automake
-TexturePacker: automake pkg-config libpng liblzo2 giflib libjpeg-turbo
 
 native: $(NATIVE)
 $(NATIVE):

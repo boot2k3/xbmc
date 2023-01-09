@@ -83,7 +83,7 @@ public:
   CDVDDemuxFFmpeg();
   ~CDVDDemuxFFmpeg() override;
 
-  bool Open(std::shared_ptr<CDVDInputStream> pInput, bool streaminfo = true, bool fileinfo = false);
+  bool Open(const std::shared_ptr<CDVDInputStream>& pInput, bool fileinfo);
   void Dispose();
   bool Reset() override ;
   void Flush() override;
@@ -140,6 +140,8 @@ protected:
   void GetL16Parameters(int& channels, int& samplerate);
   double SelectAspect(AVStream* st, bool& forced);
 
+  StreamHdrType DetermineHdrType(AVStream* pStream);
+
   CCriticalSection m_critSection;
   std::map<int, CDemuxStream*> m_streams;
   std::map<int, std::unique_ptr<CDemuxParserFFmpeg>> m_parsers;
@@ -157,7 +159,7 @@ protected:
   unsigned int m_initialProgramNumber;
   int m_seekStream;
 
-  XbmcThreads::EndTime  m_timeout;
+  XbmcThreads::EndTime<> m_timeout;
 
   // Due to limitations of ffmpeg, we only can detect a program change
   // with a packet. This struct saves the packet for the next read and
@@ -169,6 +171,7 @@ protected:
   }m_pkt;
 
   bool m_streaminfo;
+  bool m_reopen = false;
   bool m_checkTransportStream;
   int m_displayTime = 0;
   double m_dtsAtDisplayTime;

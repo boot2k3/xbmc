@@ -90,9 +90,13 @@ public:
 
   // CWinSystemWin10
   bool IsAlteringWindow() const { return m_IsAlteringWindow; }
+  void SetAlteringWindow(bool altering) { m_IsAlteringWindow = altering; }
+  bool IsTogglingHDR() const { return false; }
+  void SetTogglingHDR(bool toggling) {}
   virtual bool DPIChanged(WORD dpi, RECT windowRect) const;
   bool IsMinimized() const { return m_bMinimized; }
   void SetMinimized(bool minimized) { m_bMinimized = minimized; }
+  int GetGuiSdrPeakLuminance() const;
 
   bool CanDoWindowed() override;
 
@@ -136,7 +140,7 @@ protected:
   CCriticalSection m_resourceSection;
   std::vector<IDispResource*> m_resources;
   bool m_delayDispReset;
-  XbmcThreads::EndTime m_dispResetTimer;
+  XbmcThreads::EndTime<> m_dispResetTimer;
 
   WINDOW_STATE m_state;                       // the state of the window
   WINDOW_FULLSCREEN_STATE m_fullscreenState;  // the state of the window when in fullscreen

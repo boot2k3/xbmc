@@ -136,7 +136,7 @@ void CURL::Parse(const std::string& strURL1)
     return;
   }
 
-  if (IsProtocol("udf"))
+  if (IsProtocol("udf") || IsProtocol("iso9660"))
   {
     std::string lower(strURL);
     StringUtils::ToLower(lower);
@@ -189,7 +189,7 @@ void CURL::Parse(const std::string& strURL1)
     if (iOptions != std::string::npos)
     {
       // we keep the initial char as it can be any of the above
-      size_t iProto = strURL.find_first_of("|",iOptions);
+      size_t iProto = strURL.find_first_of('|', iOptions);
       if (iProto != std::string::npos)
       {
         SetProtocolOptions(strURL.substr(iProto+1));
@@ -201,65 +201,66 @@ void CURL::Parse(const std::string& strURL1)
     }
   }
 
-  size_t iSlash = strURL.find("/", iPos);
+  size_t iSlash = strURL.find('/', iPos);
   if(iSlash >= iEnd)
     iSlash = std::string::npos; // was an invalid slash as it was contained in options
 
-  if( !IsProtocol("iso9660") )
+  // also skip parsing username:password@ for udp/rtp as it not valid
+  // and conflicts with the following example: rtp://sourceip@multicastip
+  size_t iAlphaSign = strURL.find('@', iPos);
+  if (iAlphaSign != std::string::npos && iAlphaSign < iEnd &&
+      (iAlphaSign < iSlash || iSlash == std::string::npos) &&
+      !IsProtocol("udp") && !IsProtocol("rtp"))
   {
-    size_t iAlphaSign = strURL.find("@", iPos);
-    if (iAlphaSign != std::string::npos && iAlphaSign < iEnd && (iAlphaSign < iSlash || iSlash == std::string::npos))
+    // username/password found
+    std::string strUserNamePassword = strURL.substr(iPos, iAlphaSign - iPos);
+
+    // first extract domain, if protocol is smb
+    if (IsProtocol("smb"))
     {
-      // username/password found
-      std::string strUserNamePassword = strURL.substr(iPos, iAlphaSign - iPos);
+      size_t iSemiColon = strUserNamePassword.find(';');
 
-      // first extract domain, if protocol is smb
-      if (IsProtocol("smb"))
+      if (iSemiColon != std::string::npos)
       {
-        size_t iSemiColon = strUserNamePassword.find(";");
-
-        if (iSemiColon != std::string::npos)
-        {
-          m_strDomain = strUserNamePassword.substr(0, iSemiColon);
-          strUserNamePassword.erase(0, iSemiColon + 1);
-        }
+        m_strDomain = strUserNamePassword.substr(0, iSemiColon);
+        strUserNamePassword.erase(0, iSemiColon + 1);
       }
-
-      // username:password
-      size_t iColon = strUserNamePassword.find(":");
-      if (iColon != std::string::npos)
-      {
-        m_strUserName = strUserNamePassword.substr(0, iColon);
-        m_strPassword = strUserNamePassword.substr(iColon + 1);
-      }
-      // username
-      else
-      {
-        m_strUserName = strUserNamePassword;
-      }
-
-      iPos = iAlphaSign + 1;
-      iSlash = strURL.find("/", iAlphaSign);
-
-      if(iSlash >= iEnd)
-        iSlash = std::string::npos;
     }
+
+    // username:password
+    size_t iColon = strUserNamePassword.find(':');
+    if (iColon != std::string::npos)
+    {
+      m_strUserName = strUserNamePassword.substr(0, iColon);
+      m_strPassword = strUserNamePassword.substr(iColon + 1);
+    }
+    // username
+    else
+    {
+      m_strUserName = strUserNamePassword;
+    }
+
+    iPos = iAlphaSign + 1;
+    iSlash = strURL.find('/', iAlphaSign);
+
+    if (iSlash >= iEnd)
+      iSlash = std::string::npos;
   }
 
   std::string strHostNameAndPort = strURL.substr(iPos, (iSlash == std::string::npos) ? iEnd - iPos : iSlash - iPos);
   // check for IPv6 numerical representation inside [].
   // if [] found, let's store string inside as hostname
   // and remove that parsed part from strHostNameAndPort
-  size_t iBrk = strHostNameAndPort.rfind("]");
-  if (iBrk != std::string::npos && strHostNameAndPort.find("[") == 0)
+  size_t iBrk = strHostNameAndPort.rfind(']');
+  if (iBrk != std::string::npos && strHostNameAndPort.find('[') == 0)
   {
     m_strHostName = strHostNameAndPort.substr(1, iBrk-1);
     strHostNameAndPort.erase(0, iBrk+1);
   }
 
   // detect hostname:port/ or just :port/ if previous step found [IPv6] format
-  size_t iColon = strHostNameAndPort.rfind(":");
-  if (iColon != std::string::npos && iColon == strHostNameAndPort.find(":"))
+  size_t iColon = strHostNameAndPort.rfind(':');
+  if (iColon != std::string::npos && iColon == strHostNameAndPort.find(':'))
   {
     if (m_strHostName.empty())
       m_strHostName = strHostNameAndPort.substr(0, iColon);
@@ -278,16 +279,11 @@ void CURL::Parse(const std::string& strURL1)
       m_strFileName = strURL.substr(iPos, iEnd - iPos);
   }
 
-  // iso9960 doesnt have an hostname;-)
-  if (IsProtocol("iso9660")
-   || IsProtocol("musicdb")
-   || IsProtocol("videodb")
-   || IsProtocol("sources")
-   || IsProtocol("pvr"))
+  if (IsProtocol("musicdb") || IsProtocol("videodb") || IsProtocol("sources") || IsProtocol("pvr"))
   {
     if (m_strHostName != "" && m_strFileName != "")
     {
-      m_strFileName = StringUtils::Format("%s/%s", m_strHostName.c_str(), m_strFileName.c_str());
+      m_strFileName = StringUtils::Format("{}/{}", m_strHostName, m_strFileName);
       m_strHostName = "";
     }
     else
@@ -358,7 +354,7 @@ void CURL::SetOptions(const std::string& strOptions)
       m_options.AddOptions(m_strOptions);
     }
     else
-      CLog::Log(LOGWARNING, "%s - Invalid options specified for url %s", __FUNCTION__, strOptions.c_str());
+      CLog::Log(LOGWARNING, "{} - Invalid options specified for url {}", __FUNCTION__, strOptions);
   }
 }
 
@@ -409,8 +405,7 @@ const std::string CURL::GetFileNameWithoutPath() const
 inline
 void protectIPv6(std::string &hn)
 {
-  if (!hn.empty() && hn.find(":") != hn.rfind(":")
-   && hn.find(":") != std::string::npos)
+  if (!hn.empty() && hn.find(':') != hn.rfind(':') && hn.find(':') != std::string::npos)
   {
     hn = '[' + hn + ']';
   }
@@ -541,7 +536,7 @@ std::string CURL::GetWithoutUserDetails(bool redact) const
     if ( HasPort() )
     {
       protectIPv6(strHostName);
-      strURL += strHostName + StringUtils::Format(":%i", m_iPort);
+      strURL += strHostName + StringUtils::Format(":{}", m_iPort);
     }
     else
       strURL += strHostName;
@@ -604,7 +599,7 @@ std::string CURL::GetWithoutFilename() const
     if (HasPort())
     {
       protectIPv6(hostname);
-      strURL += hostname + StringUtils::Format(":%i", m_iPort);
+      strURL += hostname + StringUtils::Format(":{}", m_iPort);
     }
     else
       strURL += hostname;
@@ -703,7 +698,7 @@ std::string CURL::Encode(const std::string& strURLData)
     if (StringUtils::isasciialphanum(kar) || kar == '-' || kar == '.' || kar == '_' || kar == '!' || kar == '(' || kar == ')')
       strResult.push_back(kar);
     else
-      strResult += StringUtils::Format("%%%2.2x", (unsigned int)((unsigned char)kar));
+      strResult += StringUtils::Format("%{:02x}", (unsigned int)((unsigned char)kar));
   }
 
   return strResult;

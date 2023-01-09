@@ -16,9 +16,11 @@
 #include "utils/StringUtils.h"
 
 #include <algorithm>
-#include <string.h>
-
-#include <lzo/lzo1x.h>
+#include <climits>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <utility>
 
 namespace XFILE
 {
@@ -40,8 +42,6 @@ bool CXbtFile::Open(const CURL& url)
 {
   if (m_open)
     return false;
-
-  std::string options = url.GetOptions();
 
   CURL xbtUrl(url);
   xbtUrl.SetOptions("");
@@ -65,17 +65,14 @@ bool CXbtFile::Open(const CURL& url)
   m_positionWithinFrame = 0;
   m_positionTotal = 0;
 
-  m_unpackedFrames.assign(frames.size(), nullptr);
+  m_unpackedFrames.resize(frames.size());
 
   return true;
 }
 
 void CXbtFile::Close()
 {
-  for (const auto& unpackedFrame : m_unpackedFrames)
-    delete [] unpackedFrame;
   m_unpackedFrames.clear();
-
   m_frameIndex = 0;
   m_positionWithinFrame = 0;
   m_positionTotal = 0;
@@ -115,7 +112,10 @@ int CXbtFile::Stat(struct __stat64 *buffer)
 
 int CXbtFile::Stat(const CURL& url, struct __stat64* buffer)
 {
-  memset(buffer, 0, sizeof(struct __stat64));
+  if (!buffer)
+    return -1;
+
+  *buffer = {};
 
   // check if the file exists
   CXBTFReaderPtr reader;
@@ -168,17 +168,18 @@ ssize_t CXbtFile::Read(void* lpBuf, size_t uiBufSize)
     const CXBTFFrame& frame = frames[m_frameIndex];
 
     // check if we have already unpacked the current frame
-    if (m_unpackedFrames[m_frameIndex] == nullptr)
+    if (m_unpackedFrames[m_frameIndex].empty())
     {
       // unpack the data from the current frame
-      uint8_t* unpackedFrame = CTextureBundleXBT::UnpackFrame(*m_xbtfReader.get(), frame);
-      if (unpackedFrame == nullptr)
+      std::vector<uint8_t> unpackedFrame =
+          CTextureBundleXBT::UnpackFrame(*m_xbtfReader.get(), frame);
+      if (unpackedFrame.empty())
       {
         Close();
         return -1;
       }
 
-      m_unpackedFrames[m_frameIndex] = unpackedFrame;
+      m_unpackedFrames[m_frameIndex] = std::move(unpackedFrame);
     }
 
     // determine how many bytes we need to copy from the current frame
@@ -188,7 +189,7 @@ ssize_t CXbtFile::Read(void* lpBuf, size_t uiBufSize)
       bytesToCopy = std::min(remaining, static_cast<size_t>(remainingBytesInFrame));
 
     // copy the data
-    memcpy(lpBuf, m_unpackedFrames[m_frameIndex] + m_positionWithinFrame, bytesToCopy);
+    memcpy(lpBuf, m_unpackedFrames[m_frameIndex].data() + m_positionWithinFrame, bytesToCopy);
     m_positionWithinFrame += bytesToCopy;
     m_positionTotal += bytesToCopy;
     remaining -= bytesToCopy;
@@ -247,17 +248,18 @@ int64_t CXbtFile::Seek(int64_t iFilePosition, int iWhence)
     const CXBTFFrame& frame = frames[m_frameIndex];
 
     // check if we have already unpacked the current frame
-    if (m_unpackedFrames[m_frameIndex] == nullptr)
+    if (m_unpackedFrames[m_frameIndex].empty())
     {
       // unpack the data from the current frame
-      uint8_t* unpackedFrame = CTextureBundleXBT::UnpackFrame(*m_xbtfReader.get(), frame);
-      if (unpackedFrame == nullptr)
+      std::vector<uint8_t> unpackedFrame =
+          CTextureBundleXBT::UnpackFrame(*m_xbtfReader.get(), frame);
+      if (unpackedFrame.empty())
       {
         Close();
         return -1;
       }
 
-      m_unpackedFrames[m_frameIndex] = unpackedFrame;
+      m_unpackedFrames[m_frameIndex] = std::move(unpackedFrame);
     }
 
     int64_t remainingBytesToSeek = newPosition - m_positionTotal;

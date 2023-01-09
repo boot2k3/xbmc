@@ -19,21 +19,21 @@ namespace KODI
 namespace GAME
 {
 class CController;
-class CControllerFeature;
-class CControllerTopology;
+class CPhysicalFeature;
+class CPhysicalTopology;
 
 class CControllerLayout
 {
 public:
   CControllerLayout();
-  CControllerLayout(const CControllerLayout &other);
+  CControllerLayout(const CControllerLayout& other);
   ~CControllerLayout();
 
   void Reset(void);
 
   int LabelID(void) const { return m_labelId; }
   const std::string& Icon(void) const { return m_icon; }
-  const std::string& Image(void) const   { return m_strImage; }
+  const std::string& Image(void) const { return m_strImage; }
 
   /*!
    * \brief Ensures the layout was deserialized correctly, and optionally logs if not
@@ -67,7 +67,7 @@ public:
    *
    * \return The physical topology of the controller
    */
-  const CControllerTopology &Topology(void) const { return *m_topology; }
+  const CPhysicalTopology& Topology(void) const { return *m_topology; }
 
   /*!
    * \brief Deserialize the specified XML element
@@ -76,15 +76,17 @@ public:
    * \param controller The controller, used to obtain read-only properties
    * \param features The deserialized features, if any
    */
-  void Deserialize(const TiXmlElement* pLayoutElement, const CController* controller, std::vector<CControllerFeature> &features);
+  void Deserialize(const TiXmlElement* pLayoutElement,
+                   const CController* controller,
+                   std::vector<CPhysicalFeature>& features);
 
 private:
-  const CController *m_controller = nullptr;
+  const CController* m_controller = nullptr;
   int m_labelId = -1;
   std::string m_icon;
   std::string m_strImage;
-  std::unique_ptr<CControllerTopology> m_topology;
+  std::unique_ptr<CPhysicalTopology> m_topology;
 };
 
-}
-}
+} // namespace GAME
+} // namespace KODI

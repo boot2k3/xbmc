@@ -7,11 +7,13 @@
  */
 
 #include "ContextMenuItem.h"
-#include "addons/AddonManager.h"
-#include "addons/ContextMenuAddon.h"
-#include "addons/IAddon.h"
+
+#include "FileItem.h"
 #include "GUIInfoManager.h"
+#include "addons/AddonManager.h"
+#include "addons/IAddon.h"
 #include "guilib/GUIComponent.h"
+#include "guilib/LocalizeStrings.h"
 #ifdef HAS_PYTHON
 #include "interfaces/generic/ScriptInvocationManager.h"
 #include "interfaces/python/ContextItemAddonInvoker.h"
@@ -20,6 +22,10 @@
 #include "ServiceBroker.h"
 #include "utils/StringUtils.h"
 
+std::string CStaticContextMenuAction::GetLabel(const CFileItem& item) const
+{
+  return g_localizeStrings.Get(m_label);
+}
 
 bool CContextMenuItem::IsVisible(const CFileItem& item) const
 {
@@ -28,7 +34,7 @@ bool CContextMenuItem::IsVisible(const CFileItem& item) const
     m_infoBool = CServiceBroker::GetGUI()->GetInfoManager().Register(m_visibilityCondition, 0);
     m_infoBoolRegistered = true;
   }
-  return IsGroup() || (m_infoBool && m_infoBool->Get(&item));
+  return IsGroup() || (m_infoBool && m_infoBool->Get(INFO::DEFAULT_CONTEXT, &item));
 }
 
 bool CContextMenuItem::IsParentOf(const CContextMenuItem& other) const
@@ -41,18 +47,22 @@ bool CContextMenuItem::IsGroup() const
   return !m_groupId.empty();
 }
 
-bool CContextMenuItem::Execute(const CFileItemPtr& item) const
+bool CContextMenuItem::Execute(const std::shared_ptr<CFileItem>& item) const
 {
   if (!item || m_library.empty() || IsGroup())
     return false;
 
   ADDON::AddonPtr addon;
-  if (!CServiceBroker::GetAddonMgr().GetAddon(m_addonId, addon))
+  if (!CServiceBroker::GetAddonMgr().GetAddon(m_addonId, addon, ADDON::OnlyEnabled::CHOICE_YES))
     return false;
 
+  bool reuseLanguageInvoker = false;
+  if (addon->ExtraInfo().find("reuselanguageinvoker") != addon->ExtraInfo().end())
+    reuseLanguageInvoker = addon->ExtraInfo().at("reuselanguageinvoker") == "true";
+
 #ifdef HAS_PYTHON
-  LanguageInvokerPtr invoker(new CContextItemAddonInvoker(&g_pythonParser, item));
-  return (CScriptInvocationManager::GetInstance().ExecuteAsync(m_library, invoker, addon) != -1);
+  LanguageInvokerPtr invoker(new CContextItemAddonInvoker(&CServiceBroker::GetXBPython(), item));
+  return (CScriptInvocationManager::GetInstance().ExecuteAsync(m_library, invoker, addon, m_args, reuseLanguageInvoker) != -1);
 #else
   return false;
 #endif
@@ -66,17 +76,18 @@ bool CContextMenuItem::operator==(const CContextMenuItem& other) const
   return (IsGroup() == other.IsGroup())
       && (m_parent == other.m_parent)
       && (m_library == other.m_library)
-      && (m_addonId == other.m_addonId);
+      && (m_addonId == other.m_addonId)
+      && (m_args == other.m_args);
 }
 
 std::string CContextMenuItem::ToString() const
 {
   if (IsGroup())
-    return StringUtils::Format("CContextMenuItem[group, id=%s, parent=%s, addon=%s]",
-        m_groupId.c_str(), m_parent.c_str(), m_addonId.c_str());
+    return StringUtils::Format("CContextMenuItem[group, id={}, parent={}, addon={}]", m_groupId,
+                               m_parent, m_addonId);
   else
-    return StringUtils::Format("CContextMenuItem[item, parent=%s, library=%s, addon=%s]",
-        m_parent.c_str(), m_library.c_str(), m_addonId.c_str());
+    return StringUtils::Format("CContextMenuItem[item, parent={}, library={}, addon={}]", m_parent,
+                               m_library, m_addonId);
 }
 
 CContextMenuItem CContextMenuItem::CreateGroup(const std::string& label, const std::string& parent,
@@ -91,7 +102,7 @@ CContextMenuItem CContextMenuItem::CreateGroup(const std::string& label, const s
 }
 
 CContextMenuItem CContextMenuItem::CreateItem(const std::string& label, const std::string& parent,
-    const std::string& library, const std::string& condition, const std::string& addonId)
+    const std::string& library, const std::string& condition, const std::string& addonId, const std::vector<std::string>& args)
 {
   CContextMenuItem menuItem;
   menuItem.m_label = label;
@@ -99,5 +110,6 @@ CContextMenuItem CContextMenuItem::CreateItem(const std::string& label, const st
   menuItem.m_library = library;
   menuItem.m_visibilityCondition = condition;
   menuItem.m_addonId = addonId;
+  menuItem.m_args = args;
   return menuItem;
 }

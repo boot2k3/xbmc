@@ -11,11 +11,13 @@
 #include "pictures/PictureScalingAlgorithm.h"
 #include "utils/Job.h"
 
+#include <cstddef>
+#include <memory>
 #include <stdint.h>
 #include <string>
 #include <vector>
 
-class CBaseTexture;
+class CTexture;
 
 /*!
  \ingroup textures
@@ -56,7 +58,7 @@ public:
   CTextureCacheJob(const std::string &url, const std::string &oldHash = "");
   ~CTextureCacheJob() override;
 
-  const char* GetType() const override { return kJobTypeCacheImage; };
+  const char* GetType() const override { return kJobTypeCacheImage; }
   bool operator==(const CJob *job) const override;
   bool DoWork() override;
 
@@ -65,7 +67,7 @@ public:
    \param url location of the image
    \return a hash string for this image
    */
-  bool CacheTexture(CBaseTexture **texture = NULL);
+  bool CacheTexture(std::unique_ptr<CTexture>* texture = nullptr);
 
   static bool ResizeTexture(const std::string &url, uint8_t* &result, size_t &result_size);
 
@@ -108,9 +110,13 @@ private:
    \param width the desired maximum width.
    \param height the desired maximum height.
    \param additional_info extra info for loading, such as whether to flip horizontally.
-   \return a pointer to a CBaseTexture object, NULL if failed.
+   \return a pointer to a CTexture object, NULL if failed.
    */
-  static CBaseTexture *LoadImage(const std::string &image, unsigned int width, unsigned int height, const std::string &additional_info, bool requirePixels = false);
+  static std::unique_ptr<CTexture> LoadImage(const std::string& image,
+                                             unsigned int width,
+                                             unsigned int height,
+                                             const std::string& additional_info,
+                                             bool requirePixels = false);
 
   std::string    m_cachePath;
 };
@@ -122,7 +128,7 @@ class CTextureUseCountJob : public CJob
 public:
   explicit CTextureUseCountJob(const std::vector<CTextureDetails> &textures);
 
-  const char* GetType() const override { return "usecount"; };
+  const char* GetType() const override { return "usecount"; }
   bool operator==(const CJob *job) const override;
   bool DoWork() override;
 

@@ -34,7 +34,7 @@ class CVariant;
 class CGenre
 {
 public:
-  long idGenre;
+  int idGenre;
   std::string strGenre;
 };
 
@@ -115,12 +115,12 @@ public:
     or ALBUMARTIST, e.g. COMPOSER or CONDUCTOR etc.
   \return a vector of all contributing artist names and their roles
   */
-  const VECMUSICROLES& GetContributors() const { return m_musicRoles; };
+  const VECMUSICROLES& GetContributors() const { return m_musicRoles; }
   //void AddArtistRole(const int &role, const std::string &artist);
   void AppendArtistRole(const CMusicRole& musicRole);
 
   /*! \brief Set album artist vector.
-   Album artist is held local to song until album created for inital processing only.
+   Album artist is held local to song until album created for initial processing only.
    Normalised album artist data belongs to album and is stored in album artist credits
   \param album artist names as a vector of strings
   */
@@ -157,7 +157,7 @@ public:
   void SetArtistCredits(const std::vector<std::string>& names, const std::vector<std::string>& hints,
     const std::vector<std::string>& mbids);
 
-  long idSong;
+  int idSong;
   int idAlbum;
   std::string strFileName;
   std::string strTitle;
@@ -177,14 +177,21 @@ public:
   int votes;
   int iTrack;
   int iDuration;
-  int iYear;
+  std::string strOrigReleaseDate;
+  std::string strReleaseDate;
   std::string strDiscSubtitle;
   int iTimesPlayed;
   CDateTime lastPlayed;
-  CDateTime dateAdded;
+  CDateTime dateAdded; // File creation or modification time, or when tags (re-)scanned
+  CDateTime dateUpdated; // Time db record Last modified
+  CDateTime dateNew;  // Time db record created
   int iStartOffset;
   int iEndOffset;
   bool bCompilation;
+  int iBPM;
+  int iSampleRate;
+  int iBitRate;
+  int iChannels;
   std::string strRecordLabel; // Record label from tag for album processing by CMusicInfoScanner::FileItemsToAlbums
   std::string strAlbumType; // (Musicbrainz release type) album type from tag for album processing by CMusicInfoScanner::FileItemsToAlbums
 
@@ -198,16 +205,16 @@ private:
 
 /*!
  \ingroup music
- \brief A map of CSong objects, used for CMusicDatabase
- */
-typedef std::map<std::string, CSong> MAPSONGS;
-
-/*!
- \ingroup music
  \brief A vector of CSong objects, used for CMusicDatabase
  \sa CMusicDatabase
  */
 typedef std::vector<CSong> VECSONGS;
+
+/*!
+ \ingroup music
+ \brief A map of a vector of CSong objects key by filename, used for CMusicDatabase
+ */
+typedef std::map<std::string, VECSONGS> MAPSONGS;
 
 /*!
  \ingroup music

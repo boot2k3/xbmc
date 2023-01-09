@@ -65,7 +65,7 @@ CVideoTagLoaderFFmpeg::CVideoTagLoaderFFmpeg(const CFileItem& item,
   if (m_file->IoControl(IOCTRL_SEEK_POSSIBLE, nullptr) != 1)
     m_ioctx->seekable = 0;
 
-  AVInputFormat* iformat = nullptr;
+  const AVInputFormat* iformat = nullptr;
   av_probe_input_buffer(m_ioctx, &iformat, m_item.GetPath().c_str(), nullptr, 0, 0);
   if (avformat_open_input(&m_fctx, m_item.GetPath().c_str(), iformat, nullptr) < 0)
   {
@@ -175,23 +175,39 @@ CInfoScanner::INFO_TYPE CVideoTagLoaderFFmpeg::LoadMKV(CVideoInfoTag& tag,
     CNfoFile nfo;
     auto* data = m_fctx->streams[m_metadata_stream]->codecpar->extradata;
     const char* content = reinterpret_cast<const char*>(data);
-    nfo.GetDetails(tag, content);
     if (!m_override_data)
+    {
+      nfo.GetDetails(tag, content);
       return CInfoScanner::FULL_NFO;
+    }
+    else
+    {
+      nfo.Create(content, m_info);
+      m_url = nfo.ScraperUrl();
+      return CInfoScanner::URL_NFO;
+    }
   }
 
   AVDictionaryEntry* avtag = nullptr;
   bool hastag = false;
   while ((avtag = av_dict_get(m_fctx->metadata, "", avtag, AV_DICT_IGNORE_SUFFIX)))
   {
-    if (strcasecmp(avtag->key, "title") == 0)
+    if (StringUtils::CompareNoCase(avtag->key, "imdburl") == 0 ||
+        StringUtils::CompareNoCase(avtag->key, "tmdburl") == 0)
+    {
+      CNfoFile nfo;
+      nfo.Create(avtag->value, m_info);
+      m_url = nfo.ScraperUrl();
+      return CInfoScanner::URL_NFO;
+    }
+    else if (StringUtils::CompareNoCase(avtag->key, "title") == 0)
       tag.SetTitle(avtag->value);
-    else if (strcasecmp(avtag->key, "director") == 0)
+    else if (StringUtils::CompareNoCase(avtag->key, "director") == 0)
     {
       std::vector<std::string> dirs = StringUtils::Split(avtag->value, " / ");
       tag.SetDirector(dirs);
     }
-    else if (strcasecmp(avtag->key, "date_released") == 0)
+    else if (StringUtils::CompareNoCase(avtag->key, "date_released") == 0)
       tag.SetYear(atoi(avtag->value));
     hastag = true;
   }

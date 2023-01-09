@@ -8,12 +8,14 @@
 
 #pragma once
 
+#include "cores/VideoPlayer/Buffers/VideoBuffer.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
-#include "cores/VideoPlayer/Process/VideoBuffer.h"
 #include "guilib/D3DResource.h"
 #include "threads/Event.h"
 
+#include <mutex>
 #include <vector>
+
 #include <wrl/client.h>
 extern "C"
 {
@@ -68,6 +70,7 @@ protected:
   HANDLE handle = INVALID_HANDLE_VALUE;
   Microsoft::WRL::ComPtr<ID3D11Resource> m_sharedRes;
 };
+
 class CVideoBufferCopy : public CVideoBufferShared
 {
   template<typename TBuffer>
@@ -82,6 +85,8 @@ protected:
       : CVideoBufferShared(id) {}
 
   Microsoft::WRL::ComPtr<ID3D11Resource> m_copyRes;
+  Microsoft::WRL::ComPtr<ID3D11Resource> m_pResource;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_pDeviceContext;
 };
 
 class CContext
@@ -95,7 +100,7 @@ public:
   static shared_ptr EnsureContext(CDecoder* decoder);
   bool GetFormatAndConfig(AVCodecContext* avctx, D3D11_VIDEO_DECODER_DESC& format, D3D11_VIDEO_DECODER_CONFIG& config) const;
   bool CreateSurfaces(const D3D11_VIDEO_DECODER_DESC& format, uint32_t count, uint32_t alignment,
-                      ID3D11VideoDecoderOutputView** surfaces, HANDLE* pHandle) const;
+                      ID3D11VideoDecoderOutputView** surfaces, HANDLE* pHandle, bool trueShared) const;
   bool CreateDecoder(const D3D11_VIDEO_DECODER_DESC& format, const D3D11_VIDEO_DECODER_CONFIG& config,
                      ID3D11VideoDecoder** decoder, ID3D11VideoContext** context);
   void Release(CDecoder* decoder);
@@ -225,13 +230,13 @@ protected:
   // ID3DResource overrides
   void OnCreateDevice() override
   {
-    CSingleLock lock(m_section);
+    std::unique_lock<CCriticalSection> lock(m_section);
     m_state = DXVA_RESET;
     m_event.Set();
   }
   void OnDestroyDevice(bool fatal) override
   {
-    CSingleLock lock(m_section);
+    std::unique_lock<CCriticalSection> lock(m_section);
     m_state = DXVA_LOST;
     m_event.Reset();
   }
@@ -251,6 +256,7 @@ protected:
   unsigned int m_surface_alignment = 0;
   HANDLE m_sharedHandle = INVALID_HANDLE_VALUE;
   D3D11_VIDEO_DECODER_DESC m_format = {};
+  bool m_DVDWorkaround = false;
 };
 
 } // namespace DXVA

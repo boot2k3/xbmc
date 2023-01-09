@@ -36,7 +36,8 @@ public:
 
   static void ShowAndEditMediaFilter(const std::string &path, CSmartPlaylist &filter);
 
-  typedef struct {
+  struct Filter
+  {
     std::string mediaType;
     Field field;
     uint32_t label;
@@ -44,10 +45,10 @@ public:
     std::string controlType;
     std::string controlFormat;
     CDatabaseQueryRule::SEARCH_OPERATOR ruleOperator;
-    std::shared_ptr<CSetting> setting;
-    CSmartPlaylistRule *rule;
-    void *data;
-  } Filter;
+    std::shared_ptr<CSetting> setting = nullptr;
+    CSmartPlaylistRule* rule = nullptr;
+    void* data = nullptr;
+  };
 
 protected:
   // specializations of CGUIWindow
@@ -55,12 +56,12 @@ protected:
   void OnInitWindow() override;
 
   // implementations of ISettingCallback
-  void OnSettingChanged(std::shared_ptr<const CSetting> setting) override;
+  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
 
   // specialization of CGUIDialogSettingsBase
   bool AllowResettingSettings() const override { return false; }
-  void Save() override { }
-  unsigned int GetDelayMs() const override { return 500; }
+  bool Save() override { return true; }
+  std::chrono::milliseconds GetDelayMs() const override { return std::chrono::milliseconds(500); }
 
   // specialization of CGUIDialogSettingsManualBase
   void SetupView() override;
@@ -79,7 +80,10 @@ protected:
   CSmartPlaylistRule* AddRule(Field field, CDatabaseQueryRule::SEARCH_OPERATOR ruleOperator = CDatabaseQueryRule::OPERATOR_CONTAINS);
   void DeleteRule(Field field);
 
-  static void GetStringListOptions(std::shared_ptr<const CSetting> setting, std::vector<StringSettingOption> &list, std::string &current, void *data);
+  static void GetStringListOptions(const std::shared_ptr<const CSetting>& setting,
+                                   std::vector<StringSettingOption>& list,
+                                   std::string& current,
+                                   void* data);
 
   CDbUrl* m_dbUrl;
   std::string m_mediaType;

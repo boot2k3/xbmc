@@ -66,7 +66,7 @@ bool CMusicInfoTagLoaderCDDA::Load(const std::string& strFileName, CMusicInfoTag
       if (cddb.queryCDinfo(pCdInfo))
       {
         // Fill the fileitems music tag with cddb information, if available
-        std::string strTitle = cddb.getTrackTitle(iTrack);
+        const std::string& strTitle = cddb.getTrackTitle(iTrack);
         if (!strTitle.empty())
         {
           // Tracknumber
@@ -92,9 +92,7 @@ bool CMusicInfoTagLoaderCDDA::Load(const std::string& strFileName, CMusicInfoTag
           tag.SetAlbumArtist(strAlbumArtist);
 
           // Year
-          KODI::TIME::SystemTime dateTime;
-          dateTime.year = atoi(cddb.getYear().c_str());
-          tag.SetReleaseDate( dateTime );
+          tag.SetReleaseDate(cddb.getYear());
 
           // Genre
           tag.SetGenre( cddb.getGenre() );
@@ -147,7 +145,7 @@ bool CMusicInfoTagLoaderCDDA::Load(const std::string& strFileName, CMusicInfoTag
   }
   catch (...)
   {
-    CLog::Log(LOGERROR, "Tag loader CDDB: exception in file %s", strFileName.c_str());
+    CLog::Log(LOGERROR, "Tag loader CDDB: exception in file {}", strFileName);
   }
 
 #endif

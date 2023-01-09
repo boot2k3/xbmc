@@ -22,9 +22,9 @@
 
 #include "GameClientInput.h"
 #include "games/controllers/Controller.h"
-#include "games/controllers/ControllerFeature.h"
 #include "games/controllers/ControllerLayout.h"
-#include "games/controllers/ControllerTopology.h"
+#include "games/controllers/input/PhysicalFeature.h"
+#include "games/controllers/input/PhysicalTopology.h"
 
 #include <algorithm>
 #include <vector>
@@ -32,13 +32,11 @@
 using namespace KODI;
 using namespace GAME;
 
-CGameClientController::CGameClientController(CGameClientInput &input, ControllerPtr controller) :
-  m_input(input),
-  m_controller(std::move(controller)),
-  m_controllerId(m_controller->ID())
+CGameClientController::CGameClientController(CGameClientInput& input, ControllerPtr controller)
+  : m_input(input), m_controller(std::move(controller)), m_controllerId(m_controller->ID())
 {
   // Generate arrays of features
-  for (const CControllerFeature &feature : m_controller->Features())
+  for (const CPhysicalFeature& feature : m_controller->Features())
   {
     // Skip feature if not supported by the game client
     if (!m_input.HasFeature(m_controller->ID(), feature.Name()))

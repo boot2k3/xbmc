@@ -30,10 +30,10 @@ public:
   class CFadingTexture
   {
   public:
-    CFadingTexture(const CGUITexture &texture, unsigned int fadeTime)
+    CFadingTexture(const CGUITexture* texture, unsigned int fadeTime)
     {
       // create a copy of our texture, and allocate resources
-      m_texture = new CGUITexture(texture);
+      m_texture.reset(texture->Clone());
       m_texture->AllocResources();
       m_fadeTime = fadeTime;
       m_fading = false;
@@ -41,10 +41,9 @@ public:
     ~CFadingTexture()
     {
       m_texture->FreeResources();
-      delete m_texture;
     };
 
-    CGUITexture *m_texture;  ///< texture to fade out
+    std::unique_ptr<CGUITexture> m_texture; ///< texture to fade out
     unsigned int m_fadeTime; ///< time to fade out (ms)
     bool         m_fading;   ///< whether we're fading out
 
@@ -56,7 +55,7 @@ public:
   CGUIImage(int parentID, int controlID, float posX, float posY, float width, float height, const CTextureInfo& texture);
   CGUIImage(const CGUIImage &left);
   ~CGUIImage(void) override;
-  CGUIImage *Clone() const override { return new CGUIImage(*this); };
+  CGUIImage* Clone() const override { return new CGUIImage(*this); }
 
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
   void Render() override;
@@ -66,7 +65,7 @@ public:
   void AllocResources() override;
   void FreeResources(bool immediately = false) override;
   void DynamicResourceAlloc(bool bOnOff) override;
-  bool IsDynamicallyAllocated() override { return m_bDynamicResourceAlloc; };
+  bool IsDynamicallyAllocated() override { return m_bDynamicResourceAlloc; }
   void SetInvalid() override;
   bool CanFocus() const override;
   void UpdateInfo(const CGUIListItem *item = NULL) override;
@@ -102,7 +101,7 @@ protected:
   CTextureInfo m_image;
   KODI::GUILIB::GUIINFO::CGUIInfoLabel m_info;
 
-  CGUITexture m_texture;
+  std::unique_ptr<CGUITexture> m_texture;
   std::vector<CFadingTexture *> m_fadingTextures;
   std::string m_currentTexture;
   std::string m_currentFallback;

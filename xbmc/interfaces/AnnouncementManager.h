@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include "FileItem.h"
 #include "IAnnouncer.h"
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
@@ -16,8 +15,10 @@
 #include "utils/Variant.h"
 
 #include <list>
+#include <memory>
 #include <vector>
 
+class CFileItem;
 class CVariant;
 
 namespace ANNOUNCEMENT
@@ -34,24 +35,50 @@ namespace ANNOUNCEMENT
     void AddAnnouncer(IAnnouncer *listener);
     void RemoveAnnouncer(IAnnouncer *listener);
 
-    void Announce(AnnouncementFlag flag, const char *sender, const char *message);
-    void Announce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
-    void Announce(AnnouncementFlag flag, const char *sender, const char *message,
-        const std::shared_ptr<const CFileItem>& item);
-    void Announce(AnnouncementFlag flag, const char *sender, const char *message,
-        const std::shared_ptr<const CFileItem>& item, const CVariant &data);
+    void Announce(AnnouncementFlag flag, const std::string& message);
+    void Announce(AnnouncementFlag flag, const std::string& message, const CVariant& data);
+    void Announce(AnnouncementFlag flag,
+                  const std::string& message,
+                  const std::shared_ptr<const CFileItem>& item);
+    void Announce(AnnouncementFlag flag,
+                  const std::string& message,
+                  const std::shared_ptr<const CFileItem>& item,
+                  const CVariant& data);
+
+    void Announce(AnnouncementFlag flag, const std::string& sender, const std::string& message);
+    void Announce(AnnouncementFlag flag,
+                  const std::string& sender,
+                  const std::string& message,
+                  const CVariant& data);
+    void Announce(AnnouncementFlag flag,
+                  const std::string& sender,
+                  const std::string& message,
+                  const std::shared_ptr<const CFileItem>& item,
+                  const CVariant& data);
+
+    // The sender is not related to the application name.
+    // Also it's part of Kodi's API - changing it will break
+    // a big number of python addons and third party json consumers.
+    static const std::string ANNOUNCEMENT_SENDER;
 
   protected:
     void Process() override;
-    void DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, CFileItemPtr item, const CVariant &data);
-    void DoAnnounce(AnnouncementFlag flag, const char *sender, const char *message, const CVariant &data);
+    void DoAnnounce(AnnouncementFlag flag,
+                    const std::string& sender,
+                    const std::string& message,
+                    const std::shared_ptr<CFileItem>& item,
+                    const CVariant& data);
+    void DoAnnounce(AnnouncementFlag flag,
+                    const std::string& sender,
+                    const std::string& message,
+                    const CVariant& data);
 
     struct CAnnounceData
     {
       AnnouncementFlag flag;
       std::string sender;
       std::string message;
-      CFileItemPtr item;
+      std::shared_ptr<CFileItem> item;
       CVariant data;
     };
     std::list<CAnnounceData> m_announcementQueue;

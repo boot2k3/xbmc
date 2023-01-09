@@ -1,13 +1,14 @@
 ![Kodi Logo](resources/banner_slim.png)
 
 # macOS build guide
-This guide has been tested with macOS 10.13.4()17E199 High Sierra and Xcode 9.3(9E145). It is meant to build Kodi for macOS using **[Kodi's unified depends build system](../tools/depends/README.md)**. Please read it in full before you proceed to familiarize yourself with the build procedure.
+This guide has been tested using Xcode 11.3.1 running on MacOS 10.14.4 (Mojave). Please note this combination is the only version our CI system builds. The minimum OS requirement for this version of Xcode is MacOS 10.14.4. Other combinations may work but we provide no assurances that other combinations will build correctly and run identically to Team Kodi releases. It is meant to build Kodi for macOS using **[Kodi's unified depends build system](../tools/depends/README.md)**. Please read it in full before you proceed to familiarize yourself with the build procedure.
 
 ## Table of Contents
 1. **[Document conventions](#1-document-conventions)**
 2. **[Prerequisites](#2-prerequisites)**
 3. **[Get the source code](#3-get-the-source-code)**
-4. **[Configure and build tools and dependencies](#4-configure-and-build-tools-and-dependencies)**
+4. **[Configure and build tools and dependencies](#4-configure-and-build-tools-and-dependencies)**  
+  4.1. **[Advanced Configure Options](#41-Advanced-Configure-Options)**  
 5. **[Build binary add-ons](#5-build-binary-add-ons)**
 6. **[Build Kodi](#6-build-kodi)**  
   6.1. **[Build with Xcode](#61-build-with-xcode)**  
@@ -58,8 +59,10 @@ Several different strategies are used to draw your attention to certain pieces o
 * Device with **OSX 10.13 or newer** to run Kodi after build.
 
 Building for OSX/macOS should work with the following constellations of Xcode and OSX/macOS versions:
-  * Xcode 9.x on macOS 10.13.x (High Sierra)
+  * Xcode 12.4 against MacOSX SDK 11.1 on 10.15.7 (Catalina)(recommended)(CI)
+  * Xcode 13.x against MacOSX SDK 12.3 on 12.x (Monterey)(recommended)
 
+Team Kodi CI infrastructure is limited, and therefore we only have the single combination tested. Newer xcode/macos combinations generally should work, however the team does not actively test/use pre-release versions, so use with caution. Earlier versions may work, however we dont actively support them, so use with caution.
 **WARNING:** Start Xcode after installation finishes. You need to accept the licenses and install missing components.
 
 **[back to top](#table-of-contents)**
@@ -81,12 +84,20 @@ git clone https://github.com/xbmc/xbmc kodi
 Kodi can be built as either a 32bit or 64bit program. The dependencies are built in `$HOME/kodi/tools/depends` and installed into `/Users/Shared/xbmc-depends`.
 
 **TIP:** Look for comments starting with `Or ...` and only execute the command(s) you need.
+**NOTE:** `--with-platform` is mandatory for all Apple platforms
 
-Configure build:
+Configure build (x86 intel):
 ```
 cd $HOME/kodi/tools/depends
 ./bootstrap
-./configure --host=x86_64-apple-darwin
+./configure --host=x86_64-apple-darwin --with-platform=macos
+```
+
+Configure build (apple silicon):
+```
+cd $HOME/kodi/tools/depends
+./bootstrap
+./configure --host=aarch64-apple-darwin --with-platform=macos
 ```
 
 Build tools and dependencies:
@@ -100,8 +111,90 @@ make -j$(getconf _NPROCESSORS_ONLN)
 
 **NOTE:** **Advanced developers** may want to specify an SDK version (if multiple versions are installed) in the configure line(s) shown above. The example below would use SDK 10.13:
 ```
-./configure --host=x86_64-apple-darwin --with-sdk=10.13
+./configure --host=x86_64-apple-darwin --with-platform=macos --with-sdk=10.13
 ```
+
+Developers can also select native windowing/input handling with the following
+```
+./configure --host=x86_64-apple-darwin --with-platform=macos --with-windowsystem=native
+```
+
+### 4.1. Advanced Configure Options
+
+
+**All platforms:**
+
+```
+--with-toolchain=<path>
+```
+  specify path to toolchain. Auto set for android. Defaults to xcode root for darwin, /usr for linux
+
+```
+--enable-debug=<yes:no>
+```
+  enable debugging information (default is yes)
+
+```
+--disable-ccache
+```
+  disable ccache
+
+```
+--with-tarballs=<path>
+```
+  path where tarballs will be saved [prefix/xbmc-tarballs]
+
+```
+--with-cpu=<cpu>
+```
+  optional. specify target cpu. guessed if not specified
+
+```
+--with-linker=<linker>
+```
+  specify linker to use. (default is ld)
+
+```
+--with-platform=<platform>
+```
+  target platform
+
+```
+--enable-gplv3=<yes:no>
+```
+  enable gplv3 components. (default is yes)
+
+```
+--with-target-cflags=<cflags>
+```
+  C compiler flags (target)
+
+```
+--with-target-cxxflags=<cxxflags>
+```
+  C++ compiler flags (target)
+
+```
+--with-target-ldflags=<ldflags>
+```
+  linker flags. Use e.g. for -l<lib> (target)
+
+```
+--with-ffmpeg-options
+```
+  FFmpeg configure options, e.g. --enable-vaapi (target)
+
+**Apple Specific:**
+
+```
+--with-windowsystem=<native:sdl>
+```
+  Windowing system to use (default is sdl when not provided). arm64 MacOS requires native
+
+```
+--with-sdk=<sdknumber>
+```
+  specify sdk platform version.
 
 **[back to top](#table-of-contents)** | **[back to section top](#4-configure-and-build-tools-and-dependencies)**
 
@@ -131,6 +224,7 @@ OR
 ```
 make -j$(getconf _NPROCESSORS_ONLN) -C tools/depends/target/binary-addons ADDONS="pvr.*"
 ```
+For additional information on regular expression usage for ADDONS_TO_BUILD, view ADDONS_TO_BUILD section located at [Kodi add-ons CMake based buildsystem](../cmake/addons/README.md)
 
 **[back to top](#table-of-contents)**
 
@@ -147,6 +241,11 @@ Generate Xcode project as per configure command in **[Configure and build tools 
 make -C tools/depends/target/cmakebuildsys BUILD_DIR=$HOME/kodi-build GEN=Xcode
 ```
 
+To explicitly select the windowing/input system to use do the following (default is to use SDL if not provided)
+```
+make -C tools/depends/target/cmakebuildsys BUILD_DIR=$HOME/kodi-build GEN=Xcode APP_WINDOW_SYSTEM=native
+```
+
 **TIP:** BUILD_DIR can be omitted, and project will be created in $HOME/kodi/build
 Change all relevant paths onwards if omitted.
 
@@ -159,7 +258,7 @@ Change to build directory:
 cd $HOME/kodi-build
 ```
 
-Generate Xcode project:
+Generate Xcode project (x86_64 intel):
 ```
 /Users/Shared/xbmc-depends/x86_64-darwin17.5.0-native/bin/cmake -G Xcode -DCMAKE_TOOLCHAIN_FILE=/Users/Shared/xbmc-depends/macosx10.13_x86_64-target-debug/share/Toolchain.cmake ../kodi
 ```
@@ -252,7 +351,7 @@ xcodebuild -target dmg
 ````
 **OR**
 ```
-cd $HOME/kodi-build/build
+cd $HOME/kodi-build
 /Users/Shared/xbmc-depends/x86_64-darwin17.5.0-native/bin/cmake --build . --target "dmg" --config "Debug"
 ```
 
@@ -260,11 +359,11 @@ Generated `dmg` file will be inside `$HOME/kodi-build/tools/darwin/packaging/osx
 
 Alternatively, if you built using make:
 ```
-cd $HOME/kodi/build
+cd $HOME/kodi-build
 make dmg
 ```
 
-Generated `dmg` file will be inside `$HOME/kodi/build/tools/darwin/packaging/osx/`.
+Generated `dmg` file will be inside `$HOME/kodi-build/tools/darwin/packaging/osx/`.
 
 **[back to top](#table-of-contents)**
 

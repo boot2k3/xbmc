@@ -18,12 +18,12 @@ using namespace KODI;
 using namespace RETRO;
 
 // Consider renderer visible until this many frames have passed without rendering
-#define VISIBLE_DURATION_FRAME_COUNT  1
+#define VISIBLE_DURATION_FRAME_COUNT 1
 
-CRPBaseRenderer::CRPBaseRenderer(const CRenderSettings &renderSettings, CRenderContext &context, std::shared_ptr<IRenderBufferPool> bufferPool) :
-  m_context(context),
-  m_bufferPool(std::move(bufferPool)),
-  m_renderSettings(renderSettings)
+CRPBaseRenderer::CRPBaseRenderer(const CRenderSettings& renderSettings,
+                                 CRenderContext& context,
+                                 std::shared_ptr<IRenderBufferPool> bufferPool)
+  : m_context(context), m_bufferPool(std::move(bufferPool)), m_renderSettings(renderSettings)
 {
   m_bufferPool->RegisterRenderer(this);
 }
@@ -35,7 +35,7 @@ CRPBaseRenderer::~CRPBaseRenderer()
   m_bufferPool->UnregisterRenderer(this);
 }
 
-bool CRPBaseRenderer::IsCompatible(const CRenderVideoSettings &settings) const
+bool CRPBaseRenderer::IsCompatible(const CRenderVideoSettings& settings) const
 {
   return m_bufferPool->IsCompatible(settings);
 }
@@ -71,7 +71,7 @@ bool CRPBaseRenderer::IsVisible() const
   return m_renderFrameCount <= m_lastRender + VISIBLE_DURATION_FRAME_COUNT;
 }
 
-void CRPBaseRenderer::SetBuffer(IRenderBuffer *buffer)
+void CRPBaseRenderer::SetBuffer(IRenderBuffer* buffer)
 {
   if (m_renderBuffer != buffer)
   {
@@ -121,22 +121,37 @@ void CRPBaseRenderer::SetRenderRotation(unsigned int rotationDegCCW)
   m_renderSettings.VideoSettings().SetRenderRotation(rotationDegCCW);
 }
 
-void CRPBaseRenderer::ManageRenderArea(const IRenderBuffer &renderBuffer)
+void CRPBaseRenderer::ManageRenderArea(const IRenderBuffer& renderBuffer)
 {
   // Get texture parameters
   const unsigned int sourceWidth = renderBuffer.GetWidth();
   const unsigned int sourceHeight = renderBuffer.GetHeight();
   const unsigned int sourceRotationDegCCW = renderBuffer.GetRotation();
-  const float sourceAspectRatio = static_cast<float>(sourceWidth) / static_cast<float>(sourceHeight);
+  const float sourceAspectRatio =
+      static_cast<float>(sourceWidth) / static_cast<float>(sourceHeight);
 
+  const SCALINGMETHOD scaleMode = m_renderSettings.VideoSettings().GetScalingMethod();
   const STRETCHMODE stretchMode = m_renderSettings.VideoSettings().GetRenderStretchMode();
-  const unsigned int rotationDegCCW = (sourceRotationDegCCW + m_renderSettings.VideoSettings().GetRenderRotation()) % 360;
+  const unsigned int rotationDegCCW =
+      (sourceRotationDegCCW + m_renderSettings.VideoSettings().GetRenderRotation()) % 360;
 
   // Get screen parameters
   float screenWidth;
   float screenHeight;
+  //! @Todo screenPixelRatio unused - Possibly due to display integer scaling according to Garbear
   float screenPixelRatio;
-  GetScreenDimensions(screenWidth, screenHeight, screenPixelRatio);
+
+  if (scaleMode == SCALINGMETHOD::NEAREST && stretchMode == STRETCHMODE::Original &&
+      m_context.DisplayHardwareScalingEnabled())
+  {
+    screenWidth = sourceWidth;
+    screenHeight = sourceHeight;
+    screenPixelRatio = 1.0;
+  }
+  else
+  {
+    GetScreenDimensions(screenWidth, screenHeight, screenPixelRatio);
+  }
 
   // Entire target rendering area for the video (including black bars)
   const CRect viewRect = m_context.GetViewWindow();
@@ -144,20 +159,12 @@ void CRPBaseRenderer::ManageRenderArea(const IRenderBuffer &renderBuffer)
   // Calculate pixel ratio and zoom amount
   float pixelRatio = 1.0f;
   float zoomAmount = 1.0f;
-  CRenderUtils::CalculateStretchMode(stretchMode,
-                                     rotationDegCCW,
-                                     sourceWidth,
-                                     sourceHeight,
-                                     screenWidth,
-                                     screenHeight,
-                                     pixelRatio,
-                                     zoomAmount);
+  CRenderUtils::CalculateStretchMode(stretchMode, rotationDegCCW, sourceWidth, sourceHeight,
+                                     screenWidth, screenHeight, pixelRatio, zoomAmount);
 
   // Calculate destination dimensions
   CRect destRect;
-  CRenderUtils::CalcNormalRenderRect(viewRect,
-                                     sourceAspectRatio * pixelRatio,
-                                     zoomAmount,
+  CRenderUtils::CalcNormalRenderRect(viewRect, sourceAspectRatio * pixelRatio, zoomAmount,
                                      destRect);
 
   m_sourceRect.x1 = 0.0f;
@@ -169,13 +176,22 @@ void CRPBaseRenderer::ManageRenderArea(const IRenderBuffer &renderBuffer)
   if (!(m_context.IsFullScreenVideo() || m_context.IsCalibrating()))
     CRenderUtils::ClipRect(viewRect, m_sourceRect, destRect);
 
+  if (stretchMode == STRETCHMODE::Zoom)
+  {
+    // Crop for zoom mode
+    CRenderUtils::CropSource(m_sourceRect, rotationDegCCW, viewRect.Width(), viewRect.Height(),
+                             static_cast<float>(sourceWidth), static_cast<float>(sourceHeight),
+                             destRect.Width(), destRect.Height());
+    destRect = viewRect;
+  }
+
   // Adapt the drawing rect points if we have to rotate
   m_rotatedDestCoords = CRenderUtils::ReorderDrawPoints(destRect, rotationDegCCW);
 }
 
 void CRPBaseRenderer::MarkDirty()
 {
-  //CServiceBroker::GetGUI()->GetWindowManager().MarkDirty(m_dimensions); //! @todo
+  // CServiceBroker::GetGUI()->GetWindowManager().MarkDirty(m_dimensions); //! @todo
 }
 
 void CRPBaseRenderer::PreRender(bool clear)
@@ -185,7 +201,8 @@ void CRPBaseRenderer::PreRender(bool clear)
 
   // Clear screen
   if (clear)
-    m_context.Clear(m_context.UseLimitedColor() ? 0x101010 : 0);
+    m_context.Clear(m_context.UseLimitedColor() ? UTILS::COLOR::LIMITED_BLACK
+                                                : UTILS::COLOR::BLACK);
 }
 
 void CRPBaseRenderer::PostRender()
@@ -193,7 +210,9 @@ void CRPBaseRenderer::PostRender()
   m_context.ApplyStateBlock();
 }
 
-void CRPBaseRenderer::GetScreenDimensions(float &screenWidth, float &screenHeight, float &screenPixelRatio)
+void CRPBaseRenderer::GetScreenDimensions(float& screenWidth,
+                                          float& screenHeight,
+                                          float& screenPixelRatio)
 {
   // Get our calibrated full screen resolution
   RESOLUTION_INFO info = m_context.GetResInfo();

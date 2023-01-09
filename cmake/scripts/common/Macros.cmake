@@ -75,6 +75,10 @@ function(core_add_library name)
     add_dependencies(${name} ${GLOBAL_TARGET_DEPS})
     set(CORE_LIBRARY ${name} PARENT_SCOPE)
 
+    if(NOT MSVC)
+      target_compile_options(${name} PUBLIC ${CORE_COMPILE_OPTIONS})
+    endif()
+
     # Add precompiled headers to Kodi main libraries
     if(CORE_SYSTEM_NAME MATCHES windows)
       add_precompiled_header(${name} pch.h ${CMAKE_SOURCE_DIR}/xbmc/platform/win32/pch.cpp PCH_TARGET kodi)
@@ -89,10 +93,6 @@ function(core_add_library name)
     target_sources(lib${APP_NAME_LC} PRIVATE ${FILES})
     set(CORE_LIBRARY lib${APP_NAME_LC} PARENT_SCOPE)
   endif()
-  foreach(src ${SOURCES})
-    list(APPEND sca_sources ${CMAKE_CURRENT_SOURCE_DIR}/${src})
-  endforeach()
-  set(sca_sources ${sca_sources} CACHE STRING "" FORCE)
 endfunction()
 
 # Add a test library, and add sources to list for gtest integration macros
@@ -104,6 +104,11 @@ function(core_add_test_library name)
                                              FOLDER "Build Utilities/tests")
     add_dependencies(${name} ${GLOBAL_TARGET_DEPS})
     set(test_archives ${test_archives} ${name} CACHE STRING "" FORCE)
+
+    if(NOT MSVC)
+      target_compile_options(${name} PUBLIC ${CORE_COMPILE_OPTIONS})
+    endif()
+
   endif()
   foreach(src IN LISTS SOURCES SUPPORTED_SOURCES HEADERS OTHERS)
     get_filename_component(src_path "${src}" ABSOLUTE)
@@ -111,24 +116,13 @@ function(core_add_test_library name)
   endforeach()
 endfunction()
 
-# Add an addon callback library
+# Add addon dev kit headers to main application
 # Arguments:
-#   name name of the library to add
-# Implicit arguments:
-#   SOURCES the sources of the library
-#   HEADERS the headers of the library (only for IDE support)
-#   OTHERS  other library related files (only for IDE support)
-# On return:
-#   Library target is defined and added to LIBRARY_FILES
-function(core_add_addon_library name)
-  get_filename_component(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-  list(APPEND SOURCES lib${name}.cpp)
-  core_add_shared_library(${name} OUTPUT_DIRECTORY addons/${DIRECTORY})
-  set_target_properties(${name} PROPERTIES FOLDER addons)
-  target_include_directories(${name} PRIVATE
-                             ${CMAKE_CURRENT_SOURCE_DIR}
-                             ${CMAKE_SOURCE_DIR}/xbmc/addons/kodi-addon-dev-kit/include/kodi
-                             ${CMAKE_SOURCE_DIR}/xbmc)
+#   name name of the header part to add
+function(core_add_devkit_header name)
+  if(NOT ENABLE_STATIC_LIBS)
+    core_add_library(addons_kodi-dev-kit_include_${name})
+  endif()
 endfunction()
 
 # Add an dl-loaded shared library
@@ -177,6 +171,10 @@ function(core_add_shared_library name)
     add_library(${name} STATIC ${SOURCES} ${HEADERS} ${OTHERS})
     set_target_properties(${name} PROPERTIES POSITION_INDEPENDENT_CODE 1)
     core_link_library(${name} ${OUTPUT_DIRECTORY}/lib${name})
+
+    if(NOT MSVC)
+      target_compile_options(${name} PUBLIC ${CORE_COMPILE_OPTIONS})
+    endif()
   endif()
 endfunction()
 
@@ -233,7 +231,7 @@ function(copy_file_to_buildtree file)
   endif()
 
   # Exclude autotools build artefacts and other blacklisted files in source tree.
-  if(file MATCHES "(Makefile|\.in|\.xbt|\.so|\.dylib|\.gitignore)$")
+  if(file MATCHES "(Makefile|\\.in|\\.xbt|\\.so|\\.dylib|\\.gitignore)$")
     if(VERBOSE)
       message(STATUS "copy_file_to_buildtree - ignoring file: ${file}")
     endif()
@@ -241,11 +239,19 @@ function(copy_file_to_buildtree file)
   endif()
 
   if(NOT file STREQUAL ${CMAKE_BINARY_DIR}/${outfile})
-    if(VERBOSE)
-      message(STATUS "copy_file_to_buildtree - copying file: ${file} -> ${CMAKE_BINARY_DIR}/${outfile}")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Windows" OR NOT IS_SYMLINK "${file}")
+      if(VERBOSE)
+        message(STATUS "copy_file_to_buildtree - copying file: ${file} -> ${CMAKE_BINARY_DIR}/${outfile}")
+      endif()
+      file(APPEND ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/ExportFiles.cmake
+           "file(COPY \"${file}\" DESTINATION \"${CMAKE_BINARY_DIR}/${outdir}\")\n" )
+    else()
+      if(VERBOSE)
+        message(STATUS "copy_file_to_buildtree - copying symlinked file: ${file} -> ${CMAKE_BINARY_DIR}/${outfile}")
+      endif()
+      file(APPEND ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/ExportFiles.cmake
+           "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E copy_if_different \"${file}\" \"${CMAKE_BINARY_DIR}/${outfile}\")\n")
     endif()
-    file(APPEND ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/ExportFiles.cmake
-         "file(COPY \"${file}\" DESTINATION \"${CMAKE_BINARY_DIR}/${outdir}\")\n")
   endif()
 
   if(NOT arg_NO_INSTALL)
@@ -576,7 +582,7 @@ function(core_find_git_rev stamp)
   else()
     find_package(Git)
     if(GIT_FOUND AND EXISTS ${CMAKE_SOURCE_DIR}/.git)
-      # get tree status i.e. clean working tree vs dirty (uncommited or unstashed changes, etc.)
+      # get tree status i.e. clean working tree vs dirty (uncommitted or unstashed changes, etc.)
       execute_process(COMMAND ${GIT_EXECUTABLE} update-index --ignore-submodules -q --refresh
                       WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
       execute_process(COMMAND ${GIT_EXECUTABLE} diff-files --ignore-submodules --quiet --
@@ -646,6 +652,9 @@ endfunction()
 #   APP_VERSION_TAG_LC - lowercased app version tag
 #   APP_VERSION - the app version (${APP_VERSION_MAJOR}.${APP_VERSION_MINOR}-${APP_VERSION_TAG})
 #   APP_ADDON_API - the addon API version in the form of 16.9.702
+#   ADDON_REPOS - official addon repositories and their origin path delimited by pipe
+#                 - e.g. repository.xbmc.org|https://mirrors.kodi.tv -
+#                 (multiple repo/path-sets are delimited by comma)
 #   FILE_VERSION - file version in the form of 16,9,702,0 - Windows only
 #   JSONRPC_VERSION - the json api version in the form of 8.3.0
 #
@@ -666,6 +675,7 @@ macro(core_find_versions)
   string(REGEX REPLACE "([^ ;]*) ([^;]*)" "\\1;\\2" version_list "${version_list};${json_version}")
   set(version_props
     ADDON_API
+    ADDON_REPOS
     APP_NAME
     APP_PACKAGE
     COMPANY_NAME
@@ -690,18 +700,25 @@ macro(core_find_versions)
   string(TOUPPER ${APP_APP_NAME} APP_NAME_UC)
   set(COMPANY_NAME ${APP_COMPANY_NAME})
   set(APP_VERSION ${APP_VERSION_MAJOR}.${APP_VERSION_MINOR})
-  set(APP_PACKAGE ${APP_APP_PACKAGE})
+  # Let Flatpak builders etc override APP_PACKAGE
+  # NOTE: We cannot declare an option() in top-level CMakeLists.txt
+  # because of CMP0077.
+  if(NOT APP_PACKAGE)
+    set(APP_PACKAGE ${APP_APP_PACKAGE})
+  endif()
+  list(APPEND final_message "App package: ${APP_PACKAGE}")
   if(APP_VERSION_TAG)
     set(APP_VERSION ${APP_VERSION}-${APP_VERSION_TAG})
     string(TOLOWER ${APP_VERSION_TAG} APP_VERSION_TAG_LC)
   endif()
   string(REPLACE "." "," FILE_VERSION ${APP_ADDON_API}.0)
+  set(ADDON_REPOS ${APP_ADDON_REPOS})
   set(JSONRPC_VERSION ${APP_JSONRPC_VERSION})
 
   # Set defines used in addon.xml.in and read from versions.h to set add-on
   # version parts automatically
   # This part is nearly identical to "AddonHelpers.cmake", except location of versions.h
-  file(STRINGS ${CORE_SOURCE_DIR}/xbmc/addons/kodi-addon-dev-kit/include/kodi/versions.h BIN_ADDON_PARTS)
+  file(STRINGS ${CORE_SOURCE_DIR}/xbmc/addons/kodi-dev-kit/include/kodi/versions.h BIN_ADDON_PARTS)
   foreach(loop_var ${BIN_ADDON_PARTS})
     string(FIND "${loop_var}" "#define ADDON_" matchres)
     if("${matchres}" EQUAL 0)
@@ -768,5 +785,5 @@ macro(find_addon_xml_in_files)
   endforeach()
 
   # Append also versions.h to depends
-  list(APPEND ADDON_XML_DEPENDS "${CORE_SOURCE_DIR}/xbmc/addons/kodi-addon-dev-kit/include/kodi/versions.h")
+  list(APPEND ADDON_XML_DEPENDS "${CORE_SOURCE_DIR}/xbmc/addons/kodi-dev-kit/include/kodi/versions.h")
 endmacro()

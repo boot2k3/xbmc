@@ -17,10 +17,13 @@
 #include "SettingType.h"
 #include "SettingUpdate.h"
 #include "threads/SharedSection.h"
+#include "utils/logtypes.h"
 
 #include <memory>
 #include <set>
+#include <shared_mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 enum class SettingOptionsType {
@@ -45,8 +48,8 @@ class CSetting : public ISetting,
                  public std::enable_shared_from_this<CSetting>
 {
 public:
-  CSetting(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSetting(const std::string &id, const CSetting &setting);
+  CSetting(const std::string& id, CSettingsManager* settingsManager = nullptr);
+  CSetting(const std::string& id, const CSetting& setting);
   ~CSetting() override = default;
 
   virtual std::shared_ptr<CSetting> Clone(const std::string &id) const = 0;
@@ -72,7 +75,7 @@ public:
   void SetLevel(SettingLevel level) { m_level = level; }
   std::shared_ptr<const ISettingControl> GetControl() const { return m_control; }
   std::shared_ptr<ISettingControl> GetControl() { return m_control; }
-  void SetControl(std::shared_ptr<ISettingControl> control) { m_control = control; }
+  void SetControl(std::shared_ptr<ISettingControl> control) { m_control = std::move(control); }
   const SettingDependencies& GetDependencies() const { return m_dependencies; }
   void SetDependencies(const SettingDependencies &dependencies) { m_dependencies = dependencies; }
   const std::set<CSettingUpdate>& GetUpdates() const { return m_updates; }
@@ -89,14 +92,30 @@ public:
   bool IsVisible() const override;
 
   // implementation of ISettingCallback
-  void OnSettingAction(std::shared_ptr<const CSetting> setting) override;
+  void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
+
+  /*!
+   \brief Deserializes the given XML node to retrieve a setting object's identifier and
+          whether the setting is a reference to another setting or not.
+
+   \param node XML node containing a setting object's identifier
+   \param identification Will contain the deserialized setting object's identifier
+   \param isReference Whether the setting is a reference to the setting with the determined identifier
+   \return True if a setting object's identifier was deserialized, false otherwise
+   */
+  static bool DeserializeIdentification(const TiXmlNode* node,
+                                        std::string& identification,
+                                        bool& isReference);
 
 protected:
   // implementation of ISettingCallback
-  bool OnSettingChanging(std::shared_ptr<const CSetting> setting) override;
-  void OnSettingChanged(std::shared_ptr<const CSetting> setting) override;
-  bool OnSettingUpdate(std::shared_ptr<CSetting> setting, const char *oldSettingId, const TiXmlNode *oldSettingNode) override;
-  void OnSettingPropertyChanged(std::shared_ptr<const CSetting> setting, const char *propertyName) override;
+  bool OnSettingChanging(const std::shared_ptr<const CSetting>& setting) override;
+  void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
+  bool OnSettingUpdate(const std::shared_ptr<CSetting>& setting,
+                       const char* oldSettingId,
+                       const TiXmlNode* oldSettingNode) override;
+  void OnSettingPropertyChanged(const std::shared_ptr<const CSetting>& setting,
+                                const char* propertyName) override;
 
   void Copy(const CSetting &setting);
 
@@ -117,6 +136,9 @@ protected:
   mutable CSharedSection m_critical;
 
   std::string m_referencedId;
+
+private:
+  static Logger s_logger;
 };
 
 template<typename TValue, SettingType TSettingType>
@@ -131,12 +153,10 @@ public:
   static SettingType Type() { return TSettingType; }
 
 protected:
-  CTraitedSetting(const std::string &id, CSettingsManager *settingsManager = nullptr)
+  CTraitedSetting(const std::string& id, CSettingsManager* settingsManager = nullptr)
     : CSetting(id, settingsManager)
   { }
-  CTraitedSetting(const std::string &id, const CTraitedSetting &setting)
-    : CSetting(id, setting)
-  { }
+  CTraitedSetting(const std::string& id, const CTraitedSetting& setting) : CSetting(id, setting) {}
   ~CTraitedSetting() override = default;
 };
 
@@ -168,7 +188,7 @@ public:
   SettingType GetElementType() const;
   std::shared_ptr<CSetting> GetDefinition() { return m_definition; }
   std::shared_ptr<const CSetting> GetDefinition() const { return m_definition; }
-  void SetDefinition(std::shared_ptr<CSetting> definition) { m_definition = definition; }
+  void SetDefinition(std::shared_ptr<CSetting> definition) { m_definition = std::move(definition); }
 
   const std::string& GetDelimiter() const { return m_delimiter; }
   void SetDelimiter(const std::string &delimiter) { m_delimiter = delimiter; }
@@ -183,7 +203,6 @@ public:
   bool SetValue(const SettingList &values);
   const SettingList& GetDefault() const { return m_defaults; }
   void SetDefault(const SettingList &values);
-  bool FindIntInList(int value) const;
 
 protected:
   void copy(const CSettingList &setting);
@@ -198,6 +217,8 @@ protected:
   std::string m_delimiter = "|";
   int m_minimumItems = 0;
   int m_maximumItems = -1;
+
+  static Logger s_logger;
 };
 
 /*!
@@ -224,17 +245,25 @@ public:
   bool CheckValidity(const std::string &value) const override;
   void Reset() override { SetValue(m_default); }
 
-  bool GetValue() const { CSharedLock lock(m_critical); return m_value; }
+  bool GetValue() const
+  {
+    std::shared_lock<CSharedSection> lock(m_critical);
+    return m_value;
+  }
   bool SetValue(bool value);
   bool GetDefault() const { return m_default; }
   void SetDefault(bool value);
 
 private:
+  static constexpr Value DefaultValue = false;
+
   void copy(const CSettingBool &setting);
   bool fromString(const std::string &strValue, bool &value) const;
 
-  bool m_value = false;
-  bool m_default = false;
+  bool m_value = DefaultValue;
+  bool m_default = DefaultValue;
+
+  static Logger s_logger;
 };
 
 /*!
@@ -264,7 +293,11 @@ public:
   virtual bool CheckValidity(int value) const;
   void Reset() override { SetValue(m_default); }
 
-  int GetValue() const { CSharedLock lock(m_critical); return m_value; }
+  int GetValue() const
+  {
+    std::shared_lock<CSharedSection> lock(m_critical);
+    return m_value;
+  }
   bool SetValue(int value);
   int GetDefault() const { return m_default; }
   void SetDefault(int value);
@@ -292,19 +325,25 @@ public:
     m_optionsFiller = optionsFiller;
     m_optionsFillerData = data;
   }
+  IntegerSettingOptions GetDynamicOptions() const { return m_dynamicOptions; }
   IntegerSettingOptions UpdateDynamicOptions();
   SettingOptionsSort GetOptionsSort() const { return m_optionsSort; }
   void SetOptionsSort(SettingOptionsSort optionsSort) { m_optionsSort = optionsSort; }
 
 private:
+  static constexpr Value DefaultValue = 0;
+  static constexpr Value DefaultMin = DefaultValue;
+  static constexpr Value DefaultStep = 1;
+  static constexpr Value DefaultMax = DefaultValue;
+
   void copy(const CSettingInt &setting);
   static bool fromString(const std::string &strValue, int &value);
 
-  int m_value = 0;
-  int m_default = 0;
-  int m_min = 0;
-  int m_step = 1;
-  int m_max = 0;
+  int m_value = DefaultValue;
+  int m_default = DefaultValue;
+  int m_min = DefaultMin;
+  int m_step = DefaultStep;
+  int m_max = DefaultMax;
   TranslatableIntegerSettingOptions m_translatableOptions;
   IntegerSettingOptions m_options;
   std::string m_optionsFillerName;
@@ -312,6 +351,8 @@ private:
   void *m_optionsFillerData = nullptr;
   IntegerSettingOptions m_dynamicOptions;
   SettingOptionsSort m_optionsSort = SettingOptionsSort::NoSorting;
+
+  static Logger s_logger;
 };
 
 /*!
@@ -340,7 +381,11 @@ public:
   virtual bool CheckValidity(double value) const;
   void Reset() override { SetValue(m_default); }
 
-  double GetValue() const { CSharedLock lock(m_critical); return m_value; }
+  double GetValue() const
+  {
+    std::shared_lock<CSharedSection> lock(m_critical);
+    return m_value;
+  }
   bool SetValue(double value);
   double GetDefault() const { return m_default; }
   void SetDefault(double value);
@@ -353,14 +398,21 @@ public:
   void SetMaximum(double maximum) { m_max = maximum; }
 
 private:
+  static constexpr Value DefaultValue = 0.0;
+  static constexpr Value DefaultMin = DefaultValue;
+  static constexpr Value DefaultStep = 1.0;
+  static constexpr Value DefaultMax = DefaultValue;
+
   virtual void copy(const CSettingNumber &setting);
   static bool fromString(const std::string &strValue, double &value);
 
-  double m_value = 0.0;
-  double m_default = 0.0;
-  double m_min = 0.0;
-  double m_step = 1.0;
-  double m_max = 0.0;
+  double m_value = DefaultValue;
+  double m_default = DefaultValue;
+  double m_min = DefaultMin;
+  double m_step = DefaultStep;
+  double m_max = DefaultMax;
+
+  static Logger s_logger;
 };
 
 /*!
@@ -387,13 +439,19 @@ public:
   bool CheckValidity(const std::string &value) const override;
   void Reset() override { SetValue(m_default); }
 
-  virtual const std::string& GetValue() const { CSharedLock lock(m_critical); return m_value; }
+  virtual const std::string& GetValue() const
+  {
+    std::shared_lock<CSharedSection> lock(m_critical);
+    return m_value;
+  }
   virtual bool SetValue(const std::string &value);
   virtual const std::string& GetDefault() const { return m_default; }
   virtual void SetDefault(const std::string &value);
 
   virtual bool AllowEmpty() const { return m_allowEmpty; }
   void SetAllowEmpty(bool allowEmpty) { m_allowEmpty = allowEmpty; }
+  virtual bool AllowNewOption() const { return m_allowNewOption; }
+  void SetAllowNewOption(bool allowNewOption) { m_allowNewOption = allowNewOption; }
 
   SettingOptionsType GetOptionsType() const;
   const TranslatableStringSettingOptions& GetTranslatableOptions() const { return m_translatableOptions; }
@@ -411,16 +469,20 @@ public:
     m_optionsFiller = optionsFiller;
     m_optionsFillerData = data;
   }
+  StringSettingOptions GetDynamicOptions() const { return m_dynamicOptions; }
   StringSettingOptions UpdateDynamicOptions();
   SettingOptionsSort GetOptionsSort() const { return m_optionsSort; }
   void SetOptionsSort(SettingOptionsSort optionsSort) { m_optionsSort = optionsSort; }
 
 protected:
+  static const Value DefaultValue;
+
   virtual void copy(const CSettingString &setting);
 
   std::string m_value;
   std::string m_default;
   bool m_allowEmpty = false;
+  bool m_allowNewOption = false;
   TranslatableStringSettingOptions m_translatableOptions;
   StringSettingOptions m_options;
   std::string m_optionsFillerName;
@@ -428,6 +490,8 @@ protected:
   void *m_optionsFillerData = nullptr;
   StringSettingOptions m_dynamicOptions;
   SettingOptionsSort m_optionsSort = SettingOptionsSort::NoSorting;
+
+  static Logger s_logger;
 };
 
 /*!
@@ -464,5 +528,9 @@ public:
   void SetData(const std::string& data) { m_data = data; }
 
 protected:
+  virtual void copy(const CSettingAction& setting);
+
   std::string m_data;
+
+  static Logger s_logger;
 };

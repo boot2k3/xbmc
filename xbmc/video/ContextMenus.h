@@ -10,6 +10,9 @@
 
 #include "ContextMenuItem.h"
 #include "VideoLibraryQueue.h"
+#include "media/MediaType.h"
+
+#include <memory>
 
 namespace CONTEXTMENU
 {
@@ -19,7 +22,8 @@ class CVideoInfo : public CStaticContextMenuAction
 public:
   explicit CVideoInfo(MediaType mediaType);
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+
 private:
   const MediaType m_mediaType;
 };
@@ -44,38 +48,67 @@ struct CMovieInfo : CVideoInfo
   CMovieInfo() : CVideoInfo(MediaTypeMovie) {}
 };
 
-struct CRemoveResumePoint : CStaticContextMenuAction
+struct CVideoRemoveResumePoint : CStaticContextMenuAction
 {
-  CRemoveResumePoint() : CStaticContextMenuAction(38209) {}
+  CVideoRemoveResumePoint() : CStaticContextMenuAction(38209) {}
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
 };
 
-struct CMarkWatched : CStaticContextMenuAction
+struct CVideoMarkWatched : CStaticContextMenuAction
 {
-  CMarkWatched() : CStaticContextMenuAction(16103) {}
+  CVideoMarkWatched() : CStaticContextMenuAction(16103) {}
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
 };
 
-struct CMarkUnWatched : CStaticContextMenuAction
+struct CVideoMarkUnWatched : CStaticContextMenuAction
 {
-  CMarkUnWatched() : CStaticContextMenuAction(16104) {}
+  CVideoMarkUnWatched() : CStaticContextMenuAction(16104) {}
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
 };
 
-struct CResume : IContextMenuItem
+struct CVideoBrowse : CStaticContextMenuAction
+{
+  CVideoBrowse() : CStaticContextMenuAction(37015) {} // Browse into
+  bool IsVisible(const CFileItem& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+};
+
+struct CVideoResume : IContextMenuItem
 {
   std::string GetLabel(const CFileItem& item) const override;
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& _item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& _item) const override;
 };
 
-struct CPlay : IContextMenuItem
+struct CVideoPlay : IContextMenuItem
 {
   std::string GetLabel(const CFileItem& item) const override;
   bool IsVisible(const CFileItem& item) const override;
-  bool Execute(const CFileItemPtr& _item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& _item) const override;
 };
+
+struct CVideoQueue : CStaticContextMenuAction
+{
+  CVideoQueue() : CStaticContextMenuAction(13347) {} // Queue item
+  bool IsVisible(const CFileItem& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+};
+
+struct CVideoPlayNext : CStaticContextMenuAction
+{
+  CVideoPlayNext() : CStaticContextMenuAction(10008) {} // Play next
+  bool IsVisible(const CFileItem& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+};
+
+struct CVideoPlayAndQueue : CStaticContextMenuAction
+{
+  CVideoPlayAndQueue() : CStaticContextMenuAction(13412) {} // Play from here
+  bool IsVisible(const CFileItem& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+};
+
 }

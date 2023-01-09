@@ -12,59 +12,54 @@
 #include "DVDOverlayText.h"
 #include "DVDStreamInfo.h"
 #include "cores/VideoPlayer/DVDSubtitles/DVDSubtitleTagSami.h"
-#include "cores/VideoPlayer/Interface/Addon/DemuxPacket.h"
+#include "cores/VideoPlayer/Interface/DemuxPacket.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
-#include "system.h"
+#include <memory>
 
 CDVDOverlayCodecText::CDVDOverlayCodecText() : CDVDOverlayCodec("Text Subtitle Decoder")
 {
-  m_pOverlay = NULL;
-  m_bIsSSA = false;
+  m_pOverlay = nullptr;
 }
 
 CDVDOverlayCodecText::~CDVDOverlayCodecText()
 {
-  if(m_pOverlay)
-    SAFE_RELEASE(m_pOverlay);
+  Dispose();
 }
 
-bool CDVDOverlayCodecText::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
+bool CDVDOverlayCodecText::Open(CDVDStreamInfo& hints, CDVDCodecOptions& options)
 {
-  m_bIsSSA = (hints.codec == AV_CODEC_ID_SSA);
-  if(hints.codec == AV_CODEC_ID_TEXT || hints.codec == AV_CODEC_ID_SSA)
-    return true;
-  if(hints.codec == AV_CODEC_ID_SUBRIP)
-    return true;
-  return false;
+  if (hints.codec != AV_CODEC_ID_TEXT && hints.codec != AV_CODEC_ID_SSA &&
+      hints.codec != AV_CODEC_ID_SUBRIP)
+    return false;
+
+  m_codecId = hints.codec;
+
+  Dispose();
+
+  return Initialize();
 }
 
 void CDVDOverlayCodecText::Dispose()
 {
-  if(m_pOverlay)
-    SAFE_RELEASE(m_pOverlay);
+  if (m_pOverlay)
+  {
+    m_pOverlay->Release();
+    m_pOverlay = nullptr;
+  }
 }
 
-int CDVDOverlayCodecText::Decode(DemuxPacket *pPacket)
+OverlayMessage CDVDOverlayCodecText::Decode(DemuxPacket* pPacket)
 {
-  if(m_pOverlay)
-    SAFE_RELEASE(m_pOverlay);
+  if (!pPacket)
+    return OverlayMessage::OC_ERROR;
 
-  if(!pPacket)
-    return OC_ERROR;
+  uint8_t* data = pPacket->pData;
+  char* start = (char*)data;
+  char* end = (char*)(data + pPacket->iSize);
 
-  uint8_t *data = pPacket->pData;
-  int      size = pPacket->iSize;
-
-  m_pOverlay = new CDVDOverlayText();
-  CDVDOverlayCodec::GetAbsoluteTimes(m_pOverlay->iPTSStartTime, m_pOverlay->iPTSStopTime, pPacket, m_pOverlay->replace);
-
-  char *start, *end, *p;
-  start = (char*)data;
-  end   = (char*)data + size;
-  p     = (char*)data;
-
-  if (m_bIsSSA)
+  if (m_codecId == AV_CODEC_ID_SSA)
   {
     // currently just skip the prefixed ssa fields (8 fields)
     int nFieldCount = 8;
@@ -74,71 +69,57 @@ int CDVDOverlayCodecText::Decode(DemuxPacket *pPacket)
         nFieldCount--;
 
       start++;
-      p++;
     }
   }
 
+  std::string text(start, end);
+  double PTSStartTime = 0;
+  double PTSStopTime = 0;
+
+  CDVDOverlayCodec::GetAbsoluteTimes(PTSStartTime, PTSStopTime, pPacket);
   CDVDSubtitleTagSami TagConv;
-  bool Taginit = TagConv.Init();
 
-  while(p<end)
+  if (TagConv.Init())
   {
-    if(*p == '{')
-    {
-      if(p>start)
-      {
-        if(Taginit)
-          TagConv.ConvertLine(m_pOverlay, start, p-start);
-        else
-          m_pOverlay->AddElement(new CDVDOverlayText::CElementText(start, p-start));
-      }
-      start = p+1;
-
-      while(*p != '}' && p<end)
-        p++;
-
-      char* override = (char*)malloc(p-start + 1);
-      memcpy(override, start, p-start);
-      override[p-start] = '\0';
-      CLog::Log(LOGINFO, "%s - Skipped formatting tag %s", __FUNCTION__, override);
-      free(override);
-
-      start = p+1;
-    }
-    p++;
+    TagConv.ConvertLine(text);
+    TagConv.CloseTag(text);
+    AddSubtitle(text, PTSStartTime, PTSStopTime);
   }
-  if(p>start)
-  {
-    if(Taginit)
-    {
-      TagConv.ConvertLine(m_pOverlay, start, p-start);
-      TagConv.CloseTag(m_pOverlay);
-    }
-    else
-      m_pOverlay->AddElement(new CDVDOverlayText::CElementText(start, p-start));
-  }
-  return OC_OVERLAY;
+  else
+    CLog::Log(LOGERROR, "{} - Failed to initialize tag converter", __FUNCTION__);
+
+  return m_pOverlay ? OverlayMessage::OC_DONE : OverlayMessage::OC_OVERLAY;
+}
+
+void CDVDOverlayCodecText::PostProcess(std::string& text)
+{
+  // The data that come from InputStream could contains \r chars
+  // we have to remove them all because it causes to display empty box "tofu"
+  StringUtils::Replace(text, "\r", "");
+  CSubtitlesAdapter::PostProcess(text);
 }
 
 void CDVDOverlayCodecText::Reset()
 {
-  if(m_pOverlay)
-    SAFE_RELEASE(m_pOverlay);
+  Dispose();
+  Flush();
 }
 
 void CDVDOverlayCodecText::Flush()
 {
-  if(m_pOverlay)
-    SAFE_RELEASE(m_pOverlay);
+  if (m_pOverlay)
+  {
+    m_pOverlay->Release();
+    m_pOverlay = nullptr;
+  }
+
+  FlushSubtitles();
 }
 
 CDVDOverlay* CDVDOverlayCodecText::GetOverlay()
 {
-  if(m_pOverlay)
-  {
-    CDVDOverlay* overlay = m_pOverlay;
-    m_pOverlay = NULL;
-    return overlay;
-  }
-  return NULL;
+  if (m_pOverlay)
+    return nullptr;
+  m_pOverlay = CreateOverlay();
+  return m_pOverlay->Acquire();
 }

@@ -6,39 +6,36 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include "interfaces/AnnouncementManager.h"
-#include "input/XBMC_vkeys.h"
-#include "input/InputCodingTable.h"
+#include "GUIDialogKeyboardGeneric.h"
+
+#include "GUIDialogNumeric.h"
+#include "GUIUserMessages.h"
+#include "ServiceBroker.h"
+#include "dialogs/GUIDialogKaiToast.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIEditControl.h"
 #include "guilib/GUILabelControl.h"
 #include "guilib/GUIWindowManager.h"
-#include "input/KeyboardLayoutManager.h"
-#include "input/Key.h"
 #include "guilib/LocalizeStrings.h"
-#include "GUIUserMessages.h"
-#include "GUIDialogNumeric.h"
-#include "GUIDialogKeyboardGeneric.h"
-#include "ServiceBroker.h"
+#include "input/InputCodingTable.h"
+#include "input/Key.h"
+#include "input/KeyboardLayoutManager.h"
+#include "input/XBMC_vkeys.h"
+#include "interfaces/AnnouncementManager.h"
+#include "messaging/ApplicationMessenger.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/RegExp.h"
-#include "utils/Variant.h"
-#include "utils/StringUtils.h"
-#include "messaging/ApplicationMessenger.h"
+#include "speech/ISpeechRecognition.h"
+#include "speech/ISpeechRecognitionListener.h"
+#include "speech/SpeechRecognitionErrors.h"
 #include "utils/CharsetConverter.h"
-#include "windowing/WinSystem.h"
+#include "utils/RegExp.h"
+#include "utils/StringUtils.h"
+#include "utils/Variant.h"
 #include "utils/log.h"
+#include "windowing/WinSystem.h"
 
-#ifdef TARGET_ANDROID
-#include <androidjni/Intent.h>
-#include <androidjni/RecognizerIntent.h>
-#include <androidjni/ArrayList.h>
-#include "platform/android/activity/XBMCApp.h"
-
-#define ACTION_RECOGNIZE_SPEECH_REQID 543
-
-#endif
+#include <mutex>
 
 using namespace KODI::MESSAGING;
 
@@ -56,7 +53,7 @@ using namespace KODI::MESSAGING;
 #define CTL_BUTTON_IP_ADDRESS 307
 #define CTL_BUTTON_CLEAR      308
 #define CTL_BUTTON_LAYOUT     309
-
+#define CTL_BUTTON_REVEAL     310
 #define CTL_LABEL_HEADING     311
 #define CTL_EDIT              312
 #define CTL_LABEL_HZCODE      313
@@ -66,6 +63,58 @@ using namespace KODI::MESSAGING;
 #define CTL_BUTTON_SPACE       32
 
 #define SEARCH_DELAY         1000
+
+class CSpeechRecognitionListener : public speech::ISpeechRecognitionListener
+{
+public:
+  CSpeechRecognitionListener(int dialogId) : m_dialogId(dialogId) {}
+
+  void OnReadyForSpeech() override
+  {
+    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info,
+                                          g_localizeStrings.Get(39177), // Speech to text
+                                          g_localizeStrings.Get(39179)); // Listening...
+  }
+
+  void OnError(int recognitionError) override
+  {
+    uint32_t msgId = 0;
+    switch (recognitionError)
+    {
+      case speech::RecognitionError::SERVICE_NOT_AVAILABLE:
+        msgId = 39178; // Speech recognition service not available
+        break;
+      case speech::RecognitionError::NO_MATCH:
+        msgId = 39180; // No recognition result matched
+        break;
+      case speech::RecognitionError::INSUFFICIENT_PERMISSIONS:
+        msgId = 39185; // Insufficient permissions for speech recognition
+        break;
+      default:
+        msgId = 39181; // Speech recognition error
+        break;
+    }
+
+    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error,
+                                          g_localizeStrings.Get(39177), // Speech to text
+                                          g_localizeStrings.Get(msgId));
+  }
+
+  void OnResults(const std::vector<std::string>& results) override
+  {
+    if (!results.empty())
+    {
+      CGUIMessage msg(GUI_MSG_SET_TEXT, m_dialogId, CTL_EDIT);
+      msg.SetLabel(results.front());
+
+      // dispatch to GUI thread
+      CServiceBroker::GetAppMessenger()->SendGUIMessage(msg, m_dialogId);
+    }
+  }
+
+private:
+  const int m_dialogId{0};
+};
 
 CGUIDialogKeyboardGeneric::CGUIDialogKeyboardGeneric()
 : CGUIDialog(WINDOW_DIALOG_KEYBOARD, "DialogKeyboard.xml")
@@ -80,10 +129,8 @@ CGUIDialogKeyboardGeneric::CGUIDialogKeyboardGeneric()
   m_loadType = KEEP_IN_MEMORY;
   m_isKeyboardNavigationMode = false;
   m_previouslyFocusedButton = 0;
-  m_codingtable = NULL;
   m_pos = 0;
   m_listwidth = 600;
-  m_hzcode = "";
 }
 
 void CGUIDialogKeyboardGeneric::OnWindowLoaded()
@@ -128,7 +175,7 @@ void CGUIDialogKeyboardGeneric::OnInitWindow()
   // fill in the keyboard layouts
   m_currentLayout = 0;
   m_layouts.clear();
-  const KeyboardLayouts& keyboardLayouts = CKeyboardLayoutManager::GetInstance().GetLayouts();
+  const KeyboardLayouts& keyboardLayouts = CServiceBroker::GetKeyboardLayoutManager()->GetLayouts();
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
   std::vector<CVariant> layoutNames = settings->GetList(CSettings::SETTING_LOCALE_KEYBOARDLAYOUTS);
   std::string activeLayout = settings->GetString(CSettings::SETTING_LOCALE_ACTIVEKEYBOARDLAYOUT);
@@ -162,6 +209,14 @@ void CGUIDialogKeyboardGeneric::OnInitWindow()
     CGUIMessage msg(GUI_MSG_SET_TYPE, GetID(), CTL_EDIT, m_hiddenInput ? CGUIEditControl::INPUT_TYPE_PASSWORD : CGUIEditControl::INPUT_TYPE_TEXT);
     OnMessage(msg);
   }
+  if (m_hiddenInput)
+  {
+    SET_CONTROL_VISIBLE(CTL_BUTTON_REVEAL);
+    SET_CONTROL_LABEL(CTL_BUTTON_REVEAL, g_localizeStrings.Get(12308));
+  }
+  else
+    SET_CONTROL_HIDDEN(CTL_BUTTON_REVEAL);
+
   SetEditText(m_text);
 
   // get HZLIST label options
@@ -178,7 +233,7 @@ void CGUIDialogKeyboardGeneric::OnInitWindow()
   data["title"] = m_strHeading;
   data["type"] = !m_hiddenInput ? "keyboard" : "password";
   data["value"] = GetText();
-  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Input, "xbmc", "OnInputRequested", data);
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Input, "OnInputRequested", data);
 }
 
 bool CGUIDialogKeyboardGeneric::OnAction(const CAction &action)
@@ -215,7 +270,7 @@ bool CGUIDialogKeyboardGeneric::OnAction(const CAction &action)
       CGUIControl *edit = GetControl(CTL_EDIT);
       if (edit)
         handled = edit->OnAction(action);
-      if (!handled && actionId >= KEY_VKEY && actionId < KEY_ASCII)
+      if (!handled && actionId >= KEY_VKEY && actionId < KEY_UNICODE)
       {
         unsigned char b = actionId & 0xFF;
         if (b == XBMCVK_TAB)
@@ -269,6 +324,9 @@ bool CGUIDialogKeyboardGeneric::OnMessage(CGUIMessage& message)
         break;
       case CTL_BUTTON_LAYOUT:
         OnLayout();
+        break;
+      case CTL_BUTTON_REVEAL:
+        OnReveal();
         break;
       case CTL_BUTTON_SYMBOLS:
         OnSymbols();
@@ -326,7 +384,7 @@ bool CGUIDialogKeyboardGeneric::OnMessage(CGUIMessage& message)
     }
   case GUI_MSG_CODINGTABLE_LOOKUP_COMPLETED:
     {
-      std::string code = message.GetStringParam();
+      const std::string& code = message.GetStringParam();
       if (code == m_hzcode)
       {
         int response = message.GetParam1();
@@ -511,7 +569,7 @@ void CGUIDialogKeyboardGeneric::OnDeinitWindow(int nextWindowID)
   // reset the heading (we don't always have this)
   m_strHeading = "";
 
-  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Input, "xbmc", "OnInputFinished");
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Input, "OnInputFinished");
 }
 
 void CGUIDialogKeyboardGeneric::MoveCursor(int iAmount)
@@ -545,6 +603,16 @@ void CGUIDialogKeyboardGeneric::OnSymbols()
   UpdateButtons();
 }
 
+void CGUIDialogKeyboardGeneric::OnReveal()
+{
+  m_hiddenInput = !m_hiddenInput;
+  SET_CONTROL_LABEL(CTL_BUTTON_REVEAL, g_localizeStrings.Get(m_hiddenInput ? 12308 : 12309));
+  CGUIMessage msg(GUI_MSG_SET_TYPE, GetID(), CTL_EDIT,
+                  m_hiddenInput ? CGUIEditControl::INPUT_TYPE_PASSWORD
+                                : CGUIEditControl::INPUT_TYPE_TEXT);
+  OnMessage(msg);
+}
+
 void CGUIDialogKeyboardGeneric::OnShift()
 {
   m_bShift = !m_bShift;
@@ -574,17 +642,18 @@ void CGUIDialogKeyboardGeneric::OnIPAddress()
 
 void CGUIDialogKeyboardGeneric::OnVoiceRecognition()
 {
-#ifdef TARGET_ANDROID
-  CJNIIntent intent = CJNIIntent(CJNIRecognizerIntent::ACTION_RECOGNIZE_SPEECH);
-  intent.putExtra(CJNIRecognizerIntent::EXTRA_LANGUAGE_MODEL, CJNIRecognizerIntent::LANGUAGE_MODEL_FREE_FORM);
-  CJNIIntent result;
-  if (CXBMCApp::WaitForActivityResult(intent, ACTION_RECOGNIZE_SPEECH_REQID, result) == CJNIBase::RESULT_OK)
+  const auto speechRecognition = CServiceBroker::GetSpeechRecognition();
+  if (speechRecognition)
   {
-    CJNIArrayList<std::string> guesses = result.getStringArrayListExtra(CJNIRecognizerIntent::EXTRA_RESULTS);
-    if (guesses.size())
-      SetEditText(guesses.get(0));
+    if (!m_speechRecognitionListener)
+      m_speechRecognitionListener = std::make_shared<CSpeechRecognitionListener>(GetID());
+
+    speechRecognition->StartSpeechRecognition(m_speechRecognitionListener);
   }
-#endif
+  else
+  {
+    CLog::LogF(LOGWARNING, "No voice recognition implementation available.");
+  }
 }
 
 void CGUIDialogKeyboardGeneric::SetControlLabel(int id, const std::string &label)
@@ -674,7 +743,7 @@ void CGUIDialogKeyboardGeneric::ChangeWordList(int direct)
 
 void CGUIDialogKeyboardGeneric::ShowWordList(int direct)
 {
-  CSingleLock lock(m_CS);
+  std::unique_lock<CCriticalSection> lock(m_CS);
   std::wstring hzlist = L"";
   CServiceBroker::GetWinSystem()->GetGfxContext().SetScalingResolution(m_coordsRes, true);
   float width = m_listfont->GetCharWidth(L'<') + m_listfont->GetCharWidth(L'>');
@@ -720,7 +789,7 @@ void CGUIDialogKeyboardGeneric::ShowWordList(int direct)
       hzlist.insert(hzlist.length(), 1, L' ');
     }
   }
-  hzlist.erase(hzlist.find_last_not_of(L" ") + 1);
+  hzlist.erase(hzlist.find_last_not_of(L' ') + 1);
   if (m_pos > 0)
     hzlist.insert(0, 1, L'<');
   if (m_pos + m_num < static_cast<int>(m_words.size()))

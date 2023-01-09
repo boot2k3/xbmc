@@ -11,11 +11,11 @@
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "Util.h"
-#include "filesystem/File.h"
 #include "media/MediaLockState.h"
 #include "network/WakeOnAccess.h"
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
+#include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/XBMCTinyXML.h"
@@ -28,8 +28,6 @@
 #define SOURCES_FILE  "sources.xml"
 #define XML_SOURCES   "sources"
 #define XML_SOURCE    "source"
-
-using namespace XFILE;
 
 CMediaSourceSettings::CMediaSourceSettings()
 {
@@ -76,16 +74,17 @@ bool CMediaSourceSettings::Load(const std::string &file)
 {
   Clear();
 
-  if (!CFile::Exists(file))
+  if (!CFileUtils::Exists(file))
     return false;
 
-  CLog::Log(LOGNOTICE, "CMediaSourceSettings: loading media sources from %s", file.c_str());
+  CLog::Log(LOGINFO, "CMediaSourceSettings: loading media sources from {}", file);
 
   // load xml file
   CXBMCTinyXML xmlDoc;
   if (!xmlDoc.LoadFile(file))
   {
-    CLog::Log(LOGERROR, "CMediaSourceSettings: error loading %s: Line %d, %s", file.c_str(), xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+    CLog::Log(LOGERROR, "CMediaSourceSettings: error loading {}: Line {}, {}", file,
+              xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
     return false;
   }
 
@@ -268,10 +267,12 @@ bool CMediaSourceSettings::AddShare(const std::string &type, const CMediaSource 
   {
     shareToAdd.strPath = CUtil::TranslateSpecialSource(strPath1);
     if (!share.strPath.empty())
-      CLog::Log(LOGDEBUG, "CMediaSourceSettings: translated (%s) to path (%s)", strPath1.c_str(), shareToAdd.strPath.c_str());
+      CLog::Log(LOGDEBUG, "CMediaSourceSettings: translated ({}) to path ({})", strPath1,
+                shareToAdd.strPath);
     else
     {
-      CLog::Log(LOGDEBUG, "CMediaSourceSettings: skipping invalid special directory token (%s)", strPath1.c_str());
+      CLog::Log(LOGDEBUG, "CMediaSourceSettings: skipping invalid special directory token ({})",
+                strPath1);
       return false;
     }
   }
@@ -341,7 +342,7 @@ bool CMediaSourceSettings::GetSource(const std::string &category, const TiXmlNod
         }
       }
       else
-        CLog::Log(LOGERROR, "CMediaSourceSettings:    invalid path type (%s) in source", strPath.c_str());
+        CLog::Log(LOGERROR, "CMediaSourceSettings:    invalid path type ({}) in source", strPath);
     }
 
     pPathName = pPathName->NextSiblingElement("path");
@@ -356,7 +357,7 @@ bool CMediaSourceSettings::GetSource(const std::string &category, const TiXmlNod
     return false;
 
   std::vector<std::string> verifiedPaths;
-  // disallowed for files, or theres only a single path in the vector
+  // disallowed for files, or there's only a single path in the vector
   if (StringUtils::EqualsNoCase(category, "files") || vecPaths.size() == 1)
     verifiedPaths.push_back(vecPaths[0]);
   // multiple paths?
@@ -383,7 +384,8 @@ bool CMediaSourceSettings::GetSource(const std::string &category, const TiXmlNod
 
       // error message
       if (bIsInvalid)
-        CLog::Log(LOGERROR,"CMediaSourceSettings:    invalid path type (%s) for multipath source", path->c_str());
+        CLog::Log(LOGERROR, "CMediaSourceSettings:    invalid path type ({}) for multipath source",
+                  path->c_str());
     }
 
     // no valid paths? skip to next source
@@ -425,7 +427,8 @@ void CMediaSourceSettings::GetSources(const TiXmlNode* pRootElement, const std::
   const TiXmlNode *pChild = pRootElement->FirstChild(strTagName.c_str());
   if (pChild == NULL)
   {
-    CLog::Log(LOGDEBUG, "CMediaSourceSettings: <%s> tag is missing or sources.xml is malformed", strTagName.c_str());
+    CLog::Log(LOGDEBUG, "CMediaSourceSettings: <{}> tag is missing or sources.xml is malformed",
+              strTagName);
     return;
   }
 
@@ -449,7 +452,8 @@ void CMediaSourceSettings::GetSources(const TiXmlNode* pRootElement, const std::
         std::string pszText = pChild->FirstChild()->ValueStr();
         if (!pszText.empty())
           strDefault = pszText;
-        CLog::Log(LOGDEBUG, "CMediaSourceSettings:    Setting <default> source to : %s", strDefault.c_str());
+        CLog::Log(LOGDEBUG, "CMediaSourceSettings:    Setting <default> source to : {}",
+                  strDefault);
       }
     }
 

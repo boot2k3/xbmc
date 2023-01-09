@@ -8,16 +8,19 @@
 
 #pragma once
 
-#include "FileItem.h"
-
+#include <memory>
 #include <string>
+
+class CFileItem;
+class CDateTime;
 
 class CFileUtils
 {
 public:
   static bool CheckFileAccessAllowed(const std::string &filePath);
-  static bool DeleteItem(const CFileItemPtr &item);
+  static bool DeleteItem(const std::shared_ptr<CFileItem>& item);
   static bool DeleteItem(const std::string &strPath);
+  static bool Exists(const std::string& strFileName, bool bUseCache = true);
   static bool RenameFile(const std::string &strFile);
   static bool RemoteAccessAllowed(const std::string &strPath);
   static unsigned int LoadFile(const std::string &filename, void* &outputBuffer);
@@ -27,4 +30,5 @@ public:
   \return Returns the file date, can return a invalid date if problems occur
   */
   static CDateTime GetModificationDate(const std::string& strFileNameAndPath, const bool& bUseLatestDate);
+  static CDateTime GetModificationDate(const int& code, const std::string& strFileNameAndPath);
 };

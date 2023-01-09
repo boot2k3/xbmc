@@ -9,7 +9,6 @@
 #pragma once
 
 #include "XBDateTime.h"
-#include "filesystem/File.h"
 #include "network/httprequesthandler/IHTTPRequestHandler.h"
 
 #include <string>
@@ -19,7 +18,7 @@ class CHTTPFileHandler : public IHTTPRequestHandler
 public:
   ~CHTTPFileHandler() override = default;
 
-  int HandleRequest() override;
+  MHD_RESULT HandleRequest() override;
 
   bool CanHandleRanges() const override { return m_canHandleRanges; }
   bool CanBeCached() const override { return m_canBeCached; }

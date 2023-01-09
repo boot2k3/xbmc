@@ -5,10 +5,12 @@ set(SOURCES TestAlarmClock.cpp
             TestBitstreamStats.cpp
             TestCharsetConverter.cpp
             TestCPUInfo.cpp
+            TestComponentContainer.cpp
             TestCrc32.cpp
             TestDatabaseUtils.cpp
             TestDigest.cpp
             TestEndianSwap.cpp
+            TestExecString.cpp
             TestFileOperationJob.cpp
             TestFileUtils.cpp
             TestGlobalsHandling.cpp
@@ -45,9 +47,5 @@ set(SOURCES TestAlarmClock.cpp
             TestXMLUtils.cpp)
 
 set(HEADERS TestGlobalsHandlingPattern1.h)
-
-if(NOT CORE_SYSTEM_NAME STREQUAL windows AND NOT CORE_SYSTEM_NAME STREQUAL windowsstore)
-  list(APPEND SOURCES TestCryptThreading.cpp)
-endif()
 
 core_add_test_library(utils_test)
