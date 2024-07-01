@@ -654,8 +654,8 @@ bool CNFSFile::Open(const CURL& url)
 
   if (ret != 0)
   {
-    CLog::Log(LOGERROR, "CNFSFile::Open: Unable to open file: '{}' error: '{}'", url.GetFileName(),
-              nfs_get_error(m_pNfsContext));
+    CLog::Log(LOGERROR, "CNFSFile::Open: Unable to open file: '{}' error: '{}' '{}'", url.GetFileName(),
+              ret, nfs_get_error(m_pNfsContext));
 
     m_pNfsContext = nullptr;
     m_exportPath.clear();
