@@ -477,7 +477,7 @@ void CNfsConnection::keepAlive(const std::string& _exportPath, struct nfsfh* _pF
 
   nfs_lseek(pContext, _pFileHandle, 0, SEEK_CUR, &offset);
 
-  int bytes = nfs_read(pContext, _pFileHandle, 32, buffer);
+  int bytes = nfs_read(pContext, _pFileHandle, buffer, 32);
   if (bytes < 0)
   {
     CLog::LogF(LOGERROR, "nfs_read - Error ({}, {})", bytes, nfs_get_error(pContext));
@@ -742,7 +742,7 @@ ssize_t CNFSFile::Read(void *lpBuf, size_t uiBufSize)
   if (m_pFileHandle == NULL || m_pNfsContext == NULL )
     return -1;
 
-  numberOfBytesRead = nfs_read(m_pNfsContext, m_pFileHandle, uiBufSize, (char *)lpBuf);
+  numberOfBytesRead = nfs_read(m_pNfsContext, m_pFileHandle, (char *)lpBuf, uiBufSize);
 
   lock.unlock(); //no need to keep the connection lock after that
 
@@ -845,8 +845,8 @@ ssize_t CNFSFile::Write(const void* lpBuf, size_t uiBufSize)
     //! @bug libnfs < 2.0.0 isn't const correct
     writtenBytes = nfs_write(m_pNfsContext,
                                   m_pFileHandle,
-                                  chunkSize,
-                                  const_cast<char*>((const char *)lpBuf) + numberOfBytesWritten);
+                                  const_cast<char*>((const char *)lpBuf) + numberOfBytesWritten),
+                                  chunkSize;
     //decrease left bytes
     leftBytes-= writtenBytes;
     //increase overall written bytes
