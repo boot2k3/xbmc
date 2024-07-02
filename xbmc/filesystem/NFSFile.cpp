@@ -639,14 +639,16 @@ bool CNFSFile::Open(const CURL& url)
   m_exportPath = gNfsConnection.GetContextMapId();
 
   int ret = nfs_open(m_pNfsContext, filename.c_str(), O_RDONLY, &m_pFileHandle);
-
+  CLog::Log(LOGINFO,
+            "CNFSFile::Open: m_pNfsContext - '{}', m_exportPath - '{}', filename.c_str() - '{}', filename - '{}'",
+            m_pNfsContext, m_exportPath, filename.c_str(), filename);
   if (ret == NFS4ERR_EXPIRED) // client session expired due no activity/keep alive
   {
     CLog::Log(LOGERROR,
               "CNFSFile::Open: Unable to open file - trying again with a new context: error: '{}'",
               nfs_get_error(m_pNfsContext));
 
-    gNfsConnection.Deinit();
+    clearMembers();
     m_pNfsContext = gNfsConnection.GetNfsContext();
     m_exportPath = gNfsConnection.GetContextMapId();
     ret = nfs_open(m_pNfsContext, filename.c_str(), O_RDONLY, &m_pFileHandle);
