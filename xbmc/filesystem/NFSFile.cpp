@@ -53,7 +53,7 @@ constexpr auto CONTEXT_TIMEOUT = 60s; // 2/3 parts of lease_time
 constexpr auto KEEP_ALIVE_TIMEOUT = 45s; // half of lease_time
 constexpr auto IDLE_TIMEOUT = 30s; // close fast unused contexts when no active connections
 
-constexpr int NFS4ERR_EXPIRED = -11; // client session expired due idle time greater than lease_time
+constexpr int NFS4ERR_EXPIRED = -34; // client session expired due idle time greater than lease_time
 
 constexpr auto SETTING_NFS_VERSION = "nfs.version";
 constexpr auto SETTING_NFS_CHUNKSIZE = "nfs.chunksize";
