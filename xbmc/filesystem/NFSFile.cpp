@@ -646,7 +646,7 @@ bool CNFSFile::Open(const CURL& url)
               "CNFSFile::Open: Unable to open file - trying again with a new context: error: '{}'",
               nfs_get_error(m_pNfsContext));
 
-    gNfsConnection.Deinit();
+    gNfsConnection.CheckIfIdle();
     m_pNfsContext = gNfsConnection.GetNfsContext();
     m_exportPath = gNfsConnection.GetContextMapId();
     ret = nfs_open(m_pNfsContext, filename.c_str(), O_RDONLY, &m_pFileHandle);
