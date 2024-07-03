@@ -136,11 +136,15 @@ bool CNFSDirectory::ResolveSymlink( const std::string &dirName, struct nfsdirent
       fullpath = resolvedLink;
       resolvedUrl.SetFileName(fullpath);
       ret = gNfsConnection.stat(resolvedUrl, &tmpBuffer);
+      CLog::Log(LOGINFO, "NFS: if fullpath ({}) fullpath.c_str ({}) resolvedURL {}", fullpath,
+                fullpath.c_str(), resolvedUrl);
     }
     else
     {
       ret = nfs_stat64(gNfsConnection.GetNfsContext(), fullpath.c_str(), &tmpBuffer);
       resolvedUrl.SetFileName(gNfsConnection.GetConnectedExport() + fullpath);
+      CLog::Log(LOGINFO, "NFS: else fullpath ({}) fullpath.c_str ({}) resolvedURL {}", fullpath,
+                fullpath.c_str(), resolvedUrl);
     }
 
     if (ret != 0)
